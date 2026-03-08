@@ -14,6 +14,7 @@ let videoBindingTimer: number | null = null;
 let intendedPlayState: PlaybackState["playState"] = "paused";
 let lastLocalIntentAt = 0;
 let lastLocalIntentPlayState: PlaybackState["playState"] | null = null;
+let lastUserGestureAt = 0;
 let pauseHoldUntil = 0;
 let pendingPlaybackApplication: PlaybackState | null = null;
 let lastAppliedVersionByActor = new Map<string, { serverTime: number; seq: number }>();
@@ -38,6 +39,7 @@ const LOCAL_INTENT_GUARD_MS = 1200;
 const PAUSE_HOLD_MS = 450;
 const REMOTE_ECHO_SUPPRESSION_MS = 700;
 const REMOTE_PLAY_TRANSITION_GUARD_MS = 900;
+const USER_GESTURE_GRACE_MS = 1200;
 
 void init();
 
@@ -49,6 +51,7 @@ function debugLog(message: string): void {
 }
 
 async function init(): Promise<void> {
+  startUserGestureTracking();
   startPlaybackBinding();
   void reportCurrentUser();
 
@@ -96,6 +99,15 @@ async function init(): Promise<void> {
   await hydrateRoomState();
 }
 
+function startUserGestureTracking(): void {
+  const markUserGesture = () => {
+    lastUserGestureAt = Date.now();
+  };
+
+  document.addEventListener("pointerdown", markUserGesture, true);
+  document.addEventListener("keydown", markUserGesture, true);
+}
+
 function startPlaybackBinding(): void {
   const attachListeners = () => {
     const video = getVideoElement();
@@ -123,6 +135,9 @@ function startPlaybackBinding(): void {
         }, 0);
         return true;
       }
+      if (forcePauseWhileWaitingForInitialRoomState(video)) {
+        return true;
+      }
       return false;
     };
 
@@ -134,9 +149,15 @@ function startPlaybackBinding(): void {
     video.addEventListener("pause", () => scheduleBroadcast(120));
     video.addEventListener("waiting", () => scheduleBroadcast());
     video.addEventListener("stalled", () => scheduleBroadcast());
-    video.addEventListener("loadedmetadata", () => applyPendingPlaybackApplication(video));
+    video.addEventListener("loadedmetadata", () => {
+      if (!forcePauseWhileWaitingForInitialRoomState(video)) {
+        applyPendingPlaybackApplication(video);
+      }
+    });
     video.addEventListener("canplay", () => {
-      applyPendingPlaybackApplication(video);
+      if (!forcePauseWhileWaitingForInitialRoomState(video)) {
+        applyPendingPlaybackApplication(video);
+      }
       scheduleBroadcast(120);
     });
     video.addEventListener("playing", () => {
@@ -162,6 +183,28 @@ function startPlaybackBinding(): void {
 
 function getVideoElement(): HTMLVideoElement | null {
   return document.querySelector("video");
+}
+
+function forcePauseWhileWaitingForInitialRoomState(video: HTMLVideoElement): boolean {
+  if (!activeRoomCode || !pendingRoomStateHydration) {
+    return false;
+  }
+  if (video.paused) {
+    return false;
+  }
+  if (Date.now() - lastUserGestureAt < USER_GESTURE_GRACE_MS) {
+    debugLog(`Allowed user-initiated playback while waiting for initial room state of ${activeRoomCode}`);
+    return false;
+  }
+
+  debugLog(`Suppressed page autoplay while waiting for initial room state of ${activeRoomCode}`);
+  intendedPlayState = "paused";
+  window.setTimeout(() => {
+    if (!video.paused) {
+      video.pause();
+    }
+  }, 0);
+  return true;
 }
 
 function activatePauseHold(): void {
@@ -381,8 +424,12 @@ async function broadcastPlayback(video: HTMLVideoElement): Promise<void> {
     return;
   }
   if (pendingRoomStateHydration) {
-    debugLog(`Skip broadcast while waiting for initial room state of ${activeRoomCode ?? "unknown-room"}`);
-    return;
+    if (Date.now() - lastUserGestureAt < USER_GESTURE_GRACE_MS) {
+      debugLog(`Allowed user-initiated broadcast while waiting for initial room state of ${activeRoomCode ?? "unknown-room"}`);
+    } else {
+      debugLog(`Skip broadcast while waiting for initial room state of ${activeRoomCode ?? "unknown-room"}`);
+      return;
+    }
   }
 
   const currentVideo = getSharedVideo();

@@ -33,6 +33,7 @@ let clockSyncTimer: number | null = null;
 let pendingSharedVideo: SharedVideo | null = null;
 let pendingSharedPlayback: ClientMessage | null = null;
 let openingSharedUrl: string | null = null;
+let pendingLocalShareUrl: string | null = null;
 
 bootstrap().catch(console.error);
 
@@ -133,6 +134,24 @@ async function handleServerMessage(message: ServerMessage): Promise<void> {
       notifyAll();
       return;
     case "room:state":
+      if (
+        pendingLocalShareUrl &&
+        normalizeUrl(message.payload.sharedVideo?.url) !== normalizeUrl(pendingLocalShareUrl)
+      ) {
+        log("background", `Ignored stale room state while sharing ${pendingLocalShareUrl}`);
+        roomState = message.payload;
+        roomCode = message.payload.roomCode;
+        lastError = null;
+        await persistState();
+        const compensatedIgnoredState = compensateRoomState(roomState);
+        await notifyContentScripts({
+          type: "background:apply-room-state",
+          payload: compensatedIgnoredState
+        });
+        notifyAll();
+        return;
+      }
+
       if (roomState?.sharedVideo?.url !== message.payload.sharedVideo?.url) {
         lastOpenedSharedUrl = null;
         log("background", `Shared video switched to ${message.payload.sharedVideo?.url ?? "none"}`);
@@ -140,6 +159,13 @@ async function handleServerMessage(message: ServerMessage): Promise<void> {
       roomState = message.payload;
       roomCode = message.payload.roomCode;
       lastError = null;
+      if (
+        pendingLocalShareUrl &&
+        normalizeUrl(message.payload.sharedVideo?.url) === normalizeUrl(pendingLocalShareUrl)
+      ) {
+        log("background", `Confirmed shared video switch to ${pendingLocalShareUrl}`);
+        pendingLocalShareUrl = null;
+      }
       await persistState();
       await ensureSharedVideoOpen(roomState);
       const compensatedRoomState = compensateRoomState(roomState);
@@ -215,6 +241,7 @@ async function queueOrSendSharedVideo(
   tabId: number | null
 ): Promise<void> {
   rememberSharedSourceTab(tabId ?? undefined, payload.video.url);
+  pendingLocalShareUrl = payload.video.url;
 
   if (connected && roomCode) {
     sendToServer({ type: "video:share", payload: payload.video });
@@ -574,6 +601,7 @@ chrome.runtime.onMessage.addListener((message: PopupToBackgroundMessage | Conten
         lastOpenedSharedUrl = null;
         pendingSharedVideo = null;
         pendingSharedPlayback = null;
+        pendingLocalShareUrl = null;
         pendingCreateRoom = false;
         clearReconnectTimer();
         await persistState();
