@@ -372,6 +372,20 @@ function clearReconnectTimer(): void {
   retryInMs = null;
 }
 
+function disconnectSocket(): void {
+  clearReconnectTimer();
+  stopClockSyncTimer();
+  if (!socket) {
+    connected = false;
+    return;
+  }
+
+  const currentSocket = socket;
+  socket = null;
+  connected = false;
+  currentSocket.close();
+}
+
 function log(scope: DebugLogEntry["scope"], message: string): void {
   logs = [{ at: Date.now(), scope, message }, ...logs].slice(0, MAX_LOGS);
 }
@@ -607,8 +621,9 @@ chrome.runtime.onMessage.addListener((message: PopupToBackgroundMessage | Conten
         pendingSharedPlayback = null;
         pendingLocalShareUrl = null;
         pendingCreateRoom = false;
-        clearReconnectTimer();
+        disconnectSocket();
         await persistState();
+        notifyAll();
         sendResponse(popupState());
         return;
       case "popup:get-state":
