@@ -129,4 +129,4 @@ git push origin v0.4.1
 
 ## License
 
-No license file is included yet. If you plan to distribute the project publicly, add a proper license.
+This project is licensed under the GNU General Public License v3.0. See [LICENSE](/d:/workspace/Bili-SyncPlay/LICENSE).
