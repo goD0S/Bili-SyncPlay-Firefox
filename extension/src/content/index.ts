@@ -15,6 +15,12 @@ let intendedPlayState: PlaybackState["playState"] = "paused";
 let lastLocalIntentAt = 0;
 let lastLocalIntentPlayState: PlaybackState["playState"] | null = null;
 let lastUserGestureAt = 0;
+let lastExplicitPlaybackAction:
+  | {
+      playState: "playing" | "paused";
+      at: number;
+    }
+  | null = null;
 let pauseHoldUntil = 0;
 let pendingPlaybackApplication: PlaybackState | null = null;
 let lastAppliedVersionByActor = new Map<string, { serverTime: number; seq: number }>();
@@ -36,9 +42,9 @@ let recentRemotePlayingIntent:
   | null = null;
 
 const LOCAL_INTENT_GUARD_MS = 1200;
-const PAUSE_HOLD_MS = 450;
+const PAUSE_HOLD_MS = 1200;
 const REMOTE_ECHO_SUPPRESSION_MS = 700;
-const REMOTE_PLAY_TRANSITION_GUARD_MS = 900;
+const REMOTE_PLAY_TRANSITION_GUARD_MS = 1800;
 const USER_GESTURE_GRACE_MS = 1200;
 
 void init();
@@ -126,9 +132,23 @@ function startPlaybackBinding(): void {
       }
     };
 
+    const rememberExplicitPlaybackAction = (playState: "playing" | "paused") => {
+      if (Date.now() - lastUserGestureAt < USER_GESTURE_GRACE_MS) {
+        lastExplicitPlaybackAction = {
+          playState,
+          at: Date.now()
+        };
+      }
+    };
+
     const guardUnexpectedResume = () => {
       const currentVideo = getSharedVideo();
-      if (currentVideo && hasRecentRemoteStopIntent(currentVideo.url) && intendedPlayState !== "playing") {
+      if (
+        currentVideo &&
+        hasRecentRemoteStopIntent(currentVideo.url) &&
+        intendedPlayState !== "playing" &&
+        Date.now() - lastUserGestureAt >= USER_GESTURE_GRACE_MS
+      ) {
         debugLog(`Forced pause hold reapplied after unexpected resume intended=${intendedPlayState}`);
         window.setTimeout(() => {
           video.pause();
@@ -142,11 +162,15 @@ function startPlaybackBinding(): void {
     };
 
     video.addEventListener("play", () => {
+      rememberExplicitPlaybackAction("playing");
       if (!guardUnexpectedResume()) {
         scheduleBroadcast(180);
       }
     });
-    video.addEventListener("pause", () => scheduleBroadcast(120));
+    video.addEventListener("pause", () => {
+      rememberExplicitPlaybackAction("paused");
+      scheduleBroadcast(120);
+    });
     video.addEventListener("waiting", () => scheduleBroadcast());
     video.addEventListener("stalled", () => scheduleBroadcast());
     video.addEventListener("loadedmetadata", () => {
@@ -161,6 +185,7 @@ function startPlaybackBinding(): void {
       scheduleBroadcast(120);
     });
     video.addEventListener("playing", () => {
+      rememberExplicitPlaybackAction("playing");
       if (!guardUnexpectedResume()) {
         scheduleBroadcast(180);
       }
@@ -339,6 +364,14 @@ function shouldSuppressRemotePlayTransition(
   if (normalizeUrl(currentVideo.url) !== recentRemotePlayingIntent.url || playState === "playing") {
     return false;
   }
+  if (
+    lastExplicitPlaybackAction &&
+    Date.now() - lastExplicitPlaybackAction.at < USER_GESTURE_GRACE_MS &&
+    lastExplicitPlaybackAction.playState === playState
+  ) {
+    debugLog(`Allowed remote play transition echo by explicit action ${playState} ${currentVideo.url}`);
+    return false;
+  }
 
   const delta = Math.abs(currentTime - recentRemotePlayingIntent.currentTime);
   const shouldSuppress = delta <= 1.5;
@@ -502,7 +535,8 @@ async function applyRoomState(state: RoomState): Promise<void> {
   if (
     lastLocalIntentPlayState &&
     Date.now() - lastLocalIntentAt < LOCAL_INTENT_GUARD_MS &&
-    state.playback.playState !== lastLocalIntentPlayState
+    (lastLocalIntentPlayState === "paused" || lastLocalIntentPlayState === "buffering") &&
+    state.playback.playState === "playing"
   ) {
     debugLog(
       `Ignored conflicting remote playback ${state.playback.playState} during local ${lastLocalIntentPlayState} guard actor=${state.playback.actorId} seq=${state.playback.seq}`
