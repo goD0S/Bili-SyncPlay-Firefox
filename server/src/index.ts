@@ -232,7 +232,10 @@ function handleClientMessage(session: Session, message: ClientMessage): void {
       if (!room) {
         return;
       }
-      room.sharedVideo = message.payload;
+      room.sharedVideo = {
+        ...message.payload,
+        sharedByMemberId: session.id
+      };
       room.playback = {
         url: message.payload.url,
         currentTime: 0,

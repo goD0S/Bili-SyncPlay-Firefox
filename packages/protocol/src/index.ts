@@ -4,6 +4,7 @@ export interface SharedVideo {
   videoId: string;
   url: string;
   title: string;
+  sharedByMemberId?: string;
 }
 
 export interface PlaybackState {

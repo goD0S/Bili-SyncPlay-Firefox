@@ -16,6 +16,7 @@ interface PopupRefs {
   sharedVideoCard: HTMLButtonElement;
   sharedVideoTitle: HTMLElement;
   sharedVideoMeta: HTMLElement;
+  sharedVideoOwner: HTMLElement;
   logs: HTMLElement;
   memberList: HTMLElement;
   copyLogsButton: HTMLButtonElement;
@@ -101,7 +102,10 @@ async function init(): Promise<void> {
 
       <button class="video-card video-card-button" id="shared-video-card" type="button">
         <div class="video-title" id="shared-video-title">暂无共享视频</div>
-        <div class="video-meta" id="shared-video-meta">点击可打开共享视频</div>
+        <div class="video-subline">
+          <div class="video-meta" id="shared-video-meta">点击可打开共享视频</div>
+          <div class="video-owner" id="shared-video-owner" hidden>由 - 共享</div>
+        </div>
       </button>
 
       <button class="secondary compact-button full-width-button" id="share-current-video" type="button">同步当前页视频</button>
@@ -182,6 +186,7 @@ function collectRefs(): PopupRefs {
     sharedVideoCard: getById("shared-video-card") as HTMLButtonElement,
     sharedVideoTitle: getById("shared-video-title"),
     sharedVideoMeta: getById("shared-video-meta"),
+    sharedVideoOwner: getById("shared-video-owner"),
     logs: getById("debug-logs"),
     memberList: getById("member-list"),
     copyLogsButton: getById("copy-logs") as HTMLButtonElement,
@@ -240,6 +245,12 @@ async function render(): Promise<void> {
 
   refs.sharedVideoTitle.textContent = state.roomState?.sharedVideo?.title ?? "暂无共享视频";
   refs.sharedVideoMeta.textContent = formatVideoMeta(state.roomState?.sharedVideo?.url ?? null);
+  const ownerText = formatVideoOwner(
+    state.roomState?.members ?? [],
+    state.roomState?.sharedVideo?.sharedByMemberId ?? null
+  );
+  refs.sharedVideoOwner.textContent = ownerText;
+  refs.sharedVideoOwner.hidden = !state.roomState?.sharedVideo?.url || !ownerText;
   refs.sharedVideoCard.disabled = !state.roomState?.sharedVideo?.url;
 
   renderMemberList(refs.memberList, state.roomState?.members ?? []);
@@ -252,6 +263,14 @@ function formatVideoMeta(url: string | null): string {
   }
   const match = url.match(/\/video\/([^/?]+)/);
   return match ? match[1] : "打开共享视频";
+}
+
+function formatVideoOwner(members: RoomMember[], actorId: string | null): string {
+  if (!actorId) {
+    return "";
+  }
+  const owner = members.find((member) => member.id === actorId)?.name;
+  return owner ? `由 ${owner} 共享` : "";
 }
 
 function renderLogs(container: HTMLElement, logs: BackgroundToPopupMessage["payload"]["logs"]): void {
@@ -273,6 +292,7 @@ function renderMemberList(container: HTMLElement, members: RoomMember[]): void {
     container.innerHTML = `<span class="member-chip">暂无成员</span>`;
     return;
   }
+
   container.innerHTML = members.map((member) => `<span class="member-chip">${escapeHtml(member.name)}</span>`).join("");
 }
 

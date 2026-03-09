@@ -414,6 +414,22 @@ button.secondary {
   font-weight: 600;
 }
 
+.video-subline {
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.video-owner {
+  font-size: 11px;
+  color: var(--text-soft);
+  font-weight: 600;
+  margin-left: auto;
+  text-align: right;
+  white-space: nowrap;
+}
+
 .log-box {
   max-height: 180px;
   overflow: auto;
