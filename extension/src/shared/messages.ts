@@ -40,6 +40,8 @@ export type BackgroundToPopupMessage =
         serverUrl: string;
         error: string | null;
         retryInMs: number | null;
+        retryAttempt: number;
+        retryAttemptMax: number;
         clockOffsetMs: number | null;
         rttMs: number | null;
         logs: DebugLogEntry[];

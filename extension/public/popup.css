@@ -262,6 +262,20 @@ button.secondary.success-button .button-icon-check {
   line-height: 1.4;
 }
 
+.retry-status {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.retry-status-count {
+  min-width: 3.5em;
+  text-align: right;
+  color: var(--text-soft);
+  font-variant-numeric: tabular-nums;
+}
+
 .section-title {
   margin: 0 0 10px;
   font-size: 12px;

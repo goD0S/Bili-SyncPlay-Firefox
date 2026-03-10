@@ -23,7 +23,8 @@ interface PopupRefs {
   serverUrlInput: HTMLInputElement;
   saveServerUrlButton: HTMLButtonElement;
   debugMemberStatus: HTMLElement;
-  retryStatus: HTMLElement;
+  retryStatusValue: HTMLElement;
+  retryStatusCount: HTMLElement;
   clockStatus: HTMLElement;
   createRoomButton: HTMLButtonElement;
   joinRoomButton: HTMLButtonElement;
@@ -136,7 +137,10 @@ async function init(): Promise<void> {
             </div>
             <div class="metric">
               <span class="metric-label">重连倒计时</span>
-              <span class="metric-value" id="retry-status">-</span>
+              <span class="metric-value retry-status" id="retry-status">
+                <span id="retry-status-value">-</span>
+                <span class="retry-status-count" id="retry-status-count"></span>
+              </span>
             </div>
             <div class="metric" style="grid-column: span 2;">
               <span class="metric-label">时钟校准</span>
@@ -193,7 +197,8 @@ function collectRefs(): PopupRefs {
     serverUrlInput: getById("server-url") as HTMLInputElement,
     saveServerUrlButton: getById("save-server-url") as HTMLButtonElement,
     debugMemberStatus: getById("member-status"),
-    retryStatus: getById("retry-status"),
+    retryStatusValue: getById("retry-status-value"),
+    retryStatusCount: getById("retry-status-count"),
     clockStatus: getById("clock-status"),
     createRoomButton: getById("create-room") as HTMLButtonElement,
     joinRoomButton: getById("join-room") as HTMLButtonElement,
@@ -227,7 +232,10 @@ async function render(): Promise<void> {
   refs.roomStatus.textContent = state.roomCode ?? "-";
   refs.membersStatus.textContent = `${state.roomState?.members.length ?? 0} 人在线`;
   refs.debugMemberStatus.textContent = state.memberId ?? "-";
-  refs.retryStatus.textContent = state.retryInMs ? `${Math.ceil(state.retryInMs / 1000)} 秒` : "-";
+  refs.retryStatusValue.textContent = state.retryInMs !== null ? `${Math.ceil(state.retryInMs / 1000)} 秒` : "-";
+  refs.retryStatusCount.textContent = state.retryAttempt > 0
+    ? `(${state.retryAttempt}/${state.retryAttemptMax})`
+    : "";
   refs.clockStatus.textContent = `偏移 ${state.clockOffsetMs ?? "-"}ms / RTT ${state.rttMs ?? "-"}ms`;
   refs.message.textContent = state.error ?? "";
   refs.message.hidden = !state.error;
@@ -469,7 +477,7 @@ function scheduleRefresh(): void {
   stopRefresh();
   renderTimer = window.setInterval(() => {
     void render();
-  }, 1500);
+  }, 250);
 }
 
 function stopRefresh(): void {

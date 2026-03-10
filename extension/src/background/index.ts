@@ -12,6 +12,7 @@ import type {
 const DEFAULT_SERVER_URL = "ws://localhost:8787";
 const MAX_LOGS = 30;
 const CLOCK_SYNC_INTERVAL_MS = 15000;
+const MAX_RECONNECT_ATTEMPTS = 5;
 const BILIBILI_VIDEO_URL_PATTERNS = [
   "https://www.bilibili.com/video/*",
   "https://www.bilibili.com/bangumi/play/*",
@@ -32,7 +33,7 @@ let sharedTabId: number | null = null;
 let pendingCreateRoom = false;
 let reconnectTimer: number | null = null;
 let reconnectAttempt = 0;
-let retryInMs: number | null = null;
+let reconnectDeadlineMs: number | null = null;
 let logs: DebugLogEntry[] = [];
 let lastOpenedSharedUrl: string | null = null;
 let clockOffsetMs: number | null = null;
@@ -43,6 +44,7 @@ let pendingSharedPlayback: ClientMessage | null = null;
 let openingSharedUrl: string | null = null;
 let pendingLocalShareUrl: string | null = null;
 let pendingShareToast: (SharedVideoToastPayload & { expiresAt: number; roomCode: string }) | null = null;
+let connectProbe: Promise<void> | null = null;
 
 const SHARE_TOAST_TTL_MS = 8000;
 
@@ -56,7 +58,7 @@ async function bootstrap(): Promise<void> {
   roomState = persisted.roomState;
   serverUrl = persisted.serverUrl?.trim() || DEFAULT_SERVER_URL;
   if (roomCode) {
-    connect();
+    void connect();
   }
 
   chrome.tabs.onRemoved.addListener((tabId) => {
@@ -67,20 +69,51 @@ async function bootstrap(): Promise<void> {
   });
 }
 
-function connect(): void {
+async function connect(): Promise<void> {
   if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
     return;
+  }
+  if (connectProbe) {
+    return connectProbe;
   }
 
   clearReconnectTimer();
   log("background", `Connecting to ${serverUrl}`);
+  connectProbe = openSocketWithProbe();
+  try {
+    await connectProbe;
+  } finally {
+    connectProbe = null;
+  }
+}
+
+async function openSocketWithProbe(): Promise<void> {
+  const healthUrl = toHealthcheckUrl(serverUrl);
+  if (healthUrl) {
+    try {
+      await fetch(healthUrl, {
+        method: "GET",
+        cache: "no-store",
+        mode: "no-cors"
+      });
+    } catch {
+      lastError = "Cannot connect to sync server.";
+      connected = false;
+      stopClockSyncTimer();
+      log("background", lastError);
+      scheduleReconnect();
+      notifyAll();
+      return;
+    }
+  }
+
   socket = new WebSocket(serverUrl);
 
   socket.addEventListener("open", () => {
     connected = true;
     lastError = null;
     reconnectAttempt = 0;
-    retryInMs = null;
+    reconnectDeadlineMs = null;
     log("background", "Socket connected");
     if (pendingCreateRoom) {
       pendingCreateRoom = false;
@@ -125,11 +158,30 @@ function connect(): void {
 function sendToServer(message: ClientMessage): void {
   if (!socket || socket.readyState !== WebSocket.OPEN) {
     log("background", `Socket not ready for ${message.type}`);
-    connect();
+    void connect();
     return;
   }
   log("background", `-> ${message.type}`);
   socket.send(JSON.stringify(message));
+}
+
+function toHealthcheckUrl(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === "ws:") {
+      parsed.protocol = "http:";
+    } else if (parsed.protocol === "wss:") {
+      parsed.protocol = "https:";
+    } else {
+      return null;
+    }
+    parsed.pathname = "/";
+    parsed.search = "";
+    parsed.hash = "";
+    return parsed.toString();
+  } catch {
+    return null;
+  }
 }
 
 async function handleServerMessage(message: ServerMessage): Promise<void> {
@@ -403,13 +455,21 @@ function scheduleReconnect(): void {
   if (!roomCode && !pendingCreateRoom) {
     return;
   }
+  if (reconnectAttempt >= MAX_RECONNECT_ATTEMPTS) {
+    reconnectDeadlineMs = null;
+    lastError = `Cannot connect to sync server after ${MAX_RECONNECT_ATTEMPTS} attempts.`;
+    log("background", lastError);
+    return;
+  }
   reconnectAttempt += 1;
-  retryInMs = Math.min(1000 * 2 ** (reconnectAttempt - 1), 10000);
-  log("background", `Reconnect scheduled in ${retryInMs}ms`);
+  const retryDelayMs = Math.min(1000 * 2 ** (reconnectAttempt - 1), 10000);
+  reconnectDeadlineMs = Date.now() + retryDelayMs;
+  log("background", `Reconnect scheduled in ${retryDelayMs}ms`);
   reconnectTimer = self.setTimeout(() => {
     reconnectTimer = null;
+    reconnectDeadlineMs = null;
     connect();
-  }, retryInMs);
+  }, retryDelayMs);
 }
 
 function clearReconnectTimer(): void {
@@ -417,11 +477,23 @@ function clearReconnectTimer(): void {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;
   }
-  retryInMs = null;
+  reconnectDeadlineMs = null;
+}
+
+function getRetryInMs(): number | null {
+  if (reconnectDeadlineMs === null) {
+    return null;
+  }
+  return Math.max(0, reconnectDeadlineMs - Date.now());
+}
+
+function resetReconnectState(): void {
+  clearReconnectTimer();
+  reconnectAttempt = 0;
 }
 
 function disconnectSocket(): void {
-  clearReconnectTimer();
+  resetReconnectState();
   stopClockSyncTimer();
   if (!socket) {
     connected = false;
@@ -615,7 +687,9 @@ function popupState(): BackgroundToPopupMessage {
       roomState,
       serverUrl,
       error: lastError,
-      retryInMs,
+      retryInMs: getRetryInMs(),
+      retryAttempt: reconnectAttempt,
+      retryAttemptMax: MAX_RECONNECT_ATTEMPTS,
       clockOffsetMs,
       rttMs,
       logs
@@ -658,7 +732,7 @@ async function updateServerUrl(nextServerUrl: string): Promise<void> {
   log("background", `Server URL updated to ${serverUrl}`);
 
   if (socket) {
-    clearReconnectTimer();
+    resetReconnectState();
     stopClockSyncTimer();
     const currentSocket = socket;
     socket = null;
@@ -676,6 +750,7 @@ chrome.runtime.onMessage.addListener((message: PopupToBackgroundMessage | Conten
   void (async () => {
     switch (message.type) {
       case "popup:create-room":
+        resetReconnectState();
         roomCode = null;
         memberId = null;
         roomState = null;
