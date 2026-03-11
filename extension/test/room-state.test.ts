@@ -2,10 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import type { RoomState } from "@bili-syncplay/protocol";
 import {
+  clearPendingLocalShareState,
   createPendingLocalShareExpiry,
   decideIncomingRoomState,
   getActivePendingLocalShareUrl,
   isSharedVideoChange,
+  preparePendingLocalShareCleanup,
+  preparePendingLocalShareCleanupForRoomLifecycle,
   shouldClearPendingLocalShareOnServerUrlChange
 } from "../src/background/room-state";
 
@@ -93,4 +96,76 @@ test("clears pending local share when server URL changes without an active socke
     }),
     true
   );
+});
+
+test("clears pending local share url, expiry, and timer through the shared cleanup state", () => {
+  assert.deepEqual(clearPendingLocalShareState(), {
+    pendingLocalShareUrl: null,
+    pendingLocalShareExpiresAt: null,
+    pendingLocalShareTimer: null
+  });
+});
+
+test("shared cleanup plan requests timer cancellation and clears all pending local share fields", () => {
+  const cleanup = preparePendingLocalShareCleanup({
+    pendingLocalShareUrl: "https://www.bilibili.com/video/BV1B?p=1",
+    pendingLocalShareExpiresAt: 1234,
+    pendingLocalShareTimer: 99
+  });
+
+  assert.equal(cleanup.hadPendingLocalShare, true);
+  assert.equal(cleanup.shouldCancelTimer, true);
+  assert.deepEqual(cleanup.nextState, {
+    pendingLocalShareUrl: null,
+    pendingLocalShareExpiresAt: null,
+    pendingLocalShareTimer: null
+  });
+});
+
+test("create room cleanup plan clears pending local share and cancels the old timer", () => {
+  const cleanup = preparePendingLocalShareCleanupForRoomLifecycle("create-room", {
+    pendingLocalShareUrl: "https://www.bilibili.com/video/BV1B?p=1",
+    pendingLocalShareExpiresAt: 1234,
+    pendingLocalShareTimer: 99
+  });
+
+  assert.equal(cleanup.hadPendingLocalShare, true);
+  assert.equal(cleanup.shouldCancelTimer, true);
+  assert.deepEqual(cleanup.nextState, clearPendingLocalShareState());
+});
+
+test("join room cleanup plan clears pending local share and cancels the old timer", () => {
+  const cleanup = preparePendingLocalShareCleanupForRoomLifecycle("join-room", {
+    pendingLocalShareUrl: "https://www.bilibili.com/video/BV1B?p=1",
+    pendingLocalShareExpiresAt: 1234,
+    pendingLocalShareTimer: 99
+  });
+
+  assert.equal(cleanup.hadPendingLocalShare, true);
+  assert.equal(cleanup.shouldCancelTimer, true);
+  assert.deepEqual(cleanup.nextState, clearPendingLocalShareState());
+});
+
+test("leave room cleanup plan clears pending local share and cancels the old timer", () => {
+  const cleanup = preparePendingLocalShareCleanupForRoomLifecycle("leave-room", {
+    pendingLocalShareUrl: "https://www.bilibili.com/video/BV1B?p=1",
+    pendingLocalShareExpiresAt: 1234,
+    pendingLocalShareTimer: 99
+  });
+
+  assert.equal(cleanup.hadPendingLocalShare, true);
+  assert.equal(cleanup.shouldCancelTimer, true);
+  assert.deepEqual(cleanup.nextState, clearPendingLocalShareState());
+});
+
+test("room lifecycle cleanup plan does not request timer cancellation when no timer exists", () => {
+  const cleanup = preparePendingLocalShareCleanupForRoomLifecycle("leave-room", {
+    pendingLocalShareUrl: "https://www.bilibili.com/video/BV1B?p=1",
+    pendingLocalShareExpiresAt: 1234,
+    pendingLocalShareTimer: null
+  });
+
+  assert.equal(cleanup.hadPendingLocalShare, true);
+  assert.equal(cleanup.shouldCancelTimer, false);
+  assert.deepEqual(cleanup.nextState, clearPendingLocalShareState());
 });

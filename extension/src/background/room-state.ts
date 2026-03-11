@@ -2,6 +2,20 @@ import type { RoomState } from "@bili-syncplay/protocol";
 
 export const PENDING_LOCAL_SHARE_TIMEOUT_MS = 10000;
 
+export interface PendingLocalShareState {
+  pendingLocalShareUrl: string | null;
+  pendingLocalShareExpiresAt: number | null;
+  pendingLocalShareTimer: number | null;
+}
+
+export interface PendingLocalShareCleanupPlan {
+  nextState: PendingLocalShareState;
+  hadPendingLocalShare: boolean;
+  shouldCancelTimer: boolean;
+}
+
+export type RoomLifecycleAction = "create-room" | "join-room" | "leave-room";
+
 export type IncomingRoomStateDecision =
   | {
       kind: "ignore-stale";
@@ -35,6 +49,29 @@ export function shouldClearPendingLocalShareOnServerUrlChange(args: {
 }): boolean {
   const { currentServerUrl, nextServerUrl, pendingLocalShareUrl } = args;
   return pendingLocalShareUrl !== null && currentServerUrl !== nextServerUrl;
+}
+
+export function clearPendingLocalShareState(): PendingLocalShareState {
+  return {
+    pendingLocalShareUrl: null,
+    pendingLocalShareExpiresAt: null,
+    pendingLocalShareTimer: null
+  };
+}
+
+export function preparePendingLocalShareCleanup(state: PendingLocalShareState): PendingLocalShareCleanupPlan {
+  return {
+    nextState: clearPendingLocalShareState(),
+    hadPendingLocalShare: Boolean(state.pendingLocalShareUrl) || state.pendingLocalShareExpiresAt !== null,
+    shouldCancelTimer: state.pendingLocalShareTimer !== null
+  };
+}
+
+export function preparePendingLocalShareCleanupForRoomLifecycle(
+  _action: RoomLifecycleAction,
+  state: PendingLocalShareState
+): PendingLocalShareCleanupPlan {
+  return preparePendingLocalShareCleanup(state);
 }
 
 export function decideIncomingRoomState(args: {

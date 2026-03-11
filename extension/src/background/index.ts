@@ -14,6 +14,9 @@ import {
   getActivePendingLocalShareUrl,
   isSharedVideoChange,
   PENDING_LOCAL_SHARE_TIMEOUT_MS,
+  preparePendingLocalShareCleanup,
+  preparePendingLocalShareCleanupForRoomLifecycle,
+  type RoomLifecycleAction,
   shouldClearPendingLocalShareOnServerUrlChange
 } from "./room-state";
 
@@ -535,13 +538,23 @@ function clearPendingLocalShareTimer(): void {
 }
 
 function clearPendingLocalShare(reason: string): void {
-  if (!pendingLocalShareUrl && pendingLocalShareExpiresAt === null) {
+  const cleanup = preparePendingLocalShareCleanup({
+    pendingLocalShareUrl,
+    pendingLocalShareExpiresAt,
+    pendingLocalShareTimer
+  });
+  if (!cleanup.hadPendingLocalShare) {
     return;
   }
-  clearPendingLocalShareTimer();
+  if (cleanup.shouldCancelTimer) {
+    clearPendingLocalShareTimer();
+  }
   log("background", `Cleared pending local share (${reason})`);
-  pendingLocalShareUrl = null;
-  pendingLocalShareExpiresAt = null;
+  ({
+    pendingLocalShareUrl,
+    pendingLocalShareExpiresAt,
+    pendingLocalShareTimer
+  } = cleanup.nextState);
 }
 
 function expirePendingLocalShareIfNeeded(): void {
@@ -579,6 +592,28 @@ function disconnectSocket(): void {
   socket = null;
   connected = false;
   currentSocket.close();
+}
+
+function resetRoomLifecycleTransientState(action: RoomLifecycleAction, reason: string): void {
+  const cleanup = preparePendingLocalShareCleanupForRoomLifecycle(action, {
+    pendingLocalShareUrl,
+    pendingLocalShareExpiresAt,
+    pendingLocalShareTimer
+  });
+  if (cleanup.hadPendingLocalShare) {
+    if (cleanup.shouldCancelTimer) {
+      clearPendingLocalShareTimer();
+    }
+    log("background", `Cleared pending local share (${reason})`);
+    ({
+      pendingLocalShareUrl,
+      pendingLocalShareExpiresAt,
+      pendingLocalShareTimer
+    } = cleanup.nextState);
+  }
+  pendingShareToast = null;
+  pendingSharedVideo = null;
+  pendingSharedPlayback = null;
 }
 
 function log(scope: DebugLogEntry["scope"], message: string): void {
@@ -865,10 +900,7 @@ chrome.runtime.onMessage.addListener((message: PopupToBackgroundMessage | Conten
         memberId = null;
         roomState = null;
         pendingJoinRoomCode = null;
-        pendingShareToast = null;
-        pendingSharedVideo = null;
-        pendingSharedPlayback = null;
-        pendingLocalShareUrl = null;
+        resetRoomLifecycleTransientState("create-room", "create room requested");
         lastOpenedSharedUrl = null;
         await persistState();
         connect();
@@ -891,10 +923,7 @@ chrome.runtime.onMessage.addListener((message: PopupToBackgroundMessage | Conten
         roomCode = pendingJoinRoomCode;
         memberId = null;
         roomState = null;
-        pendingShareToast = null;
-        pendingSharedVideo = null;
-        pendingSharedPlayback = null;
-        pendingLocalShareUrl = null;
+        resetRoomLifecycleTransientState("join-room", "join room requested");
         lastOpenedSharedUrl = null;
         lastError = null;
         await persistState();
@@ -915,11 +944,8 @@ chrome.runtime.onMessage.addListener((message: PopupToBackgroundMessage | Conten
         memberId = null;
         roomState = null;
         pendingJoinRoomCode = null;
-        pendingShareToast = null;
+        resetRoomLifecycleTransientState("leave-room", "leave room requested");
         lastOpenedSharedUrl = null;
-        pendingSharedVideo = null;
-        pendingSharedPlayback = null;
-        pendingLocalShareUrl = null;
         pendingCreateRoom = false;
         disconnectSocket();
         await persistState();
