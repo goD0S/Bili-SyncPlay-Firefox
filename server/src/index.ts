@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
-import { WebSocketServer, type WebSocket } from "ws";
+import { WebSocketServer, type RawData, type WebSocket } from "ws";
 import {
   isClientMessage,
   type ClientMessage,
@@ -26,6 +26,9 @@ type Room = {
 
 const rooms = new Map<string, Room>();
 const port = Number(process.env.PORT ?? 8787);
+const INVALID_JSON_MESSAGE = "Invalid JSON message.";
+const INVALID_CLIENT_MESSAGE_MESSAGE = "Invalid client message payload.";
+const INTERNAL_SERVER_ERROR_MESSAGE = "Internal server error.";
 // Only suppress the immediate stale "playing" echoes that can arrive right after
 // a pause/buffering transition. A longer window blocks legitimate resume actions.
 const PAUSE_DOMINANCE_WINDOW_MS = 400;
@@ -102,6 +105,17 @@ function send(socket: WebSocket, message: ServerMessage): void {
   if (socket.readyState === socket.OPEN) {
     socket.send(JSON.stringify(message));
   }
+}
+
+function sendError(socket: WebSocket, message: string): void {
+  send(socket, {
+    type: "error",
+    payload: { message }
+  });
+}
+
+function parseIncomingMessage(raw: RawData): unknown {
+  return JSON.parse(raw.toString()) as unknown;
 }
 
 function broadcastRoomState(room: Room): void {
@@ -320,21 +334,24 @@ wss.on("connection", (socket) => {
     displayName: `Guest-${Math.floor(Math.random() * 900 + 100)}`
   };
   socket.on("message", (raw) => {
+    let parsed: unknown;
     try {
-      const parsed = JSON.parse(raw.toString()) as unknown;
-      if (!isClientMessage(parsed)) {
-        send(socket, {
-          type: "error",
-          payload: { message: "Invalid client message payload." }
-        });
-        return;
-      }
+      parsed = parseIncomingMessage(raw);
+    } catch {
+      sendError(socket, INVALID_JSON_MESSAGE);
+      return;
+    }
+
+    if (!isClientMessage(parsed)) {
+      sendError(socket, INVALID_CLIENT_MESSAGE_MESSAGE);
+      return;
+    }
+
+    try {
       handleClientMessage(session, parsed);
     } catch (error) {
-      send(socket, {
-        type: "error",
-        payload: { message: error instanceof Error ? error.message : "Unknown error." }
-      });
+      console.error("Unhandled client message error", error);
+      sendError(socket, INTERNAL_SERVER_ERROR_MESSAGE);
     }
   });
 
