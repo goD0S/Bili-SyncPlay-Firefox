@@ -325,7 +325,7 @@ wss.on("connection", (socket) => {
       if (!isClientMessage(parsed)) {
         send(socket, {
           type: "error",
-          payload: { message: "Invalid message." }
+          payload: { message: "Invalid client message payload." }
         });
         return;
       }
