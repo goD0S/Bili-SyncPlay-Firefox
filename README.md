@@ -50,7 +50,41 @@ Bili-SyncPlay/
 - npm 8+
 - Chrome or Edge for loading the unpacked extension
 
-## Local Development
+## Quick Start
+
+### Load the Extension
+
+1. Run `npm install`
+2. Run `npm run build`
+3. Open `chrome://extensions`
+4. Enable Developer mode
+5. Click `Load unpacked`
+6. Select `extension/dist`
+
+### Start the Local Server
+
+```bash
+npm run dev:server
+```
+
+Default server URL:
+
+```text
+ws://localhost:8787
+```
+
+### Basic Usage
+
+1. Open the extension popup
+2. Create a room or join an existing room
+3. Open a supported Bilibili video page
+4. Click `Sync current page video` in the popup
+5. Other room members will open the same video and enter sync mode
+6. If a member browses to a different non-shared video while still in the room, that page stays local and does not affect the room unless they explicitly sync it
+
+## Developer Reference
+
+### Local Development
 
 Install dependencies:
 
@@ -95,27 +129,36 @@ Default server URL:
 ws://localhost:8787
 ```
 
-## Load the Extension
-
-1. Run `npm run build` or `npm run build:extension`
-2. Open `chrome://extensions`
-3. Enable Developer mode
-4. Click `Load unpacked`
-5. Select `extension/dist`
+Development notes:
+- `@bili-syncplay/server` depends on the built output of `@bili-syncplay/protocol`
+- for a clean local setup, prefer `npm run build` instead of building `server` alone
+- the extension does not keep a permanent socket by default; it connects when a room already exists in session state or when the user creates / joins a room
+- if you change protocol types or message validation, rebuild both `packages/protocol` and `server`
 
 The extension version shown by Chrome comes from `extension/dist/manifest.json`.
 During build, that manifest version is generated automatically from the root `package.json`.
 
-## Usage
+### Runtime Behavior
 
-1. Open the extension popup
-2. Create a room or join an existing room
-3. Open a supported Bilibili video page
-4. Click `Sync current page video` in the popup
-5. Other room members will open the same video and enter sync mode
-6. If a member browses to a different non-shared video while still in the room, that page stays local and does not affect the room unless they explicitly sync it
+- if the user clicks `Sync current page video` before joining a room, the extension prompts to create a room first
+- if the room is already sharing a different video, the popup asks for confirmation before replacing it
+- the background service worker only forwards playback updates from the currently recognized shared tab
+- switching the server URL disconnects the current socket and reconnects using the new address if the extension still has an active room or pending room creation
+- supported playback pages depend on Bilibili DOM and URL patterns, so festival pages and watch-later pages may need future compatibility updates if Bilibili changes them
 
-## Server Deployment
+### State Persistence
+
+The extension intentionally splits persistent state by lifetime:
+- `chrome.storage.session`: `roomCode`, `memberId`, `roomState`
+- `chrome.storage.local`: `displayName`, `serverUrl`
+
+Practical consequences:
+- browser restart does not restore the previous room automatically
+- the custom server URL survives browser restart
+- the popup can reconnect into the current room only while the browser session still holds the room state
+- closing the browser does not restore the previous room automatically on the next launch
+
+### Server Deployment
 
 Recommended setup:
 - Node.js 20 or 22
@@ -128,7 +171,251 @@ The extension supports changing the server URL from the popup, so you can switch
 wss://sync.example.com
 ```
 
-## Build a Release Package
+The current server implementation:
+- listens on `PORT` only, defaulting to `8787`
+- serves WebSocket traffic and a simple health check on the same port
+- returns `{"ok":true,"service":"bili-syncplay-server"}` on `GET /`
+- stores room state in memory only
+
+### 1. Prepare the server
+
+Example environment:
+- Ubuntu 24.04 LTS
+- domain: `sync.example.com`
+- app directory: `/opt/bili-syncplay`
+- service user: `bili-syncplay`
+- internal port: `8787`
+
+Install Node.js 20 or 22 and Nginx first, then clone the repository:
+
+```bash
+sudo mkdir -p /opt/bili-syncplay
+sudo chown "$USER":"$USER" /opt/bili-syncplay
+git clone https://github.com/<your-org>/Bili-SyncPlay.git /opt/bili-syncplay
+cd /opt/bili-syncplay
+npm install
+npm run build
+```
+
+Why `npm run build` is recommended for first deployment:
+- it builds `packages/protocol`, which is required by the server at runtime
+- it avoids partial workspace builds that leave `server` pointing at missing protocol artifacts
+
+If you only want to build the server package:
+
+```bash
+npm run build -w @bili-syncplay/server
+```
+
+Use that command only when `packages/protocol` is already built and unchanged.
+
+### 2. Run the Node.js server
+
+The production entry file is:
+
+```text
+server/dist/index.js
+```
+
+You can start it manually first to verify the build:
+
+```bash
+cd /opt/bili-syncplay
+PORT=8787 node server/dist/index.js
+```
+
+Expected startup log:
+
+```text
+Bili-SyncPlay server listening on http://localhost:8787
+```
+
+Verify the local health check in another shell:
+
+```bash
+curl http://127.0.0.1:8787/
+```
+
+Expected response:
+
+```json
+{"ok":true,"service":"bili-syncplay-server"}
+```
+
+### 3. Create a systemd service
+
+Create a dedicated user:
+
+```bash
+sudo useradd --system --home /opt/bili-syncplay --shell /usr/sbin/nologin bili-syncplay
+sudo chown -R bili-syncplay:bili-syncplay /opt/bili-syncplay
+```
+
+Create `/etc/systemd/system/bili-syncplay.service`:
+
+```ini
+[Unit]
+Description=Bili-SyncPlay WebSocket server
+After=network.target
+
+[Service]
+Type=simple
+User=bili-syncplay
+Group=bili-syncplay
+WorkingDirectory=/opt/bili-syncplay
+Environment=PORT=8787
+ExecStart=/usr/bin/node /opt/bili-syncplay/server/dist/index.js
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and start it:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now bili-syncplay
+sudo systemctl status bili-syncplay
+```
+
+View logs:
+
+```bash
+sudo journalctl -u bili-syncplay -f
+```
+
+### 4. Put Nginx in front of the WebSocket server
+
+Create `/etc/nginx/sites-available/bili-syncplay.conf`:
+
+```nginx
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+server {
+    listen 80;
+    server_name sync.example.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:8787;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_read_timeout 3600;
+    }
+}
+```
+
+Enable the site and validate config:
+
+```bash
+sudo ln -s /etc/nginx/sites-available/bili-syncplay.conf /etc/nginx/sites-enabled/bili-syncplay.conf
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+### 5. Enable TLS
+
+WebSocket service for the extension should use `wss://` in production. A common setup is Certbot with Nginx:
+
+```bash
+sudo certbot --nginx -d sync.example.com
+```
+
+After the certificate is issued, verify:
+
+```bash
+curl https://sync.example.com/
+```
+
+The extension should then use:
+
+```text
+wss://sync.example.com
+```
+
+### 6. Update the extension server URL
+
+The extension supports switching server address from the popup, so for production you can point clients at:
+
+```text
+wss://sync.example.com
+```
+
+For local testing, switch back to:
+
+```text
+ws://localhost:8787
+```
+
+### 7. Deploy updates
+
+When you update the server code:
+
+```bash
+cd /opt/bili-syncplay
+git pull
+npm install
+npm run build -w @bili-syncplay/server
+sudo systemctl restart bili-syncplay
+```
+
+If the shared protocol package changed, rebuild both packages instead:
+
+```bash
+npm run build -w @bili-syncplay/protocol
+npm run build -w @bili-syncplay/server
+```
+
+### 8. Operational notes
+
+- The server has no database; restarting the process clears all rooms.
+- Rooms are removed as soon as the last member leaves.
+- `room:create` and `room:join` are unauthenticated, so deploy behind a domain you control.
+- The health check is `GET /`; there is no separate `/healthz` route right now.
+- If you use a cloud firewall, allow inbound `80` and `443`, but keep `8787` private to localhost.
+- If you do not want Nginx, you can expose Node directly, but browsers and extensions should still connect over `wss://` with a valid TLS certificate.
+- Room state exists only inside one Node.js process. Running multiple server instances behind a load balancer will split rooms unless you add shared state and routing affinity.
+- There is no authentication, rate limiting, or persistence layer yet. Treat the current server as a small single-instance deployment.
+
+### Troubleshooting
+
+Common developer-facing failure cases:
+- `Cannot connect to sync server.`: the extension could not reach the configured server URL, or the HTTP health probe derived from that URL failed.
+- `Room not found.`: the requested room code does not exist on the current server instance.
+- `Please open a Bilibili video page first.`: the active tab URL does not match the extension content-script targets.
+- `Current page does not have a playable video.`: the content script loaded, but the page did not expose a usable video payload.
+- `Cannot access the current page.`: Chrome could not deliver the message to the content script, often because the page was not reloaded after loading the unpacked extension or the tab is on an unsupported URL.
+
+Useful checks:
+
+```bash
+# Server health check
+curl http://127.0.0.1:8787/
+
+# Server tests
+npm run test -w @bili-syncplay/server
+
+# Protocol tests
+npm run test -w @bili-syncplay/protocol
+
+# Extension tests
+npm run test -w @bili-syncplay/extension
+```
+
+Chrome-side debugging tips:
+- check the extension service worker logs from `chrome://extensions`
+- reload the unpacked extension after rebuilding `extension/dist`
+- reload open Bilibili tabs after the extension is reloaded so content scripts are injected again
+
+### Build a Release Package
 
 Update the workspace version first:
 
@@ -155,7 +442,7 @@ Output:
 release/bili-syncplay-extension-v<version>.zip
 ```
 
-## Automated GitHub Release
+### Automated GitHub Release
 
 The repository already includes a GitHub Actions workflow that:
 - triggers on `v*` tags
@@ -171,14 +458,6 @@ git push origin main
 git tag v0.5.4
 git push origin v0.5.4
 ```
-
-## Notes
-
-- Room state is currently stored in server memory only
-- Rooms are removed as soon as the last member leaves
-- Closing the browser does not restore the previous room automatically
-- Bilibili page structures change frequently, so special pages may require future compatibility updates
-- Festival pages and watch-later pages rely on URL or page-state extraction that may need maintenance if Bilibili changes those pages
 
 ## License
 
