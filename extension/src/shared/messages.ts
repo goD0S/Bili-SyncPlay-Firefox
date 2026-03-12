@@ -9,7 +9,7 @@ export interface SharedVideoToastPayload {
 
 export type PopupToBackgroundMessage =
   | { type: "popup:create-room" }
-  | { type: "popup:join-room"; roomCode: string }
+  | { type: "popup:join-room"; roomCode: string; joinToken: string }
   | { type: "popup:leave-room" }
   | { type: "popup:debug-log"; message: string }
   | { type: "popup:get-state" }
@@ -36,6 +36,7 @@ export type BackgroundToPopupMessage =
       payload: {
         connected: boolean;
         roomCode: string | null;
+        joinToken: string | null;
         memberId: string | null;
         roomState: RoomState | null;
         serverUrl: string;

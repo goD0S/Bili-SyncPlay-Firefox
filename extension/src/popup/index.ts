@@ -1,6 +1,6 @@
 import type { RoomMember } from "@bili-syncplay/protocol";
 import type { BackgroundToPopupMessage } from "../shared/messages";
-import { escapeHtml } from "./helpers";
+import { escapeHtml, parseInviteValue } from "./helpers";
 
 const app = document.getElementById("app");
 
@@ -451,17 +451,22 @@ function bindActions(nodes: PopupRefs): void {
       void sendPopupLog("Join click ignored because room action is pending");
       return;
     }
-    const roomCode = nodes.roomCodeInput.value.trim();
-    if (!roomCode) {
-      void sendPopupLog("Join click ignored because room code is empty");
+    const inviteText = nodes.roomCodeInput.value.trim();
+    const invite = parseInviteValue(inviteText);
+    if (!invite) {
+      void sendPopupLog("Join click ignored because invite string is invalid");
       return;
     }
-    roomCodeDraft = roomCode.toUpperCase();
-    void sendPopupLog(`Join button clicked room=${roomCode.toUpperCase()}`);
+    roomCodeDraft = `${invite.roomCode}:${invite.joinToken}`;
+    void sendPopupLog(`Join button clicked room=${invite.roomCode}`);
     setRoomActionPending(true);
     try {
-      await chrome.runtime.sendMessage({ type: "popup:join-room", roomCode });
-      void sendPopupLog(`Join message resolved room=${roomCode.toUpperCase()}`);
+      await chrome.runtime.sendMessage({
+        type: "popup:join-room",
+        roomCode: invite.roomCode,
+        joinToken: invite.joinToken
+      });
+      void sendPopupLog(`Join message resolved room=${invite.roomCode}`);
       setRoomActionPending(false);
       await render();
     } finally {
@@ -497,11 +502,12 @@ function bindActions(nodes: PopupRefs): void {
 
   nodes.copyRoomButton.addEventListener("click", async () => {
     const roomCode = nodes.roomStatus.textContent?.trim();
-    if (!roomCode || roomCode === "-") {
+    const state = await queryState();
+    if (!roomCode || roomCode === "-" || !state.joinToken) {
       return;
     }
 
-    await navigator.clipboard.writeText(roomCode);
+    await navigator.clipboard.writeText(`${roomCode}:${state.joinToken}`);
     nodes.copyRoomButton.classList.add("success-button");
     if (copyRoomResetTimer !== null) {
       window.clearTimeout(copyRoomResetTimer);
@@ -550,17 +556,22 @@ function bindActions(nodes: PopupRefs): void {
       }
       return;
     }
-    const roomCode = nodes.roomCodeInput.value.trim();
-    if (!roomCode) {
-      void sendPopupLog("Join by Enter ignored because room code is empty");
+    const inviteText = nodes.roomCodeInput.value.trim();
+    const invite = parseInviteValue(inviteText);
+    if (!invite) {
+      void sendPopupLog("Join by Enter ignored because invite string is invalid");
       return;
     }
-    roomCodeDraft = roomCode.toUpperCase();
-    void sendPopupLog(`Join by Enter room=${roomCode.toUpperCase()}`);
+    roomCodeDraft = `${invite.roomCode}:${invite.joinToken}`;
+    void sendPopupLog(`Join by Enter room=${invite.roomCode}`);
     setRoomActionPending(true);
     try {
-      await chrome.runtime.sendMessage({ type: "popup:join-room", roomCode });
-      void sendPopupLog(`Join by Enter resolved room=${roomCode.toUpperCase()}`);
+      await chrome.runtime.sendMessage({
+        type: "popup:join-room",
+        roomCode: invite.roomCode,
+        joinToken: invite.joinToken
+      });
+      void sendPopupLog(`Join by Enter resolved room=${invite.roomCode}`);
       setRoomActionPending(false);
       await render();
     } finally {
@@ -572,10 +583,11 @@ function bindActions(nodes: PopupRefs): void {
 
   nodes.roomCodeInput.addEventListener("input", () => {
     applyRoomActionControlState(nodes);
-    const roomCode = nodes.roomCodeInput.value.trim();
-    roomCodeDraft = roomCode.toUpperCase();
-    if (roomCode) {
-      void sendPopupLog(`Room code input changed room=${roomCode.toUpperCase()}`);
+    const inviteText = nodes.roomCodeInput.value.trim();
+    const invite = parseInviteValue(inviteText);
+    roomCodeDraft = invite ? `${invite.roomCode}:${invite.joinToken}` : inviteText;
+    if (invite) {
+      void sendPopupLog(`Invite input changed room=${invite.roomCode}`);
     }
   });
 

@@ -1,7 +1,105 @@
-const port = Number(process.env.PORT ?? 8787);
-import { createSyncServer } from "./app";
+import { createSyncServer, getDefaultSecurityConfig, type SecurityConfig } from "./app";
 
-const { httpServer } = createSyncServer();
+const port = parseIntegerEnv("PORT", 8787);
+const securityConfig = loadSecurityConfig();
+
+const { httpServer } = createSyncServer(securityConfig);
 httpServer.listen(port, () => {
   console.log(`Bili-SyncPlay server listening on http://localhost:${port}`);
 });
+
+function loadSecurityConfig(): SecurityConfig {
+  const defaults = getDefaultSecurityConfig();
+
+  return {
+    ...defaults,
+    allowedOrigins: parseCsvEnv("ALLOWED_ORIGINS", defaults.allowedOrigins),
+    allowMissingOriginInDev: parseBooleanEnv("ALLOW_MISSING_ORIGIN_IN_DEV", defaults.allowMissingOriginInDev),
+    trustProxyHeaders: parseBooleanEnv("TRUST_PROXY_HEADERS", defaults.trustProxyHeaders),
+    maxConnectionsPerIp: parsePositiveIntegerEnv("MAX_CONNECTIONS_PER_IP", defaults.maxConnectionsPerIp),
+    connectionAttemptsPerMinute: parsePositiveIntegerEnv(
+      "CONNECTION_ATTEMPTS_PER_MINUTE",
+      defaults.connectionAttemptsPerMinute
+    ),
+    maxMembersPerRoom: parsePositiveIntegerEnv("MAX_MEMBERS_PER_ROOM", defaults.maxMembersPerRoom),
+    maxMessageBytes: parsePositiveIntegerEnv("MAX_MESSAGE_BYTES", defaults.maxMessageBytes),
+    invalidMessageCloseThreshold: parsePositiveIntegerEnv(
+      "INVALID_MESSAGE_CLOSE_THRESHOLD",
+      defaults.invalidMessageCloseThreshold
+    ),
+    rateLimits: {
+      roomCreatePerMinute: parsePositiveIntegerEnv(
+        "RATE_LIMIT_ROOM_CREATE_PER_MINUTE",
+        defaults.rateLimits.roomCreatePerMinute
+      ),
+      roomJoinPerMinute: parsePositiveIntegerEnv("RATE_LIMIT_ROOM_JOIN_PER_MINUTE", defaults.rateLimits.roomJoinPerMinute),
+      videoSharePer10Seconds: parsePositiveIntegerEnv(
+        "RATE_LIMIT_VIDEO_SHARE_PER_10_SECONDS",
+        defaults.rateLimits.videoSharePer10Seconds
+      ),
+      playbackUpdatePerSecond: parsePositiveIntegerEnv(
+        "RATE_LIMIT_PLAYBACK_UPDATE_PER_SECOND",
+        defaults.rateLimits.playbackUpdatePerSecond
+      ),
+      playbackUpdateBurst: parsePositiveIntegerEnv(
+        "RATE_LIMIT_PLAYBACK_UPDATE_BURST",
+        defaults.rateLimits.playbackUpdateBurst
+      ),
+      syncRequestPer10Seconds: parsePositiveIntegerEnv(
+        "RATE_LIMIT_SYNC_REQUEST_PER_10_SECONDS",
+        defaults.rateLimits.syncRequestPer10Seconds
+      ),
+      syncPingPerSecond: parsePositiveIntegerEnv("RATE_LIMIT_SYNC_PING_PER_SECOND", defaults.rateLimits.syncPingPerSecond),
+      syncPingBurst: parsePositiveIntegerEnv("RATE_LIMIT_SYNC_PING_BURST", defaults.rateLimits.syncPingBurst)
+    }
+  };
+}
+
+function parseCsvEnv(name: string, fallback: string[]): string[] {
+  const rawValue = process.env[name];
+  if (!rawValue) {
+    return fallback;
+  }
+
+  return rawValue
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function parseBooleanEnv(name: string, fallback: boolean): boolean {
+  const rawValue = process.env[name];
+  if (rawValue === undefined) {
+    return fallback;
+  }
+
+  if (rawValue === "true") {
+    return true;
+  }
+  if (rawValue === "false") {
+    return false;
+  }
+
+  throw new Error(`Environment variable ${name} must be "true" or "false".`);
+}
+
+function parseIntegerEnv(name: string, fallback: number): number {
+  const rawValue = process.env[name];
+  if (rawValue === undefined) {
+    return fallback;
+  }
+
+  const parsedValue = Number(rawValue);
+  if (!Number.isInteger(parsedValue)) {
+    throw new Error(`Environment variable ${name} must be an integer.`);
+  }
+  return parsedValue;
+}
+
+function parsePositiveIntegerEnv(name: string, fallback: number): number {
+  const parsedValue = parseIntegerEnv(name, fallback);
+  if (parsedValue <= 0) {
+    throw new Error(`Environment variable ${name} must be greater than 0.`);
+  }
+  return parsedValue;
+}

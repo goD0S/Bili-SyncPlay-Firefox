@@ -2,6 +2,8 @@ import type { RoomState } from "@bili-syncplay/protocol";
 
 export interface PersistedState {
   roomCode: string | null;
+  joinToken: string | null;
+  memberToken: string | null;
   memberId: string | null;
   displayName: string | null;
   roomState: RoomState | null;
@@ -19,6 +21,8 @@ export async function loadState(): Promise<PersistedState> {
 
   return {
     roomCode: sessionResult[SESSION_KEY]?.roomCode ?? null,
+    joinToken: sessionResult[SESSION_KEY]?.joinToken ?? null,
+    memberToken: sessionResult[SESSION_KEY]?.memberToken ?? null,
     memberId: sessionResult[SESSION_KEY]?.memberId ?? null,
     roomState: sessionResult[SESSION_KEY]?.roomState ?? null,
     displayName: profileResult[PROFILE_KEY]?.displayName ?? null,
@@ -31,6 +35,8 @@ export async function saveState(value: PersistedState): Promise<void> {
     chrome.storage.session.set({
       [SESSION_KEY]: {
         roomCode: value.roomCode,
+        joinToken: value.joinToken,
+        memberToken: value.memberToken,
         memberId: value.memberId,
         roomState: value.roomState
       }

@@ -9,8 +9,8 @@ This repository is a monorepo with:
 
 ## Features
 
-- Create a room and get a room code
-- Join a room with a room code
+- Create a room and get an invite string
+- Join a room with `roomCode:joinToken`
 - Share the current page video from the popup
 - Sync play, pause, seek, and playback rate
 - Automatically open the currently shared video for room members
@@ -76,7 +76,7 @@ ws://localhost:8787
 ### Basic Usage
 
 1. Open the extension popup
-2. Create a room or join an existing room
+2. Create a room or join an existing room with an invite string
 3. Open a supported Bilibili video page
 4. Click `Sync current page video` in the popup
 5. Other room members will open the same video and enter sync mode
@@ -106,7 +106,7 @@ npm test
 
 Current test coverage in this repository includes:
 - protocol client message validation
-- server WebSocket message validation and stability checks
+- server WebSocket validation, auth, origin filtering, and rate-limit checks
 - background room-state race handling
 
 Workspace-level test commands are also available:
@@ -133,6 +133,7 @@ Development notes:
 - `@bili-syncplay/server` depends on the built output of `@bili-syncplay/protocol`
 - for a clean local setup, prefer `npm run build` instead of building `server` alone
 - the extension does not keep a permanent socket by default; it connects when a room already exists in session state or when the user creates / joins a room
+- reconnecting into an existing room now requires the stored `joinToken`; stale `memberToken` values are discarded on disconnect
 - if you change protocol types or message validation, rebuild both `packages/protocol` and `server`
 
 The extension version shown by Chrome comes from `extension/dist/manifest.json`.
@@ -149,13 +150,14 @@ During build, that manifest version is generated automatically from the root `pa
 ### State Persistence
 
 The extension intentionally splits persistent state by lifetime:
-- `chrome.storage.session`: `roomCode`, `memberId`, `roomState`
+- `chrome.storage.session`: `roomCode`, `joinToken`, `memberToken`, `memberId`, `roomState`
 - `chrome.storage.local`: `displayName`, `serverUrl`
 
 Practical consequences:
 - browser restart does not restore the previous room automatically
 - the custom server URL survives browser restart
-- the popup can reconnect into the current room only while the browser session still holds the room state
+- the popup can reconnect into the current room only while the browser session still holds both `roomCode` and `joinToken`
+- `memberToken` is intentionally cleared on disconnect and re-issued after a successful rejoin
 - closing the browser does not restore the previous room automatically on the next launch
 
 ### Server Deployment
@@ -175,7 +177,44 @@ The current server implementation:
 - listens on `PORT` only, defaulting to `8787`
 - serves WebSocket traffic and a simple health check on the same port
 - returns `{"ok":true,"service":"bili-syncplay-server"}` on `GET /`
-- stores room state in memory only
+- stores room state and tokens in memory only
+- requires `roomCode + joinToken` for room join and `memberToken` for room messages
+- supports origin allowlists, connection throttling, message throttling, and structured security logs
+
+### Security Environment Variables
+
+The server accepts the following environment variables. Safe defaults are built in, but production should set them explicitly:
+
+- `ALLOWED_ORIGINS`: comma-separated WebSocket `Origin` allowlist
+- if `ALLOWED_ORIGINS` is empty, the server rejects all explicit `Origin` values by default
+- `ALLOW_MISSING_ORIGIN_IN_DEV`: allow missing `Origin` headers when set to `true`
+- `TRUST_PROXY_HEADERS`: only when set to `true`, use `X-Forwarded-For` for connection-level IP limits
+- `MAX_CONNECTIONS_PER_IP`: max concurrent WebSocket connections per IP
+- `CONNECTION_ATTEMPTS_PER_MINUTE`: max handshake attempts per IP per minute
+- `MAX_MEMBERS_PER_ROOM`: room member cap
+- `MAX_MESSAGE_BYTES`: WebSocket message size cap in bytes
+- `INVALID_MESSAGE_CLOSE_THRESHOLD`: number of invalid messages before disconnect
+- `RATE_LIMIT_ROOM_CREATE_PER_MINUTE`
+- `RATE_LIMIT_ROOM_JOIN_PER_MINUTE`
+- `RATE_LIMIT_VIDEO_SHARE_PER_10_SECONDS`
+- `RATE_LIMIT_PLAYBACK_UPDATE_PER_SECOND`
+- `RATE_LIMIT_PLAYBACK_UPDATE_BURST`
+- `RATE_LIMIT_SYNC_REQUEST_PER_10_SECONDS`
+- `RATE_LIMIT_SYNC_PING_PER_SECOND`
+- `RATE_LIMIT_SYNC_PING_BURST`
+
+Example:
+
+```bash
+PORT=8787 \
+ALLOWED_ORIGINS=chrome-extension://<extension-id>,https://sync.example.com,http://localhost:3000 \
+TRUST_PROXY_HEADERS=true \
+MAX_CONNECTIONS_PER_IP=10 \
+CONNECTION_ATTEMPTS_PER_MINUTE=20 \
+MAX_MEMBERS_PER_ROOM=8 \
+MAX_MESSAGE_BYTES=8192 \
+node server/dist/index.js
+```
 
 ### 1. Prepare the server
 
@@ -264,6 +303,7 @@ User=bili-syncplay
 Group=bili-syncplay
 WorkingDirectory=/opt/bili-syncplay
 Environment=PORT=8787
+Environment=ALLOWED_ORIGINS=chrome-extension://<extension-id>,https://sync.example.com
 ExecStart=/usr/bin/node /opt/bili-syncplay/server/dist/index.js
 Restart=always
 RestartSec=3
@@ -296,11 +336,16 @@ map $http_upgrade $connection_upgrade {
     ''      close;
 }
 
+limit_conn_zone $binary_remote_addr zone=conn_per_ip:10m;
+limit_req_zone $binary_remote_addr zone=req_per_ip:10m rate=20r/m;
+
 server {
     listen 80;
     server_name sync.example.com;
 
     location / {
+        limit_conn conn_per_ip 10;
+        limit_req zone=req_per_ip burst=10 nodelay;
         proxy_pass http://127.0.0.1:8787;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
@@ -355,6 +400,8 @@ For local testing, switch back to:
 ws://localhost:8787
 ```
 
+Room invites are now shared as `roomCode:joinToken`. The popup copy action copies that invite string, and the join field accepts the same format.
+
 ### 7. Deploy updates
 
 When you update the server code:
@@ -378,18 +425,26 @@ npm run build -w @bili-syncplay/server
 
 - The server has no database; restarting the process clears all rooms.
 - Rooms are removed as soon as the last member leaves.
-- `room:create` and `room:join` are unauthenticated, so deploy behind a domain you control.
+- Room join requires both `roomCode` and `joinToken`; room messages require a valid `memberToken`.
+- `memberToken` is session-bound and is re-issued after reconnect.
+- Handshake origin checks are deny-by-default unless you explicitly allow missing `Origin` in development.
+- `X-Forwarded-For` is ignored unless `TRUST_PROXY_HEADERS=true`.
 - The health check is `GET /`; there is no separate `/healthz` route right now.
 - If you use a cloud firewall, allow inbound `80` and `443`, but keep `8787` private to localhost.
 - If you do not want Nginx, you can expose Node directly, but browsers and extensions should still connect over `wss://` with a valid TLS certificate.
 - Room state exists only inside one Node.js process. Running multiple server instances behind a load balancer will split rooms unless you add shared state and routing affinity.
-- There is no authentication, rate limiting, or persistence layer yet. Treat the current server as a small single-instance deployment.
+- Persistence still does not exist. Treat the current server as a small single-instance deployment with minimal built-in auth and rate limiting.
 
 ### Troubleshooting
 
 Common developer-facing failure cases:
 - `Cannot connect to sync server.`: the extension could not reach the configured server URL, or the HTTP health probe derived from that URL failed.
 - `Room not found.`: the requested room code does not exist on the current server instance.
+- `Join token is invalid.`: the invite string is wrong, stale, or from another room.
+- `Member token is invalid.`: the current session lost its room binding and must rejoin.
+- `Too many requests.`: a room action or sync message hit the configured rate limit.
+- handshake rejected with `403`: the request `Origin` is not in `ALLOWED_ORIGINS`, or `Origin` is missing while `ALLOW_MISSING_ORIGIN_IN_DEV` is disabled.
+- connection-level IP limits appear ineffective: verify whether you intended to enable `TRUST_PROXY_HEADERS`; by default the server uses the real socket address only.
 - `Please open a Bilibili video page first.`: the active tab URL does not match the extension content-script targets.
 - `Current page does not have a playable video.`: the content script loaded, but the page did not expose a usable video payload.
 - `Cannot access the current page.`: Chrome could not deliver the message to the content script, often because the page was not reloaded after loading the unpacked extension or the tab is on an unsupported URL.
