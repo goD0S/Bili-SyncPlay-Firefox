@@ -24,6 +24,7 @@ const packagePaths = [
   path.join(rootDir, "server", "package.json"),
   path.join(rootDir, "extension", "package.json")
 ];
+const extensionManifestPath = path.join(rootDir, "extension", "public", "manifest.json");
 
 for (const packagePath of packagePaths) {
   const packageJson = JSON.parse(await readFile(packagePath, "utf8"));
@@ -35,6 +36,10 @@ for (const packagePath of packagePaths) {
 
   await writeFile(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`);
 }
+
+const extensionManifest = JSON.parse(await readFile(extensionManifestPath, "utf8"));
+extensionManifest.version = nextVersion;
+await writeFile(extensionManifestPath, `${JSON.stringify(extensionManifest, null, 2)}\n`);
 
 if (process.platform === "win32") {
   await run(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", "npm install --package-lock-only"], rootDir);
