@@ -1,6 +1,7 @@
-import type { RoomMember } from "@bili-syncplay/protocol";
+import { normalizeBilibiliUrl, type RoomMember } from "@bili-syncplay/protocol";
 import type { BackgroundToPopupMessage } from "../shared/messages";
 import { escapeHtml, parseInviteValue } from "./helpers";
+import { applyIncomingPopupState, createPopupStateSyncState } from "./state-sync";
 
 const app = document.getElementById("app");
 
@@ -33,7 +34,6 @@ interface PopupRefs {
 }
 
 let refs: PopupRefs | null = null;
-let renderTimer: number | null = null;
 let copyRoomResetTimer: number | null = null;
 let copyLogsResetTimer: number | null = null;
 let roomActionPending = false;
@@ -42,6 +42,8 @@ let lastKnownPendingJoinRoomCode: string | null = null;
 let lastKnownRoomCode: string | null = null;
 let lastRoomEnteredAt = 0;
 let roomCodeDraft = "";
+let popupPort: chrome.runtime.Port | null = null;
+const popupStateSync = createPopupStateSyncState();
 
 const LEAVE_GUARD_MS = 1500;
 
@@ -181,8 +183,11 @@ async function init(): Promise<void> {
 
   refs = collectRefs();
   bindActions(refs);
-  await render();
-  scheduleRefresh();
+  connectPopupStatePort();
+  const initialState = await queryState();
+  if (applyState(initialState, "query")) {
+    render();
+  }
 }
 
 function collectRefs(): PopupRefs {
@@ -228,6 +233,22 @@ async function queryState(): Promise<BackgroundToPopupMessage["payload"]> {
   return response.payload;
 }
 
+function connectPopupStatePort(): void {
+  popupPort?.disconnect();
+  popupPort = chrome.runtime.connect({ name: "popup-state" });
+  popupPort.onMessage.addListener((message: BackgroundToPopupMessage) => {
+    if (message.type !== "background:state") {
+      return;
+    }
+    if (applyState(message.payload, "port")) {
+      render();
+    }
+  });
+  popupPort.onDisconnect.addListener(() => {
+    popupPort = null;
+  });
+}
+
 async function sendPopupLog(message: string): Promise<void> {
   try {
     await chrome.runtime.sendMessage({ type: "popup:debug-log", message });
@@ -252,14 +273,10 @@ function setRoomActionPending(nextPending: boolean): void {
   }
 }
 
-async function render(): Promise<void> {
-  if (!refs) {
-    return;
+function applyState(state: BackgroundToPopupMessage["payload"], source: "port" | "query" = "port"): boolean {
+  if (!applyIncomingPopupState(popupStateSync, state, source)) {
+    return false;
   }
-
-  const state = await queryState();
-  const roomCodeFocused = document.activeElement === refs.roomCodeInput;
-  const serverUrlFocused = document.activeElement === refs.serverUrlInput;
   const previousRoomCode = lastKnownRoomCode;
   lastKnownPendingCreateRoom = state.pendingCreateRoom;
   lastKnownPendingJoinRoomCode = state.pendingJoinRoomCode;
@@ -267,6 +284,17 @@ async function render(): Promise<void> {
   if (!previousRoomCode && state.roomCode) {
     lastRoomEnteredAt = Date.now();
   }
+  return true;
+}
+
+function render(): void {
+  if (!refs || !popupStateSync.popupState) {
+    return;
+  }
+
+  const state = popupStateSync.popupState;
+  const roomCodeFocused = document.activeElement === refs.roomCodeInput;
+  const serverUrlFocused = document.activeElement === refs.serverUrlInput;
 
   refs.serverStatus.textContent = state.connected ? "已连接" : "未连接";
   refs.roomStatus.textContent = state.roomCode ?? "-";
@@ -361,10 +389,12 @@ async function handleShareCurrentVideo(): Promise<void> {
     return;
   }
 
-  const state = await queryState();
+  const state = popupStateSync.popupState ?? await queryState();
   const activeVideo = await chrome.runtime.sendMessage({ type: "popup:get-active-video" });
   if (!activeVideo?.ok || !activeVideo.payload?.video) {
-    await render();
+    if (popupStateSync.popupState) {
+      render();
+    }
     return;
   }
 
@@ -387,31 +417,13 @@ async function handleShareCurrentVideo(): Promise<void> {
   }
 
   await chrome.runtime.sendMessage({ type: "popup:share-current-video" });
-  await render();
+  if (popupStateSync.popupState) {
+    render();
+  }
 }
 
 function normalizeUrl(url: string | null | undefined): string | null {
-  if (!url) {
-    return null;
-  }
-
-  try {
-    const parsed = new URL(url);
-    const bvid = parsed.searchParams.get("bvid");
-    const cid = parsed.searchParams.get("cid");
-    const p = parsed.searchParams.get("p");
-    if (bvid) {
-      return cid
-        ? `https://www.bilibili.com/video/${bvid}?cid=${cid}`
-        : p
-          ? `https://www.bilibili.com/video/${bvid}?p=${p}`
-          : `https://www.bilibili.com/video/${bvid}`;
-    }
-
-    return p ? `${parsed.origin}${parsed.pathname.replace(/\/+$/, "")}?p=${p}` : `${parsed.origin}${parsed.pathname.replace(/\/+$/, "")}`;
-  } catch {
-    return url.split("?")[0].replace(/\/+$/, "");
-  }
+  return normalizeBilibiliUrl(url);
 }
 
 function bindActions(nodes: PopupRefs): void {
@@ -438,7 +450,6 @@ function bindActions(nodes: PopupRefs): void {
       await chrome.runtime.sendMessage({ type: "popup:create-room" });
       void sendPopupLog("Create room message resolved");
       setRoomActionPending(false);
-      await render();
     } finally {
       if (roomActionPending) {
         setRoomActionPending(false);
@@ -468,7 +479,6 @@ function bindActions(nodes: PopupRefs): void {
       });
       void sendPopupLog(`Join message resolved room=${invite.roomCode}`);
       setRoomActionPending(false);
-      await render();
     } finally {
       if (roomActionPending) {
         setRoomActionPending(false);
@@ -492,7 +502,6 @@ function bindActions(nodes: PopupRefs): void {
       await chrome.runtime.sendMessage({ type: "popup:leave-room" });
       void sendPopupLog("Leave room message resolved");
       setRoomActionPending(false);
-      await render();
     } finally {
       if (roomActionPending) {
         setRoomActionPending(false);
@@ -573,7 +582,6 @@ function bindActions(nodes: PopupRefs): void {
       });
       void sendPopupLog(`Join by Enter resolved room=${invite.roomCode}`);
       setRoomActionPending(false);
-      await render();
     } finally {
       if (roomActionPending) {
         setRoomActionPending(false);
@@ -596,8 +604,9 @@ function bindActions(nodes: PopupRefs): void {
       type: "popup:set-server-url",
       serverUrl: nodes.serverUrlInput.value.trim()
     })) as BackgroundToPopupMessage;
+    applyState(response.payload);
     nodes.serverUrlInput.value = response.payload.serverUrl;
-    await render();
+    render();
   };
 
   nodes.saveServerUrlButton.addEventListener("click", () => {
@@ -611,18 +620,4 @@ function bindActions(nodes: PopupRefs): void {
     event.preventDefault();
     await saveServerUrl();
   });
-}
-
-function scheduleRefresh(): void {
-  stopRefresh();
-  renderTimer = window.setInterval(() => {
-    void render();
-  }, 500);
-}
-
-function stopRefresh(): void {
-  if (renderTimer !== null) {
-    window.clearInterval(renderTimer);
-    renderTimer = null;
-  }
 }

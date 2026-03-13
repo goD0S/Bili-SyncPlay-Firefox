@@ -1,5 +1,13 @@
-import type { ClientMessage, PlaybackState, PlaybackUpdateMessage, RoomState, ServerMessage, SharedVideo } from "@bili-syncplay/protocol";
-import { loadState, saveState } from "../shared/storage";
+import {
+  normalizeBilibiliUrl,
+  parseBilibiliVideoRef,
+  type ClientMessage,
+  type PlaybackState,
+  type PlaybackUpdateMessage,
+  type RoomState,
+  type ServerMessage,
+  type SharedVideo
+} from "@bili-syncplay/protocol";
 import type {
   BackgroundToContentMessage,
   BackgroundToPopupMessage,
@@ -19,18 +27,23 @@ import {
   type RoomLifecycleAction,
   shouldClearPendingLocalShareOnServerUrlChange
 } from "./room-state";
+import { compensateRoomStateForClock, CLOCK_SYNC_INTERVAL_MS, toHealthcheckUrl as buildHealthcheckUrl, updateClockSample } from "./clock-sync";
+import { notifyContentTabs } from "./content-bus";
+import { appendLog, formatContentLogSource } from "./logger";
+import { createPopupStateSnapshot } from "./popup-bus";
+import { createPendingShareToast as createRoomPendingShareToast, flushPendingShare as getPendingShareFlushPlan, getPendingShareToastFor as getRoomPendingShareToastFor } from "./room-manager";
+import {
+  BILIBILI_VIDEO_URL_PATTERNS,
+  createBackgroundRuntimeState,
+  DEFAULT_SERVER_URL,
+  MAX_RECONNECT_ATTEMPTS,
+  SHARE_TOAST_TTL_MS
+} from "./runtime-state";
+import { shouldReconnect, getReconnectDelayMs } from "./socket-manager";
+import { loadPersistedBackgroundSnapshot, persistBackgroundState } from "./storage-manager";
+import { decideSharedPlaybackTab, rememberSharedSource } from "./tab-coordinator";
 
-const DEFAULT_SERVER_URL = "ws://localhost:8787";
-const MAX_LOGS = 30;
-const CLOCK_SYNC_INTERVAL_MS = 15000;
-const MAX_RECONNECT_ATTEMPTS = 5;
-const BILIBILI_VIDEO_URL_PATTERNS = [
-  "https://www.bilibili.com/video/*",
-  "https://www.bilibili.com/bangumi/play/*",
-  "https://www.bilibili.com/festival/*",
-  "https://www.bilibili.com/list/watchlater*",
-  "https://www.bilibili.com/medialist/play/watchlater*"
-];
+const structuredState = createBackgroundRuntimeState();
 
 let socket: WebSocket | null = null;
 let serverUrl = DEFAULT_SERVER_URL;
@@ -63,13 +76,12 @@ let pendingLocalShareTimer: number | null = null;
 let pendingShareToast: (SharedVideoToastPayload & { expiresAt: number; roomCode: string }) | null = null;
 let connectProbe: Promise<void> | null = null;
 let lastPopupStateLogKey: string | null = null;
-
-const SHARE_TOAST_TTL_MS = 8000;
+const popupPorts = new Set<chrome.runtime.Port>();
 
 bootstrap().catch(console.error);
 
 async function bootstrap(): Promise<void> {
-  const persisted = await loadState();
+  const persisted = await loadPersistedBackgroundSnapshot();
   roomCode = persisted.roomCode;
   joinToken = persisted.joinToken;
   memberToken = persisted.memberToken;
@@ -85,6 +97,7 @@ async function bootstrap(): Promise<void> {
     if (sharedTabId === tabId) {
       sharedTabId = null;
       log("background", `Cleared shared tab binding for closed tab ${tabId}`);
+      broadcastPopupState();
     }
   });
 }
@@ -108,7 +121,7 @@ async function connect(): Promise<void> {
 }
 
 async function openSocketWithProbe(): Promise<void> {
-  const healthUrl = toHealthcheckUrl(serverUrl);
+  const healthUrl = buildHealthcheckUrl(serverUrl);
   if (healthUrl) {
     try {
       await fetch(healthUrl, {
@@ -203,25 +216,6 @@ function sendJoinRequest(targetRoomCode: string, targetJoinToken: string): void 
       displayName: displayName ?? undefined
     }
   });
-}
-
-function toHealthcheckUrl(url: string): string | null {
-  try {
-    const parsed = new URL(url);
-    if (parsed.protocol === "ws:") {
-      parsed.protocol = "http:";
-    } else if (parsed.protocol === "wss:") {
-      parsed.protocol = "https:";
-    } else {
-      return null;
-    }
-    parsed.pathname = "/";
-    parsed.search = "";
-    parsed.hash = "";
-    return parsed.toString();
-  } catch {
-    return null;
-  }
 }
 
 async function handleServerMessage(message: ServerMessage): Promise<void> {
@@ -329,58 +323,50 @@ async function handleRoomStateMessage(nextState: RoomState): Promise<void> {
 }
 
 function createPendingShareToast(state: RoomState): (SharedVideoToastPayload & { expiresAt: number; roomCode: string }) | null {
-  if (!state.sharedVideo) {
-    return null;
-  }
-  return {
-    key: `${state.roomCode}:${normalizeUrl(state.sharedVideo.url) ?? state.sharedVideo.url}:${Date.now()}`,
-    actorId: state.playback?.actorId ?? null,
-    title: state.sharedVideo.title,
-    videoUrl: state.sharedVideo.url,
-    roomCode: state.roomCode,
-    expiresAt: Date.now() + SHARE_TOAST_TTL_MS
-  };
+  return createRoomPendingShareToast({
+    state,
+    normalizedSharedUrl: normalizeUrl(state.sharedVideo?.url),
+    now: Date.now(),
+    ttlMs: SHARE_TOAST_TTL_MS
+  });
 }
 
 function getPendingShareToastFor(state: RoomState): SharedVideoToastPayload | null {
-  if (!pendingShareToast) {
-    return null;
-  }
-  if (pendingShareToast.expiresAt <= Date.now()) {
-    pendingShareToast = null;
-    return null;
-  }
-  if (pendingShareToast.roomCode !== state.roomCode) {
-    return null;
-  }
-  if (normalizeUrl(pendingShareToast.videoUrl) !== normalizeUrl(state.sharedVideo?.url)) {
-    return null;
-  }
-  return {
-    key: pendingShareToast.key,
-    actorId: pendingShareToast.actorId,
-    title: pendingShareToast.title,
-    videoUrl: pendingShareToast.videoUrl
-  };
+  const result = getRoomPendingShareToastFor({
+    pendingShareToast,
+    state,
+    normalizedPendingToastUrl: normalizeUrl(pendingShareToast?.videoUrl),
+    normalizedSharedUrl: normalizeUrl(state.sharedVideo?.url),
+    now: Date.now()
+  });
+  pendingShareToast = result.pendingShareToast;
+  return result.shareToast;
 }
 
 function flushPendingShare(): void {
-  if (!pendingSharedVideo || !connected || !roomCode || !memberToken) {
+  const plan = getPendingShareFlushPlan({
+    pendingSharedVideo,
+    pendingSharedPlayback,
+    connected,
+    roomCode,
+    memberToken
+  });
+  if (!plan.shouldFlush || !plan.video) {
     return;
   }
   sendToServer({
     type: "video:share",
     payload: {
       memberToken,
-      video: pendingSharedVideo
+      video: plan.video
     }
   });
-  if (pendingSharedPlayback) {
+  if (plan.playback) {
     sendToServer({
       type: "playback:update",
       payload: {
         memberToken,
-        playback: pendingSharedPlayback.payload.playback
+        playback: plan.playback.payload.playback
       }
     });
     pendingSharedPlayback = null;
@@ -528,52 +514,49 @@ function stopClockSyncTimer(): void {
 }
 
 function updateClockOffset(clientSendTime: number, serverReceiveTime: number, serverSendTime: number): void {
-  const clientReceiveTime = Date.now();
-  const sampleRtt = clientReceiveTime - clientSendTime - (serverSendTime - serverReceiveTime);
-  const sampleOffset = ((serverReceiveTime - clientSendTime) + (serverSendTime - clientReceiveTime)) / 2;
-  rttMs = rttMs === null ? sampleRtt : Math.round(rttMs * 0.7 + sampleRtt * 0.3);
-  clockOffsetMs = clockOffsetMs === null ? sampleOffset : Math.round(clockOffsetMs * 0.7 + sampleOffset * 0.3);
+  const sample = updateClockSample({
+    clientSendTime,
+    serverReceiveTime,
+    serverSendTime,
+    now: Date.now(),
+    previousRttMs: rttMs,
+    previousClockOffsetMs: clockOffsetMs
+  });
+  rttMs = sample.rttMs;
+  clockOffsetMs = sample.clockOffsetMs;
   log("background", `Clock sync offset=${clockOffsetMs}ms rtt=${rttMs}ms`);
 }
 
 function compensateRoomState(state: RoomState): RoomState {
-  if (!state.playback || clockOffsetMs === null) {
-    return state;
-  }
-  if (state.playback.playState !== "playing") {
-    return state;
-  }
-  const estimatedServerNow = Date.now() + clockOffsetMs;
-  const elapsedMs = Math.max(0, estimatedServerNow - state.playback.serverTime);
-  return {
-    ...state,
-    playback: {
-      ...state.playback,
-      currentTime: state.playback.currentTime + elapsedMs / 1000 * state.playback.playbackRate
-    }
-  };
+  return compensateRoomStateForClock(state, clockOffsetMs);
 }
 
 function scheduleReconnect(): void {
-  if (connected || reconnectTimer !== null) {
+  if (
+    !shouldReconnect({
+      connected,
+      reconnectTimer,
+      roomCode,
+      pendingCreateRoom,
+      reconnectAttempt,
+      maxReconnectAttempts: MAX_RECONNECT_ATTEMPTS
+    })
+  ) {
+    if (reconnectAttempt >= MAX_RECONNECT_ATTEMPTS) {
+      reconnectDeadlineMs = null;
+      lastError = `Cannot connect to sync server after ${MAX_RECONNECT_ATTEMPTS} attempts.`;
+      log("background", lastError);
+    }
     return;
   }
-  if (!roomCode && !pendingCreateRoom) {
-    return;
-  }
-  if (reconnectAttempt >= MAX_RECONNECT_ATTEMPTS) {
-    reconnectDeadlineMs = null;
-    lastError = `Cannot connect to sync server after ${MAX_RECONNECT_ATTEMPTS} attempts.`;
-    log("background", lastError);
-    return;
-  }
+
   reconnectAttempt += 1;
-  const retryDelayMs = Math.min(1000 * 2 ** (reconnectAttempt - 1), 10000);
+  const retryDelayMs = getReconnectDelayMs(reconnectAttempt);
   reconnectDeadlineMs = Date.now() + retryDelayMs;
   log("background", `Reconnect scheduled in ${retryDelayMs}ms`);
   reconnectTimer = self.setTimeout(() => {
-    reconnectTimer = null;
     reconnectDeadlineMs = null;
+    reconnectTimer = null;
     connect();
   }, retryDelayMs);
 }
@@ -686,7 +669,10 @@ function resetRoomLifecycleTransientState(action: RoomLifecycleAction, reason: s
 }
 
 function log(scope: DebugLogEntry["scope"], message: string): void {
-  logs = [{ at: Date.now(), scope, message }, ...logs].slice(0, MAX_LOGS);
+  logs = appendLog(logs, scope, message);
+  if (popupPorts.size > 0) {
+    broadcastPopupState();
+  }
 }
 
 function maybeLogPopupStateRequest(): void {
@@ -698,56 +684,37 @@ function maybeLogPopupStateRequest(): void {
   log("background", `Popup requested state room=${roomCode ?? "none"} connected=${connected} pendingJoin=${pendingJoinRoomCode ?? "none"}`);
 }
 
-function formatContentLogSource(sender: chrome.runtime.MessageSender): string {
-  const tabId = sender.tab?.id;
-  const rawUrl = sender.tab?.url ?? sender.url ?? null;
-  if (!rawUrl) {
-    return tabId !== undefined ? `tab=${tabId}` : "tab=unknown";
-  }
-
-  try {
-    const parsed = new URL(rawUrl);
-    const conciseUrl = `${parsed.origin}${parsed.pathname}`;
-    return tabId !== undefined ? `tab=${tabId} ${conciseUrl}` : conciseUrl;
-  } catch {
-    return tabId !== undefined ? `tab=${tabId} ${rawUrl}` : rawUrl;
-  }
-}
-
 function rememberSharedSourceTab(tabId: number | undefined, url: string): void {
-  if (tabId !== undefined) {
-    sharedTabId = tabId;
-  }
-  lastOpenedSharedUrl = url;
+  const next = rememberSharedSource({
+    currentSharedTabId: sharedTabId,
+    tabId,
+    url
+  });
+  sharedTabId = next.sharedTabId;
+  lastOpenedSharedUrl = next.lastOpenedSharedUrl;
   log("background", `Shared source tab=${tabId ?? "unknown"} url=${url}`);
 }
 
 function isActiveSharedTab(tabId: number | undefined, url: string): boolean {
-  const normalizedRoomUrl = normalizeUrl(roomState?.sharedVideo?.url);
-  const normalizedPayloadUrl = normalizeUrl(url);
-  if (tabId === undefined) {
-    return false;
-  }
-  if (sharedTabId === null) {
-    if (normalizedRoomUrl && normalizedPayloadUrl && normalizedRoomUrl === normalizedPayloadUrl) {
-      sharedTabId = tabId;
-      log("background", `Accepted first shared playback tab=${tabId}`);
-      return true;
-    }
-    return false;
-  }
-  if (sharedTabId === tabId) {
-    if (!normalizedRoomUrl || !normalizedPayloadUrl || normalizedRoomUrl !== normalizedPayloadUrl) {
-      log("background", `Ignored playback from shared tab ${tabId} because url no longer matches room`);
-      return false;
-    }
+  const decision = decideSharedPlaybackTab({
+    tabId,
+    sharedTabId,
+    normalizedRoomUrl: normalizeUrl(roomState?.sharedVideo?.url),
+    normalizedPayloadUrl: normalizeUrl(url)
+  });
+  sharedTabId = decision.nextSharedTabId;
+
+  if (decision.reason === "accepted-first") {
+    log("background", `Accepted first shared playback tab=${tabId}`);
+  } else if (decision.reason === "accepted-current") {
     log("background", `Accepted playback from shared tab=${tabId}`);
-    return true;
-  }
-  if (normalizedRoomUrl && normalizedPayloadUrl && normalizedRoomUrl === normalizedPayloadUrl) {
+  } else if (decision.reason === "room-mismatch") {
+    log("background", `Ignored playback from shared tab ${tabId} because url no longer matches room`);
+  } else if (decision.reason === "ignored-non-shared" && decision.nextSharedTabId !== null) {
     log("background", `Ignored playback from non-shared tab ${tabId}`);
   }
-  return false;
+
+  return decision.accepted;
 }
 
 async function ensureSharedVideoOpen(state: RoomState): Promise<void> {
@@ -822,89 +789,47 @@ async function openSharedVideoFromPopup(): Promise<void> {
 }
 
 function normalizeUrl(url: string | undefined | null): string | null {
-  return parseBilibiliVideoRef(url)?.normalizedUrl ?? null;
-}
-
-function parseBilibiliVideoRef(url: string | undefined | null): { videoId: string; normalizedUrl: string } | null {
-  if (!url) {
-    return null;
-  }
-
-  try {
-    const parsed = new URL(url);
-    const bvid = parsed.searchParams.get("bvid");
-    if (bvid) {
-      const cid = parsed.searchParams.get("cid");
-      const p = parsed.searchParams.get("p");
-      return {
-        videoId: cid ? `${bvid}:${cid}` : p ? `${bvid}:p${p}` : bvid,
-        normalizedUrl: cid
-          ? `https://www.bilibili.com/video/${bvid}?cid=${cid}`
-          : p
-            ? `https://www.bilibili.com/video/${bvid}?p=${p}`
-            : `https://www.bilibili.com/video/${bvid}`
-      };
-    }
-
-    const pathname = parsed.pathname.replace(/\/+$/, "");
-    const match = pathname.match(/^\/(?:video|bangumi\/play)\/([^/?]+)$/);
-    if (!match) {
-      if (pathname === "/list/watchlater" || pathname === "/medialist/play/watchlater") {
-        return null;
-      }
-      return null;
-    }
-
-    return {
-      videoId: parsed.searchParams.get("p") ? `${match[1]}:p${parsed.searchParams.get("p")}` : match[1],
-      normalizedUrl: parsed.searchParams.get("p")
-        ? `${parsed.origin}${pathname}?p=${parsed.searchParams.get("p")}`
-        : `${parsed.origin}${pathname}`
-    };
-  } catch {
-    return null;
-  }
+  return normalizeBilibiliUrl(url);
 }
 
 async function notifyContentScripts(message: BackgroundToContentMessage): Promise<void> {
-  const tabs = await chrome.tabs.query({ url: BILIBILI_VIDEO_URL_PATTERNS });
-  await Promise.all(
-    tabs
-      .filter((tab) => tab.id !== undefined)
-      .map(async (tab) => {
-        try {
-          await chrome.tabs.sendMessage(tab.id!, message);
-        } catch {
-          // Ignore tabs without a ready content script.
-        }
-      })
-  );
+  await notifyContentTabs(message, BILIBILI_VIDEO_URL_PATTERNS);
 }
 
 function popupState(): BackgroundToPopupMessage {
-  return {
-    type: "background:state",
-    payload: {
-      connected,
-      roomCode,
-      joinToken,
-      memberId,
-      roomState,
-      serverUrl,
-      error: lastError,
-      pendingCreateRoom,
-      pendingJoinRoomCode,
-      retryInMs: getRetryInMs(),
-      retryAttempt: reconnectAttempt,
-      retryAttemptMax: MAX_RECONNECT_ATTEMPTS,
-      clockOffsetMs,
-      rttMs,
-      logs
+  structuredState.connection.connected = connected;
+  structuredState.connection.serverUrl = serverUrl;
+  structuredState.connection.lastError = lastError;
+  structuredState.connection.reconnectAttempt = reconnectAttempt;
+  structuredState.room.roomCode = roomCode;
+  structuredState.room.joinToken = joinToken;
+  structuredState.room.memberId = memberId;
+  structuredState.room.roomState = roomState;
+  structuredState.room.pendingCreateRoom = pendingCreateRoom;
+  structuredState.room.pendingJoinRoomCode = pendingJoinRoomCode;
+  structuredState.clock.clockOffsetMs = clockOffsetMs;
+  structuredState.clock.rttMs = rttMs;
+  structuredState.diagnostics.logs = logs;
+  return createPopupStateSnapshot({
+    state: structuredState,
+    retryInMs: getRetryInMs(),
+    retryAttemptMax: MAX_RECONNECT_ATTEMPTS
+  });
+}
+
+function broadcastPopupState(): void {
+  const snapshot = popupState();
+  for (const port of popupPorts) {
+    try {
+      port.postMessage(snapshot);
+    } catch {
+      popupPorts.delete(port);
     }
-  };
+  }
 }
 
 function notifyAll(): void {
+  broadcastPopupState();
   void notifyContentScripts({
     type: "background:sync-status",
     payload: {
@@ -916,7 +841,14 @@ function notifyAll(): void {
 }
 
 async function persistState(): Promise<void> {
-  await saveState({ roomCode, joinToken, memberToken, memberId, displayName, roomState, serverUrl });
+  structuredState.connection.serverUrl = serverUrl;
+  structuredState.room.roomCode = roomCode;
+  structuredState.room.joinToken = joinToken;
+  structuredState.room.memberToken = memberToken;
+  structuredState.room.memberId = memberId;
+  structuredState.room.displayName = displayName;
+  structuredState.room.roomState = roomState;
+  await persistBackgroundState(structuredState);
 }
 
 function normalizeServerUrl(value: string): string {
@@ -1127,4 +1059,23 @@ chrome.runtime.onMessage.addListener((message: PopupToBackgroundMessage | Conten
   })();
 
   return true;
+});
+
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== "popup-state") {
+    return;
+  }
+
+  popupPorts.add(port);
+  port.postMessage({
+    type: "background:popup-connected",
+    payload: {
+      connectedAt: Date.now()
+    }
+  } satisfies BackgroundToPopupMessage);
+  port.postMessage(popupState());
+
+  port.onDisconnect.addListener(() => {
+    popupPorts.delete(port);
+  });
 });

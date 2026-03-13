@@ -50,6 +50,12 @@ export type BackgroundToPopupMessage =
         rttMs: number | null;
         logs: DebugLogEntry[];
       };
+    }
+  | {
+      type: "background:popup-connected";
+      payload: {
+        connectedAt: number;
+      };
     };
 
 export type BackgroundToContentMessage =

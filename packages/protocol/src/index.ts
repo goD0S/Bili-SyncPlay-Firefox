@@ -1,3 +1,5 @@
+export { normalizeBilibiliUrl, parseBilibiliVideoRef, type BilibiliVideoRef } from "./video-ref";
+
 export type RoomCode = string;
 export type PlaybackPlayState = "playing" | "paused" | "buffering";
 export type ErrorCode =

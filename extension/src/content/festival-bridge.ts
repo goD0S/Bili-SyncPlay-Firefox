@@ -1,0 +1,122 @@
+import type { SharedVideo } from "@bili-syncplay/protocol";
+import { buildFestivalShareUrl } from "./page-video";
+
+export interface FestivalSnapshot {
+  videoId: string;
+  url: string;
+  title: string;
+  updatedAt: number;
+}
+
+export interface FestivalBridgeController {
+  clearSnapshot: () => void;
+  getSnapshot: () => FestivalSnapshot | null;
+  refreshSnapshot: (args: { pathname: string; pageUrl: string; maxAgeMs: number }) => Promise<SharedVideo | null>;
+}
+
+export function createFestivalBridgeController(): FestivalBridgeController {
+  let festivalBridgeReady = false;
+  let festivalSnapshot: FestivalSnapshot | null = null;
+
+  async function readFestivalSnapshotFromPageContext(pageUrl: string): Promise<SharedVideo | null> {
+    ensureFestivalBridge();
+    const requestId = `bili-syncplay-festival-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+    return await new Promise<SharedVideo | null>((resolve) => {
+      const timeoutId = window.setTimeout(() => {
+        cleanup();
+        resolve(null);
+      }, 800);
+
+      const cleanup = () => {
+        window.clearTimeout(timeoutId);
+        window.removeEventListener("message", onSnapshot as EventListener);
+      };
+
+      const onSnapshot = (event: Event) => {
+        const messageEvent = event as MessageEvent<{
+          type?: string;
+          requestId?: string;
+          detail?: {
+            bvid?: string;
+            cid?: string | number;
+            title?: string;
+          };
+        }>;
+        if (messageEvent.source !== window) {
+          return;
+        }
+        if (messageEvent.data?.type !== "bili-syncplay:festival-video" || messageEvent.data.requestId !== requestId) {
+          return;
+        }
+        const detail = messageEvent.data.detail;
+        cleanup();
+
+        if (!detail?.bvid || detail.cid === undefined || !detail.title) {
+          resolve(null);
+          return;
+        }
+
+        resolve({
+          videoId: `${detail.bvid}:${detail.cid}`,
+          url: buildFestivalShareUrl(pageUrl, detail.bvid, String(detail.cid)),
+          title: detail.title.trim()
+        });
+      };
+
+      window.addEventListener("message", onSnapshot as EventListener);
+      window.postMessage({ type: "bili-syncplay:get-festival-video", requestId }, "*");
+    });
+  }
+
+  function ensureFestivalBridge(): void {
+    if (festivalBridgeReady) {
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.src = chrome.runtime.getURL("page-bridge.js");
+    script.async = false;
+    script.dataset.biliSyncplayBridge = "true";
+    (document.head || document.documentElement).appendChild(script);
+    festivalBridgeReady = true;
+  }
+
+  return {
+    clearSnapshot: () => {
+      festivalSnapshot = null;
+    },
+    getSnapshot: () => festivalSnapshot,
+    refreshSnapshot: async ({ pathname, pageUrl, maxAgeMs }) => {
+      if (!pathname.startsWith("/festival/")) {
+        festivalSnapshot = null;
+        return null;
+      }
+
+      if (festivalSnapshot && Date.now() - festivalSnapshot.updatedAt < maxAgeMs) {
+        return {
+          videoId: festivalSnapshot.videoId,
+          url: festivalSnapshot.url,
+          title: festivalSnapshot.title
+        };
+      }
+
+      const nextSnapshot = await readFestivalSnapshotFromPageContext(pageUrl);
+      if (!nextSnapshot) {
+        return festivalSnapshot
+          ? {
+              videoId: festivalSnapshot.videoId,
+              url: festivalSnapshot.url,
+              title: festivalSnapshot.title
+            }
+          : null;
+      }
+
+      festivalSnapshot = {
+        ...nextSnapshot,
+        updatedAt: Date.now()
+      };
+      return nextSnapshot;
+    }
+  };
+}
