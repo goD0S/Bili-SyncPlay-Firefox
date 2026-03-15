@@ -140,6 +140,7 @@ node -e "const { createHash } = require('node:crypto'); const password = 'secret
 - 审计日志
 - 配置摘要
 - 关房、过期、清空共享视频、踢人、断开会话等现有管理动作
+- 被踢成员会被临时阻止使用旧 `memberToken` 立即自动重连
 
 ## 开发参考
 
@@ -340,6 +341,10 @@ node -e "const { createHash } = require('node:crypto'); console.log('sha256:' + 
 - `viewer`：只读访问概览、房间、事件、审计日志、配置摘要
 - `operator`：在 `viewer` 基础上可执行房间和会话管理动作
 - `admin`：当前能力与 `operator` 基本一致，为后续更高权限治理能力预留扩展位
+
+动作语义说明：
+- `踢出成员` 会断开当前成员会话，并临时阻止客户端拿旧 `memberToken` 立即自动重连
+- `断开会话` 只关闭指定 socket；如果客户端仍持有有效房间上下文，后续仍可正常重新加入
 
 当前已实现接口：
 - `GET /metrics`

@@ -186,6 +186,7 @@ export async function createSyncServer(
     getRoomStateByCode: (roomCode) => roomService.getRoomStateByCode(roomCode),
     broadcastRoomState,
     disconnectSessionSocket,
+    blockMemberToken: (roomCode, memberToken, expiresAt) => activeRooms.blockMemberToken(roomCode, memberToken, expiresAt),
     logEvent,
     now
   });

@@ -338,6 +338,19 @@ export function createRoomService(options: {
           throw new RoomServiceError("join_token_invalid", "加入码无效。", "join_token_invalid");
         }
 
+        if (previousMemberToken && activeRooms.isMemberTokenBlocked(roomCode, previousMemberToken, now())) {
+          logEvent("auth_failed", {
+            sessionId: session.id,
+            roomCode,
+            remoteAddress: session.remoteAddress,
+            origin: session.origin,
+            messageType: "room:join",
+            result: "rejected",
+            reason: "member_kicked"
+          });
+          throw new RoomServiceError("join_token_invalid", "你已被管理员移出房间，请重新加入。", "join_token_invalid");
+        }
+
         const activeRoom = activeRooms.getRoom(roomCode);
         const reconnectMemberId =
           previousMemberToken && activeRoom ? activeRooms.findMemberIdByToken(roomCode, previousMemberToken) : null;

@@ -323,6 +323,7 @@ test("operator can execute admin actions and query audit logs", async () => {
 
       const joiner = await connectClient(server.wsUrl);
       const joinerCollector = createMessageCollector(joiner);
+      let kickedMemberToken = "";
       try {
         joiner.send(
           JSON.stringify({
@@ -335,6 +336,7 @@ test("operator can execute admin actions and query audit logs", async () => {
           })
         );
         const joined = await joinerCollector.next("room:joined");
+        kickedMemberToken = (joined.payload as { memberToken: string }).memberToken;
         await joinerCollector.next("room:state");
         await ownerCollector.next("room:state");
 
@@ -347,6 +349,29 @@ test("operator can execute admin actions and query audit logs", async () => {
         await once(joiner, "close");
       } finally {
         await closeClient(joiner);
+      }
+
+      const reconnectingJoiner = await connectClient(server.wsUrl);
+      const reconnectCollector = createMessageCollector(reconnectingJoiner);
+      try {
+        reconnectingJoiner.send(
+          JSON.stringify({
+            type: "room:join",
+            payload: {
+              roomCode,
+              joinToken: (created.payload as { joinToken: string }).joinToken,
+              memberToken: kickedMemberToken,
+              displayName: "Bob"
+            }
+          })
+        );
+        const kickedError = await reconnectCollector.next("error");
+        assert.deepEqual(kickedError.payload, {
+          code: "join_token_invalid",
+          message: "你已被管理员移出房间，请重新加入。"
+        });
+      } finally {
+        await closeClient(reconnectingJoiner);
       }
 
       const detail = await requestJson(server.httpBaseUrl, `/api/admin/rooms/${roomCode}`, { token });

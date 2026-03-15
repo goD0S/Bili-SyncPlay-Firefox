@@ -140,6 +140,7 @@ After login, the current UI includes:
 - audit logs
 - config summary
 - existing admin actions such as close room, expire room, clear shared video, kick member, and disconnect session
+- kicked members are temporarily blocked from immediately rejoining with their previous `memberToken`
 
 ## Developer Reference
 
@@ -340,6 +341,10 @@ Role model:
 - `viewer`: read-only access to overview, rooms, events, audit logs, and config
 - `operator`: viewer permissions plus room/session actions
 - `admin`: currently equivalent to operator, with headroom for future governance features
+
+Action behavior notes:
+- `kick member` disconnects the current member session and temporarily blocks immediate auto rejoin attempts that reuse the old `memberToken`
+- `disconnect session` only closes the specified socket; if the client still holds valid room context, it may join again normally
 
 Implemented endpoints:
 - `GET /metrics`

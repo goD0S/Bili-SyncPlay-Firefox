@@ -4,6 +4,8 @@ import type { RuntimeRegistry } from "./runtime-registry.js";
 import type { LogEvent, PersistedRoom, Session } from "../types.js";
 import type { RoomStore, RoomUpdateResult } from "../room-store.js";
 
+const KICK_REJOIN_BLOCK_MS = 60_000;
+
 export class AdminActionError extends Error {
   constructor(
     readonly statusCode: number,
@@ -22,6 +24,7 @@ export function createAdminActionService(options: {
   getRoomStateByCode: (roomCode: string) => Promise<unknown | null>;
   broadcastRoomState: (roomCode: string) => Promise<void>;
   disconnectSessionSocket: (session: Session, reason: string) => void;
+  blockMemberToken: (roomCode: string, memberToken: string, expiresAt: number) => void;
   logEvent: LogEvent;
   now?: () => number;
 }) {
@@ -149,6 +152,9 @@ export function createAdminActionService(options: {
       const session = options.runtimeRegistry.listSessionsByRoom(roomCode).find((entry) => entry.memberId === memberId);
       if (!session) {
         throw new AdminActionError(404, "member_not_found", "成员不存在。");
+      }
+      if (session.memberToken) {
+        options.blockMemberToken(roomCode, session.memberToken, now() + KICK_REJOIN_BLOCK_MS);
       }
       options.disconnectSessionSocket(session, "Admin kicked member");
       options.logEvent("admin_member_kicked", {
