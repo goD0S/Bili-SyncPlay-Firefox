@@ -173,6 +173,56 @@ function renderResultBadge(value) {
   return `<span class="status ${tone}">${escapeHtml(value || "—")}</span>`
 }
 
+function classifyOrigin(value) {
+  if (!value) {
+    return { label: "", tone: "neutral" }
+  }
+
+  if (value.startsWith("chrome-extension://")) {
+    return { label: "扩展", tone: "extension" }
+  }
+
+  if (value.startsWith("https://")) {
+    return { label: "HTTPS", tone: "web" }
+  }
+
+  if (value.startsWith("http://")) {
+    return { label: "HTTP", tone: "web" }
+  }
+
+  return { label: "其他", tone: "neutral" }
+}
+
+function renderCompactCode(value, copyLabel = "复制") {
+  if (!value) {
+    return renderEmptyValue()
+  }
+
+  return `
+    <div class="compact-stack">
+      <span class="code compact-code" title="${escapeHtml(value)}">${escapeHtml(value)}</span>
+      <button class="button link" type="button" data-copy="${escapeHtml(value)}">${copyLabel}</button>
+    </div>
+  `
+}
+
+function renderOriginValue(value) {
+  if (!value) {
+    return renderEmptyValue()
+  }
+
+  const originMeta = classifyOrigin(value)
+  return `
+    <div class="origin-stack">
+      <div class="origin-meta">
+        <span class="origin-badge ${escapeHtml(originMeta.tone)}">${escapeHtml(originMeta.label)}</span>
+      </div>
+      <span class="code origin-value" title="${escapeHtml(value)}">${escapeHtml(value)}</span>
+      <button class="button link" type="button" data-copy="${escapeHtml(value)}">复制</button>
+    </div>
+  `
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -195,13 +245,17 @@ function serializeQuery(query) {
   return raw ? `?${raw}` : ""
 }
 
-async function withAction(action, successMessage) {
+async function withAction(action, successMessage, onSuccess) {
   try {
     const result = await action()
     if (successMessage) {
       showNotice("success", successMessage)
     }
-    await render()
+    if (typeof onSuccess === "function") {
+      await onSuccess(result)
+    } else {
+      await render()
+    }
     return result
   } catch (error) {
     showNotice("error", error.message || "操作失败。")
@@ -279,7 +333,7 @@ async function confirmAction(config) {
   if (!result) {
     return
   }
-  await withAction(() => config.onConfirm(result.reason), config.successMessage)
+  await withAction(() => config.onConfirm(result.reason), config.successMessage, config.onSuccess)
 }
 
 function handleFatalRenderError(error) {
@@ -777,7 +831,14 @@ function bindRoomActionButtons(onDone) {
           description: "这会断开该房间全部在线成员，并删除房间数据。",
           confirmLabel: "确认关闭",
           successMessage: `房间 ${roomCode} 已关闭。`,
-          onConfirm: (reason) => api.closeRoom(roomCode, reason)
+          onConfirm: (reason) => api.closeRoom(roomCode, reason),
+          onSuccess: () => {
+            if (state.currentRoute === `/rooms/${roomCode}`) {
+              navigate("/rooms", true)
+              return
+            }
+            render().catch(handleFatalRenderError)
+          }
         },
         expire: {
           title: `提前过期房间 ${roomCode}`,
@@ -889,7 +950,7 @@ async function renderRoomDetailPage(roomCode) {
                       <td><div class="copy-stack"><span class="code">${escapeHtml(member.sessionId)}</span><button class="button link" type="button" data-copy="${escapeHtml(member.sessionId)}">复制</button></div></td>
                       <td>${formatDateTime(member.joinedAt)}</td>
                       <td>${member.remoteAddress ? `<div class="copy-stack"><span class="code">${escapeHtml(member.remoteAddress)}</span><button class="button link" type="button" data-copy="${escapeHtml(member.remoteAddress)}">复制</button></div>` : renderEmptyValue()}</td>
-                      <td>${member.origin ? escapeHtml(member.origin) : renderEmptyValue()}</td>
+                      <td>${renderOriginValue(member.origin)}</td>
                       <td>${memberActionButtons(roomCode, member)}</td>
                     </tr>
                   `).join("")}
@@ -1029,7 +1090,7 @@ async function renderEventsPage() {
         ${textField("roomCode", "房间号", query.roomCode)}
         ${textField("sessionId", "会话 ID", query.sessionId)}
         ${textField("remoteAddress", "远端地址", query.remoteAddress)}
-        ${textField("origin", "Origin", query.origin)}
+        ${textField("origin", "来源 Origin", query.origin)}
         ${textField("result", "结果", query.result)}
         ${textField("from", "开始时间戳(ms)", query.from, "number")}
         ${textField("to", "结束时间戳(ms)", query.to, "number")}
@@ -1040,14 +1101,14 @@ async function renderEventsPage() {
           <td>${formatDateTime(item.timestamp)}</td>
           <td>${escapeHtml(item.event)}</td>
           <td>${item.roomCode ? escapeHtml(item.roomCode) : renderEmptyValue()}</td>
-          <td>${item.sessionId ? `<span class="code">${escapeHtml(item.sessionId)}</span>` : renderEmptyValue()}</td>
-          <td>${item.remoteAddress ? `<span class="code">${escapeHtml(item.remoteAddress)}</span>` : renderEmptyValue()}</td>
-          <td>${item.origin ? escapeHtml(item.origin) : renderEmptyValue()}</td>
+          <td>${renderCompactCode(item.sessionId)}</td>
+          <td>${renderCompactCode(item.remoteAddress)}</td>
+          <td>${renderOriginValue(item.origin)}</td>
           <td>${item.result ? renderResultBadge(item.result) : renderEmptyValue()}</td>
           <td><button class="button link" type="button" data-view-json='${escapeHtml(JSON.stringify(item.details))}'>查看 JSON</button></td>
         </tr>
       `).join(""),
-      headers: "<th>时间</th><th>事件名</th><th>房间号</th><th>会话 ID</th><th>远端地址</th><th>Origin</th><th>结果</th><th>详情</th>",
+      headers: "<th>时间</th><th>事件名</th><th>房间号</th><th>会话 ID</th><th>远端地址</th><th>来源 Origin</th><th>结果</th><th>详情</th>",
       data,
       query,
       basePath: "/events",
