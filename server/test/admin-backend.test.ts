@@ -149,6 +149,15 @@ test("admin endpoints support auth, overview, rooms, and events without breaking
   const server = await startAdminServer();
 
   try {
+    const adminHtml = await fetch(`${server.httpBaseUrl}/admin`);
+    assert.equal(adminHtml.status, 200);
+    assert.equal(adminHtml.headers.get("content-type")?.includes("text/html"), true);
+    assert.equal((await adminHtml.text()).includes("/admin/app.js"), true);
+
+    const adminAsset = await fetch(`${server.httpBaseUrl}/admin/app.js`);
+    assert.equal(adminAsset.status, 200);
+    assert.equal(adminAsset.headers.get("content-type")?.includes("text/javascript"), true);
+
     const root = await requestJson(server.httpBaseUrl, "/");
     assert.equal(root.status, 200);
     assert.equal(root.body.ok, true);

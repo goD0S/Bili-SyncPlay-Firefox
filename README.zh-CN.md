@@ -96,6 +96,51 @@ ws://localhost:8787
 5. 其他房间成员会打开同一视频并进入同步模式
 6. 如果成员在仍处于房间时浏览到其他未共享视频页面，该页面会保持本地模式，除非他们显式再次同步，否则不会影响房间
 
+### 打开管理控制面板
+
+如果你要在本地使用后台页面，需要先带上管理认证配置启动服务端，然后访问：
+
+```text
+http://localhost:8787/admin
+```
+
+PowerShell 示例：
+
+```powershell
+$env:ADMIN_USERNAME="admin"
+$env:ADMIN_PASSWORD_HASH="sha256:<hex-password-hash>"
+$env:ADMIN_SESSION_SECRET="<random-secret>"
+$env:ADMIN_ROLE="admin"
+npm run dev:server
+```
+
+本地生成 `sha256:<hex>` 密码哈希：
+
+PowerShell：
+
+```powershell
+$password = "secret-123"
+$bytes = [System.Text.Encoding]::UTF8.GetBytes($password)
+$hash = [System.BitConverter]::ToString(
+  [System.Security.Cryptography.SHA256]::Create().ComputeHash($bytes)
+).Replace("-", "").ToLower()
+"sha256:$hash"
+```
+
+Node.js：
+
+```bash
+node -e "const { createHash } = require('node:crypto'); const password = 'secret-123'; console.log('sha256:' + createHash('sha256').update(password).digest('hex'));"
+```
+
+当前后台页面已经覆盖：
+- 概览
+- 房间列表和房间详情
+- 运行事件
+- 审计日志
+- 配置摘要
+- 关房、过期、清空共享视频、踢人、断开会话等现有管理动作
+
 ## 开发参考
 
 ### 本地开发
@@ -216,7 +261,7 @@ wss://sync.example.com
 - 仅监听 `PORT`，默认值为 `8787`
 - 在同一个端口上同时提供 WebSocket 流量和简单健康检查
 - 对 `GET /` 返回 `{"ok":true,"service":"bili-syncplay-server"}`
-- 在同一个端口上暴露管理后台只读接口：`/healthz`、`/readyz`、`/api/admin/*`
+- 在同一个端口上暴露管理控制面板和后台接口：`/admin`、`/healthz`、`/readyz`、`/api/admin/*`
 - 支持 `memory` 和 `redis` 两种房间存储实现
 - 当 `ROOM_STORE_PROVIDER=redis` 时会持久化房间基础状态
 - 房间加入需要 `roomCode + joinToken`，房间消息需要 `memberToken`
@@ -276,9 +321,25 @@ ADMIN_SESSION_TTL_MS=43200000 \
 node server/dist/index.js
 ```
 
+快速生成后台密码哈希：
+
+```bash
+node -e "const { createHash } = require('node:crypto'); console.log('sha256:' + createHash('sha256').update('secret-123').digest('hex'));"
+```
+
 ### 管理后台 API
 
 服务端现在已经内置 P0 管理后台，只读接口与主服务复用同一个 HTTP 端口。
+
+管理控制面板入口：
+- 打开 `http://localhost:8787/admin`
+- 使用 `ADMIN_USERNAME`、`ADMIN_PASSWORD_HASH`、`ADMIN_SESSION_SECRET`、`ADMIN_ROLE` 配置的账号登录
+- 页面已覆盖登录、概览、房间列表、房间详情、运行事件、审计日志、配置摘要，以及现有管理动作
+
+角色模型：
+- `viewer`：只读访问概览、房间、事件、审计日志、配置摘要
+- `operator`：在 `viewer` 基础上可执行房间和会话管理动作
+- `admin`：当前能力与 `operator` 基本一致，为后续更高权限治理能力预留扩展位
 
 当前已实现接口：
 - `GET /metrics`
@@ -537,7 +598,7 @@ npm run build -w @bili-syncplay/server
 - `memberToken` 是会话态，不会从持久层恢复；重连或重启后都需要重新加入并重新签发。
 - 握手阶段的 Origin 检查默认拒绝，除非你在开发环境中显式允许缺失 `Origin`。
 - 只有在 `TRUST_PROXY_HEADERS=true` 时才会读取 `X-Forwarded-For`。
-- 健康检查现已同时提供 `GET /` 与 `GET /healthz`；就绪检查为 `GET /readyz`。
+- 健康检查同时提供 `GET /` 与 `GET /healthz`；就绪检查为 `GET /readyz`。
 - 如果你使用云防火墙，请放行入站 `80` 和 `443`，并将 `8787` 仅暴露给 localhost。
 - 如果你不想使用 Nginx，也可以直接暴露 Node 服务，但浏览器和扩展仍应通过带有效 TLS 证书的 `wss://` 连接。
 - 当 `ROOM_STORE_PROVIDER=redis` 时，房间基础状态可在多个服务实例之间共享。

@@ -6,6 +6,7 @@ import { createAdminActionService } from "./admin/action-service.js";
 import { createAuditLogService } from "./admin/audit-log.js";
 import { createInMemoryAuthStore } from "./admin/auth-store.js";
 import { createAdminAuthService } from "./admin/auth-service.js";
+import { tryHandleAdminPanel } from "./admin-panel.js";
 import { createAdminConfigService } from "./admin/config-service.js";
 import { createEventStore } from "./admin/event-store.js";
 import { createMetricsService } from "./admin/metrics.js";
@@ -213,8 +214,13 @@ export async function createSyncServer(
       if (handled) {
         return;
       }
-      response.writeHead(200, { "content-type": "application/json" });
-      response.end(JSON.stringify({ ok: true, service: "bili-syncplay-server" }));
+      void tryHandleAdminPanel(request, response).then((adminPanelHandled) => {
+        if (adminPanelHandled) {
+          return;
+        }
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify({ ok: true, service: "bili-syncplay-server" }));
+      });
     });
   });
 

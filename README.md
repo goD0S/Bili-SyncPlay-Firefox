@@ -96,6 +96,51 @@ ws://localhost:8787
 5. Other room members will open the same video and enter sync mode
 6. If a member browses to a different non-shared video while still in the room, that page stays local and does not affect the room unless they explicitly sync it
 
+### Open the Admin Control Panel
+
+To use the management UI locally, start the server with admin auth configured and then open:
+
+```text
+http://localhost:8787/admin
+```
+
+PowerShell example:
+
+```powershell
+$env:ADMIN_USERNAME="admin"
+$env:ADMIN_PASSWORD_HASH="sha256:<hex-password-hash>"
+$env:ADMIN_SESSION_SECRET="<random-secret>"
+$env:ADMIN_ROLE="admin"
+npm run dev:server
+```
+
+Generate a `sha256:<hex>` password hash locally:
+
+PowerShell:
+
+```powershell
+$password = "secret-123"
+$bytes = [System.Text.Encoding]::UTF8.GetBytes($password)
+$hash = [System.BitConverter]::ToString(
+  [System.Security.Cryptography.SHA256]::Create().ComputeHash($bytes)
+).Replace("-", "").ToLower()
+"sha256:$hash"
+```
+
+Node.js:
+
+```bash
+node -e "const { createHash } = require('node:crypto'); const password = 'secret-123'; console.log('sha256:' + createHash('sha256').update(password).digest('hex'));"
+```
+
+After login, the current UI includes:
+- overview
+- room list and room detail
+- runtime events
+- audit logs
+- config summary
+- existing admin actions such as close room, expire room, clear shared video, kick member, and disconnect session
+
 ## Developer Reference
 
 ### Local Development
@@ -216,7 +261,7 @@ The current server implementation:
 - listens on `PORT` only, defaulting to `8787`
 - serves WebSocket traffic and a simple health check on the same port
 - returns `{"ok":true,"service":"bili-syncplay-server"}` on `GET /`
-- exposes admin read-only APIs on the same port: `/healthz`, `/readyz`, `/api/admin/*`
+- exposes the admin control panel and APIs on the same port: `/admin`, `/healthz`, `/readyz`, `/api/admin/*`
 - supports `memory` and `redis` room storage providers
 - persists room base state when `ROOM_STORE_PROVIDER=redis`
 - requires `roomCode + joinToken` for room join and `memberToken` for room messages
@@ -276,9 +321,25 @@ ADMIN_SESSION_TTL_MS=43200000 \
 node server/dist/index.js
 ```
 
+Quick admin hash example:
+
+```bash
+node -e "const { createHash } = require('node:crypto'); console.log('sha256:' + createHash('sha256').update('secret-123').digest('hex'));"
+```
+
 ### Admin API
 
 The server now includes a P0 admin backend on the same HTTP port.
+
+Admin control panel:
+- open `http://localhost:8787/admin`
+- authenticate with the account configured by `ADMIN_USERNAME`, `ADMIN_PASSWORD_HASH`, `ADMIN_SESSION_SECRET`, and `ADMIN_ROLE`
+- the UI covers login, overview, rooms, room detail, events, audit logs, config summary, and the existing admin actions
+
+Role model:
+- `viewer`: read-only access to overview, rooms, events, audit logs, and config
+- `operator`: viewer permissions plus room/session actions
+- `admin`: currently equivalent to operator, with headroom for future governance features
 
 Implemented endpoints:
 - `GET /metrics`
@@ -537,7 +598,7 @@ npm run build -w @bili-syncplay/server
 - `memberToken` is session-bound, never restored from persistence, and is re-issued after reconnect or restart.
 - Handshake origin checks are deny-by-default unless you explicitly allow missing `Origin` in development.
 - `X-Forwarded-For` is ignored unless `TRUST_PROXY_HEADERS=true`.
-- The health check is `GET /`; there is no separate `/healthz` route right now.
+- Health checks are available on both `GET /` and `GET /healthz`; readiness is `GET /readyz`.
 - If you use a cloud firewall, allow inbound `80` and `443`, but keep `8787` private to localhost.
 - If you do not want Nginx, you can expose Node directly, but browsers and extensions should still connect over `wss://` with a valid TLS certificate.
 - With `ROOM_STORE_PROVIDER=redis`, persisted room base state is shared across server instances.
