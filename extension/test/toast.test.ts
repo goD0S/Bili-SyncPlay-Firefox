@@ -51,6 +51,32 @@ test("builds member join and leave toast messages", () => {
   assert.deepEqual(result.messages, ["Bob 加入了房间", "Alice 离开了房间"]);
 });
 
+test("keeps member join toasts during initial hydration", () => {
+  const previousState = createRoomState({
+    members: [{ id: "self", name: "Me" }],
+    sharedUrl: "https://www.bilibili.com/video/BV1?p=1"
+  });
+  const nextState = createRoomState({
+    members: [
+      { id: "self", name: "Me" },
+      { id: "remote", name: "Alice" }
+    ],
+    sharedUrl: "https://www.bilibili.com/video/BV1?p=1"
+  });
+
+  const result = getRoomStateToastMessages({
+    previousState,
+    nextState,
+    localMemberId: "self",
+    pendingRoomStateHydration: true,
+    isCurrentPageShowingSharedVideo: true,
+    now: 1000,
+    lastSeekToastByActor: new Map()
+  });
+
+  assert.deepEqual(result.messages, ["Alice 加入了房间"]);
+});
+
 test("builds seek and rate toast messages for remote playback changes", () => {
   const previousState = createRoomState({
     members: [

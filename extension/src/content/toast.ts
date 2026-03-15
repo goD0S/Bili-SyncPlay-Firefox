@@ -157,12 +157,7 @@ export function getRoomStateToastMessages(args: {
   const messages: string[] = [];
   const nextSeekToastByActor = new Map(args.lastSeekToastByActor);
 
-  if (
-    !args.localMemberId ||
-    !args.previousState ||
-    args.previousState.roomCode !== args.nextState.roomCode ||
-    args.pendingRoomStateHydration
-  ) {
+  if (!args.localMemberId || !args.previousState || args.previousState.roomCode !== args.nextState.roomCode) {
     return { messages, nextSeekToastByActor };
   }
 
@@ -182,7 +177,7 @@ export function getRoomStateToastMessages(args: {
     }
   }
 
-  if (sharedVideoChanged || !args.isCurrentPageShowingSharedVideo) {
+  if (args.pendingRoomStateHydration || sharedVideoChanged || !args.isCurrentPageShowingSharedVideo) {
     return { messages, nextSeekToastByActor };
   }
 
