@@ -1,13 +1,16 @@
 import type { LogEvent } from "./types.js";
+import type { EventStore } from "./admin/event-store.js";
+import type { RuntimeRegistry } from "./admin/runtime-registry.js";
 
-export function createStructuredLogger(writeLine?: (line: string) => void): LogEvent {
+export function createStructuredLogger(
+  writeLine?: (line: string) => void,
+  eventStore?: EventStore,
+  runtimeRegistry?: RuntimeRegistry
+): LogEvent {
   return (event, data) => {
-    (writeLine ?? console.log)(
-      JSON.stringify({
-        event,
-        timestamp: new Date().toISOString(),
-        ...data
-      })
-    );
+    const timestamp = new Date().toISOString();
+    (writeLine ?? console.log)(JSON.stringify({ event, timestamp, ...data }));
+    eventStore?.append({ event, timestamp, data });
+    runtimeRegistry?.recordEvent(event, Date.parse(timestamp));
   };
 }

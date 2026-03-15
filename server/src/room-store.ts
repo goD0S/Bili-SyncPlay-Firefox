@@ -1,4 +1,5 @@
 import type { PlaybackState, SharedVideo } from "@bili-syncplay/protocol";
+import type { RoomListQuery } from "./admin/types.js";
 import type { ActiveRoom, PersistedRoom, RoomStoreRoomState } from "./types.js";
 
 const ROOM_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -27,6 +28,9 @@ export type RoomStore = {
   updateRoom: (code: string, expectedVersion: number, patch: PersistedRoomPatch) => Promise<RoomUpdateResult>;
   deleteRoom: (code: string) => Promise<void>;
   deleteExpiredRooms: (now: number) => Promise<number>;
+  listRooms: (query: Pick<RoomListQuery, "keyword" | "includeExpired" | "page" | "pageSize" | "sortBy" | "sortOrder">) => Promise<PersistedRoom[]>;
+  countRooms: (query: Pick<RoomListQuery, "keyword" | "includeExpired">) => Promise<number>;
+  isReady: () => Promise<boolean>;
 };
 
 type CreateInMemoryRoomStoreOptions = {
@@ -61,6 +65,25 @@ export function createPersistedRoom(input: CreatePersistedRoomInput): PersistedR
 export function createInMemoryRoomStore(options: CreateInMemoryRoomStoreOptions = {}): RoomStore {
   const rooms = new Map<string, PersistedRoom>();
   const now = options.now ?? Date.now;
+
+  function matchesQuery(room: PersistedRoom, query: Pick<RoomListQuery, "keyword" | "includeExpired">): boolean {
+    if (!query.includeExpired && room.expiresAt !== null && room.expiresAt <= now()) {
+      return false;
+    }
+    if (query.keyword && !room.code.toLowerCase().includes(query.keyword.toLowerCase())) {
+      return false;
+    }
+    return true;
+  }
+
+  function sortRooms(
+    left: PersistedRoom,
+    right: PersistedRoom,
+    query: Pick<RoomListQuery, "sortBy" | "sortOrder">
+  ): number {
+    const factor = query.sortOrder === "asc" ? 1 : -1;
+    return (left[query.sortBy] - right[query.sortBy]) * factor;
+  }
 
   return {
     async createRoom(input): Promise<PersistedRoom> {
@@ -111,6 +134,19 @@ export function createInMemoryRoomStore(options: CreateInMemoryRoomStoreOptions 
         }
       }
       return deletedCount;
+    },
+    async listRooms(query) {
+      const items = Array.from(rooms.values())
+        .filter((room) => matchesQuery(room, query))
+        .sort((left, right) => sortRooms(left, right, query));
+      const start = (query.page - 1) * query.pageSize;
+      return items.slice(start, start + query.pageSize).map(cloneRoom);
+    },
+    async countRooms(query) {
+      return Array.from(rooms.values()).filter((room) => matchesQuery(room, query)).length;
+    },
+    async isReady() {
+      return true;
     }
   };
 }

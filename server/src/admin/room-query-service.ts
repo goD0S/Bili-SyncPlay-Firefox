@@ -1,0 +1,87 @@
+import type { EventStore } from "./event-store.js";
+import type { RuntimeRegistry } from "./runtime-registry.js";
+import type { RoomDetail, RoomListQuery, RoomSummary } from "./types.js";
+import type { PersistedRoom, Session } from "../types.js";
+import type { RoomStore } from "../room-store.js";
+
+function toSummary(room: PersistedRoom, activeSessions: Session[]): RoomSummary {
+  return {
+    roomCode: room.code,
+    createdAt: room.createdAt,
+    lastActiveAt: room.lastActiveAt,
+    expiresAt: room.expiresAt,
+    sharedVideo: room.sharedVideo,
+    playback: room.playback,
+    memberCount: activeSessions.length,
+    isActive: activeSessions.length > 0
+  };
+}
+
+export function createAdminRoomQueryService(options: {
+  roomStore: RoomStore;
+  runtimeRegistry: RuntimeRegistry;
+  eventStore: EventStore;
+}) {
+  function filterByStatus(items: PersistedRoom[], status: RoomListQuery["status"]): PersistedRoom[] {
+    if (status === "all") {
+      return items;
+    }
+    return items.filter((room) => {
+      const isActive = options.runtimeRegistry.listSessionsByRoom(room.code).length > 0;
+      return status === "active" ? isActive : !isActive;
+    });
+  }
+
+  return {
+    async listRooms(query: RoomListQuery) {
+      const baseRooms =
+        query.status === "all"
+          ? await options.roomStore.listRooms(query)
+          : filterByStatus(
+              await options.roomStore.listRooms({
+                ...query,
+                page: 1,
+                pageSize: Number.MAX_SAFE_INTEGER
+              }),
+              query.status
+            );
+
+      const total = query.status === "all" ? await options.roomStore.countRooms(query) : baseRooms.length;
+      const start = query.status === "all" ? 0 : (query.page - 1) * query.pageSize;
+      const selected = query.status === "all" ? baseRooms : baseRooms.slice(start, start + query.pageSize);
+
+      return {
+        items: selected.map((room) => toSummary(room, options.runtimeRegistry.listSessionsByRoom(room.code))),
+        pagination: {
+          page: query.page,
+          pageSize: query.pageSize,
+          total
+        }
+      };
+    },
+    async getRoomDetail(roomCode: string): Promise<RoomDetail | null> {
+      const room = await options.roomStore.getRoom(roomCode);
+      if (!room) {
+        return null;
+      }
+
+      const sessions = options.runtimeRegistry.listSessionsByRoom(roomCode);
+      return {
+        room: toSummary(room, sessions),
+        members: sessions.map((session) => ({
+          sessionId: session.id,
+          memberId: session.memberId ?? session.id,
+          displayName: session.displayName,
+          joinedAt: session.joinedAt,
+          remoteAddress: session.remoteAddress,
+          origin: session.origin
+        })),
+        recentEvents: options.eventStore.query({
+          roomCode,
+          page: 1,
+          pageSize: 20
+        }).items
+      };
+    }
+  };
+}

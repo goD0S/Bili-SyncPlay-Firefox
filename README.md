@@ -216,6 +216,7 @@ The current server implementation:
 - listens on `PORT` only, defaulting to `8787`
 - serves WebSocket traffic and a simple health check on the same port
 - returns `{"ok":true,"service":"bili-syncplay-server"}` on `GET /`
+- exposes admin read-only APIs on the same port: `/healthz`, `/readyz`, `/api/admin/*`
 - supports `memory` and `redis` room storage providers
 - persists room base state when `ROOM_STORE_PROVIDER=redis`
 - requires `roomCode + joinToken` for room join and `memberToken` for room messages
@@ -240,6 +241,11 @@ The server accepts the following environment variables. Safe defaults are built 
 - `EMPTY_ROOM_TTL_MS`: how long an empty room is retained before deletion
 - `ROOM_CLEANUP_INTERVAL_MS`: how often the server deletes expired rooms
 - `REDIS_URL`: Redis connection URL when `ROOM_STORE_PROVIDER=redis`
+- `ADMIN_USERNAME`: admin login username
+- `ADMIN_PASSWORD_HASH`: admin password hash, currently supports `sha256:<hex>` or `scrypt:<salt>:<base64url>`
+- `ADMIN_SESSION_SECRET`: secret used to bind bearer tokens to server-side sessions
+- `ADMIN_SESSION_TTL_MS`: admin session lifetime in milliseconds
+- `ADMIN_ROLE`: admin role, one of `viewer`, `operator`, `admin`
 - `RATE_LIMIT_ROOM_CREATE_PER_MINUTE`
 - `RATE_LIMIT_ROOM_JOIN_PER_MINUTE`
 - `RATE_LIMIT_VIDEO_SHARE_PER_10_SECONDS`
@@ -263,8 +269,32 @@ MAX_CONNECTIONS_PER_IP=10 \
 CONNECTION_ATTEMPTS_PER_MINUTE=20 \
 MAX_MEMBERS_PER_ROOM=8 \
 MAX_MESSAGE_BYTES=8192 \
+ADMIN_USERNAME=admin \
+ADMIN_PASSWORD_HASH=sha256:<hex-password-hash> \
+ADMIN_SESSION_SECRET=<random-secret> \
+ADMIN_SESSION_TTL_MS=43200000 \
 node server/dist/index.js
 ```
+
+### Admin API
+
+The server now includes a P0 admin backend on the same HTTP port.
+
+Implemented endpoints:
+- `GET /healthz`
+- `GET /readyz`
+- `POST /api/admin/auth/login`
+- `POST /api/admin/auth/logout`
+- `GET /api/admin/me`
+- `GET /api/admin/overview`
+- `GET /api/admin/rooms`
+- `GET /api/admin/rooms/:roomCode`
+- `GET /api/admin/events`
+
+Authentication model:
+- management APIs use `Authorization: Bearer <token>`
+- login returns a server-issued session token
+- if admin environment variables are not configured, admin auth endpoints return unavailable / unauthorized responses
 
 ### 1. Prepare the server
 

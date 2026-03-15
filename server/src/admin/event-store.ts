@@ -1,0 +1,87 @@
+import { randomUUID } from "node:crypto";
+import type { RuntimeEvent } from "./types.js";
+
+export type EventStoreQuery = {
+  event?: string;
+  roomCode?: string;
+  sessionId?: string;
+  remoteAddress?: string;
+  origin?: string;
+  result?: string;
+  from?: number;
+  to?: number;
+  page: number;
+  pageSize: number;
+};
+
+export type EventStore = {
+  append: (input: { event: string; timestamp?: string; data: Record<string, unknown> }) => RuntimeEvent;
+  query: (query: EventStoreQuery) => { items: RuntimeEvent[]; total: number };
+};
+
+export function createEventStore(capacity = 1_000): EventStore {
+  const events: RuntimeEvent[] = [];
+
+  function eventTime(event: RuntimeEvent): number {
+    return Date.parse(event.timestamp);
+  }
+
+  return {
+    append(input) {
+      const event: RuntimeEvent = {
+        id: randomUUID(),
+        timestamp: input.timestamp ?? new Date().toISOString(),
+        event: input.event,
+        roomCode: typeof input.data.roomCode === "string" ? input.data.roomCode : null,
+        sessionId: typeof input.data.sessionId === "string" ? input.data.sessionId : null,
+        remoteAddress: typeof input.data.remoteAddress === "string" ? input.data.remoteAddress : null,
+        origin: typeof input.data.origin === "string" ? input.data.origin : null,
+        result: typeof input.data.result === "string" ? input.data.result : null,
+        details: { ...input.data }
+      };
+
+      events.push(event);
+      if (events.length > capacity) {
+        events.shift();
+      }
+      return event;
+    },
+    query(query) {
+      const filtered = events.filter((event) => {
+        const timestamp = eventTime(event);
+        if (query.event && event.event !== query.event) {
+          return false;
+        }
+        if (query.roomCode && event.roomCode !== query.roomCode) {
+          return false;
+        }
+        if (query.sessionId && event.sessionId !== query.sessionId) {
+          return false;
+        }
+        if (query.remoteAddress && event.remoteAddress !== query.remoteAddress) {
+          return false;
+        }
+        if (query.origin && event.origin !== query.origin) {
+          return false;
+        }
+        if (query.result && event.result !== query.result) {
+          return false;
+        }
+        if (query.from !== undefined && timestamp < query.from) {
+          return false;
+        }
+        if (query.to !== undefined && timestamp > query.to) {
+          return false;
+        }
+        return true;
+      });
+
+      filtered.sort((left, right) => eventTime(right) - eventTime(left));
+      const start = (query.page - 1) * query.pageSize;
+      return {
+        items: filtered.slice(start, start + query.pageSize),
+        total: filtered.length
+      };
+    }
+  };
+}

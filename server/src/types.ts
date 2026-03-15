@@ -1,6 +1,7 @@
 import type { IncomingMessage } from "node:http";
 import type { WebSocket } from "ws";
 import type { ErrorCode, PlaybackState, RoomState, ServerMessage, SharedVideo } from "@bili-syncplay/protocol";
+import type { AdminRole } from "./admin/types.js";
 
 export type WindowCounter = {
   windowStart: number;
@@ -63,6 +64,14 @@ export type PersistenceConfig = {
   roomCleanupIntervalMs: number;
   redisUrl: string;
 };
+
+export type AdminConfig = {
+  username: string;
+  passwordHash: string;
+  sessionSecret: string;
+  sessionTtlMs: number;
+  role: AdminRole;
+} | null;
 
 export type SecurityConfig = {
   allowedOrigins: string[];

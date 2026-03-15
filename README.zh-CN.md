@@ -216,6 +216,7 @@ wss://sync.example.com
 - 仅监听 `PORT`，默认值为 `8787`
 - 在同一个端口上同时提供 WebSocket 流量和简单健康检查
 - 对 `GET /` 返回 `{"ok":true,"service":"bili-syncplay-server"}`
+- 在同一个端口上暴露管理后台只读接口：`/healthz`、`/readyz`、`/api/admin/*`
 - 支持 `memory` 和 `redis` 两种房间存储实现
 - 当 `ROOM_STORE_PROVIDER=redis` 时会持久化房间基础状态
 - 房间加入需要 `roomCode + joinToken`，房间消息需要 `memberToken`
@@ -240,6 +241,11 @@ wss://sync.example.com
 - `EMPTY_ROOM_TTL_MS`：空房保留时长，超时后删除
 - `ROOM_CLEANUP_INTERVAL_MS`：服务端扫描并清理过期房间的周期
 - `REDIS_URL`：当 `ROOM_STORE_PROVIDER=redis` 时使用的 Redis 连接地址
+- `ADMIN_USERNAME`：管理后台登录用户名
+- `ADMIN_PASSWORD_HASH`：管理后台密码哈希，当前支持 `sha256:<hex>` 或 `scrypt:<salt>:<base64url>`
+- `ADMIN_SESSION_SECRET`：用于绑定后台 Bearer Token 与服务端会话的 secret
+- `ADMIN_SESSION_TTL_MS`：后台会话有效期，单位毫秒
+- `ADMIN_ROLE`：后台角色，可选 `viewer`、`operator`、`admin`
 - `RATE_LIMIT_ROOM_CREATE_PER_MINUTE`
 - `RATE_LIMIT_ROOM_JOIN_PER_MINUTE`
 - `RATE_LIMIT_VIDEO_SHARE_PER_10_SECONDS`
@@ -263,8 +269,32 @@ MAX_CONNECTIONS_PER_IP=10 \
 CONNECTION_ATTEMPTS_PER_MINUTE=20 \
 MAX_MEMBERS_PER_ROOM=8 \
 MAX_MESSAGE_BYTES=8192 \
+ADMIN_USERNAME=admin \
+ADMIN_PASSWORD_HASH=sha256:<hex-password-hash> \
+ADMIN_SESSION_SECRET=<random-secret> \
+ADMIN_SESSION_TTL_MS=43200000 \
 node server/dist/index.js
 ```
+
+### 管理后台 API
+
+服务端现在已经内置 P0 管理后台，只读接口与主服务复用同一个 HTTP 端口。
+
+当前已实现接口：
+- `GET /healthz`
+- `GET /readyz`
+- `POST /api/admin/auth/login`
+- `POST /api/admin/auth/logout`
+- `GET /api/admin/me`
+- `GET /api/admin/overview`
+- `GET /api/admin/rooms`
+- `GET /api/admin/rooms/:roomCode`
+- `GET /api/admin/events`
+
+鉴权方式：
+- 管理接口使用 `Authorization: Bearer <token>`
+- 登录成功后返回服务端签发的 session token
+- 如果未配置管理后台环境变量，管理认证接口会返回 unavailable / unauthorized
 
 ### 1. 准备服务器
 
@@ -496,7 +526,7 @@ npm run build -w @bili-syncplay/server
 - `memberToken` 是会话态，不会从持久层恢复；重连或重启后都需要重新加入并重新签发。
 - 握手阶段的 Origin 检查默认拒绝，除非你在开发环境中显式允许缺失 `Origin`。
 - 只有在 `TRUST_PROXY_HEADERS=true` 时才会读取 `X-Forwarded-For`。
-- 健康检查为 `GET /`；目前没有单独的 `/healthz` 路由。
+- 健康检查现已同时提供 `GET /` 与 `GET /healthz`；就绪检查为 `GET /readyz`。
 - 如果你使用云防火墙，请放行入站 `80` 和 `443`，并将 `8787` 仅暴露给 localhost。
 - 如果你不想使用 Nginx，也可以直接暴露 Node 服务，但浏览器和扩展仍应通过带有效 TLS 证书的 `wss://` 连接。
 - 当 `ROOM_STORE_PROVIDER=redis` 时，房间基础状态可在多个服务实例之间共享。

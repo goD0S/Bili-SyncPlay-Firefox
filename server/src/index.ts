@@ -2,6 +2,7 @@ import {
   createSyncServer,
   getDefaultPersistenceConfig,
   getDefaultSecurityConfig,
+  type AdminConfig,
   type PersistenceConfig,
   type SecurityConfig
 } from "./app.js";
@@ -9,8 +10,11 @@ import {
 const port = parseIntegerEnv("PORT", 8787);
 const securityConfig = loadSecurityConfig();
 const persistenceConfig = loadPersistenceConfig();
+const adminConfig = loadAdminConfig();
 
-const { httpServer } = await createSyncServer(securityConfig, persistenceConfig);
+const { httpServer } = await createSyncServer(securityConfig, persistenceConfig, {
+  adminConfig
+});
 httpServer.listen(port, () => {
   console.log(`Bili-SyncPlay server listening on http://localhost:${port}`);
 });
@@ -71,6 +75,25 @@ function loadPersistenceConfig(): PersistenceConfig {
     emptyRoomTtlMs: parsePositiveIntegerEnv("EMPTY_ROOM_TTL_MS", defaults.emptyRoomTtlMs),
     roomCleanupIntervalMs: parsePositiveIntegerEnv("ROOM_CLEANUP_INTERVAL_MS", defaults.roomCleanupIntervalMs),
     redisUrl: process.env.REDIS_URL?.trim() || defaults.redisUrl
+  };
+}
+
+function loadAdminConfig(): AdminConfig {
+  const username = process.env.ADMIN_USERNAME?.trim();
+  const passwordHash = process.env.ADMIN_PASSWORD_HASH?.trim();
+  const sessionSecret = process.env.ADMIN_SESSION_SECRET?.trim();
+
+  if (!username || !passwordHash || !sessionSecret) {
+    return null;
+  }
+
+  const role = process.env.ADMIN_ROLE?.trim();
+  return {
+    username,
+    passwordHash,
+    sessionSecret,
+    sessionTtlMs: parsePositiveIntegerEnv("ADMIN_SESSION_TTL_MS", 12 * 60 * 60 * 1000),
+    role: role === "viewer" || role === "operator" || role === "admin" ? role : "admin"
   };
 }
 

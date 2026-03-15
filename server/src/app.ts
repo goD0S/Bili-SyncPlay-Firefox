@@ -2,6 +2,13 @@ import { createServer, type Server as HttpServer } from "node:http";
 import { randomBytes, randomUUID } from "node:crypto";
 import { WebSocketServer, type RawData, type WebSocket } from "ws";
 import { isClientMessage, type ErrorCode, type ServerMessage } from "@bili-syncplay/protocol";
+import { createInMemoryAuthStore } from "./admin/auth-store.js";
+import { createAdminAuthService } from "./admin/auth-service.js";
+import { createEventStore } from "./admin/event-store.js";
+import { createAdminOverviewService } from "./admin/overview-service.js";
+import { createAdminRoomQueryService } from "./admin/room-query-service.js";
+import { createAdminRouter } from "./admin/router.js";
+import { createRuntimeRegistry } from "./admin/runtime-registry.js";
 import { createActiveRoomRegistry } from "./active-room-registry.js";
 import { createStructuredLogger } from "./logger.js";
 import { createMessageHandler } from "./message-handler.js";
@@ -11,9 +18,9 @@ import { createRoomReaper } from "./room-reaper.js";
 import { createRoomService } from "./room-service.js";
 import { createRedisRoomStore } from "./redis-room-store.js";
 import { createSecurityPolicy } from "./security.js";
-import type { LogEvent, PersistenceConfig, SecurityConfig, Session } from "./types.js";
+import type { AdminConfig, LogEvent, PersistenceConfig, SecurityConfig, Session } from "./types.js";
 
-export type { PersistenceConfig, SecurityConfig } from "./types.js";
+export type { AdminConfig, PersistenceConfig, SecurityConfig } from "./types.js";
 
 export const INVALID_JSON_MESSAGE = "无效的 JSON 消息。";
 export const INVALID_CLIENT_MESSAGE_MESSAGE = "无效的客户端消息体。";
@@ -31,6 +38,8 @@ export type SyncServerDependencies = {
   logEvent?: LogEvent;
   generateToken?: () => string;
   now?: () => number;
+  adminConfig?: AdminConfig;
+  serviceVersion?: string;
 };
 
 export function getDefaultSecurityConfig(): SecurityConfig {
@@ -71,15 +80,20 @@ export async function createSyncServer(
   dependencies: SyncServerDependencies = {}
 ): Promise<SyncServer> {
   const now = dependencies.now ?? Date.now;
-  const logEvent = dependencies.logEvent ?? createStructuredLogger();
   const generateToken = dependencies.generateToken ?? (() => randomBytes(24).toString("base64url"));
   const roomStore =
     dependencies.roomStore ??
     (persistenceConfig.provider === "redis"
       ? await createRedisRoomStore(persistenceConfig.redisUrl)
       : createInMemoryRoomStore({ now }));
+  const runtimeRegistry = createRuntimeRegistry(now);
+  const eventStore = createEventStore();
+  const logEvent = dependencies.logEvent ?? createStructuredLogger(undefined, eventStore, runtimeRegistry);
   const activeRooms = createActiveRoomRegistry();
   const securityPolicy = createSecurityPolicy(securityConfig);
+  const authService = dependencies.adminConfig
+    ? createAdminAuthService(dependencies.adminConfig, createInMemoryAuthStore(), now)
+    : undefined;
 
   const roomService = createRoomService({
     config: securityConfig,
@@ -97,6 +111,12 @@ export async function createSyncServer(
     logEvent,
     send,
     sendError,
+    onRoomJoined: (session, roomCode) => {
+      runtimeRegistry.markSessionJoinedRoom(session.id, roomCode);
+    },
+    onRoomLeft: (session, roomCode) => {
+      runtimeRegistry.markSessionLeftRoom(session.id, roomCode);
+    },
     now
   });
 
@@ -107,9 +127,39 @@ export async function createSyncServer(
     now
   });
 
-  const httpServer = createServer((_, response) => {
-    response.writeHead(200, { "content-type": "application/json" });
-    response.end(JSON.stringify({ ok: true, service: "bili-syncplay-server" }));
+  const overviewService = createAdminOverviewService({
+    serviceName: "bili-syncplay-server",
+    serviceVersion: dependencies.serviceVersion ?? process.env.npm_package_version ?? "0.0.0",
+    persistenceConfig,
+    roomStore,
+    runtimeRegistry,
+    eventStore,
+    now
+  });
+  const roomQueryService = createAdminRoomQueryService({
+    roomStore,
+    runtimeRegistry,
+    eventStore
+  });
+  const adminRouter = createAdminRouter({
+    authService,
+    roomStoreReady: () => roomStore.isReady(),
+    getOverview: () => overviewService.getOverview(),
+    listRooms: (query) => roomQueryService.listRooms(query),
+    getRoomDetail: (roomCode) => roomQueryService.getRoomDetail(roomCode),
+    eventStore,
+    serviceName: "bili-syncplay-server",
+    now
+  });
+
+  const httpServer = createServer((request, response) => {
+    void adminRouter.handle(request, response).then((handled) => {
+      if (handled) {
+        return;
+      }
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ ok: true, service: "bili-syncplay-server" }));
+    });
   });
 
   const wss = new WebSocketServer({
@@ -205,6 +255,7 @@ export async function createSyncServer(
     };
 
     securityPolicy.incrementConnectionCount(session.remoteAddress);
+    runtimeRegistry.registerSession(session);
     logEvent("ws_connection_accepted", {
       sessionId: session.id,
       remoteAddress: session.remoteAddress,
@@ -256,6 +307,7 @@ export async function createSyncServer(
       void (async () => {
         securityPolicy.decrementConnectionCount(session.remoteAddress);
         await messageHandler.leaveRoom(session);
+        runtimeRegistry.unregisterSession(session.id);
         logEvent("ws_connection_closed", {
           sessionId: session.id,
           remoteAddress: session.remoteAddress,

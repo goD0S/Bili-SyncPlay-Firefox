@@ -50,6 +50,8 @@ export function createMessageHandler(options: {
   logEvent: LogEvent;
   send: SendMessage;
   sendError: SendError;
+  onRoomJoined?: (session: Session, roomCode: string, previousRoomCode: string | null) => void;
+  onRoomLeft?: (session: Session, roomCode: string) => void;
   now?: () => number;
 }): {
   handleClientMessage: (session: Session, message: ClientMessage) => Promise<void>;
@@ -84,6 +86,7 @@ export function createMessageHandler(options: {
     if (!roomCode || !room) {
       return;
     }
+    options.onRoomLeft?.(session, roomCode);
 
     await broadcastRoomState(roomCode);
   }
@@ -105,6 +108,7 @@ export function createMessageHandler(options: {
     try {
       switch (message.type) {
         case "room:create": {
+          const previousRoomCode = session.roomCode;
           if (!consumeFixedWindow(session.rateLimitState.roomCreate, config.rateLimits.roomCreatePerMinute, WINDOW_MINUTE_MS, currentTime)) {
             handleRateLimitedMessage(session, message.type);
             sendError(session.socket, "rate_limited", "请求过于频繁。");
@@ -112,6 +116,10 @@ export function createMessageHandler(options: {
           }
 
           const { room, memberToken } = await roomService.createRoomForSession(session, message.payload?.displayName);
+          if (previousRoomCode && previousRoomCode !== room.code) {
+            options.onRoomLeft?.(session, previousRoomCode);
+          }
+          options.onRoomJoined?.(session, room.code, previousRoomCode);
           send(session.socket, {
             type: "room:created",
             payload: {
@@ -132,6 +140,7 @@ export function createMessageHandler(options: {
           return;
         }
         case "room:join": {
+          const previousRoomCode = session.roomCode;
           if (!consumeFixedWindow(session.rateLimitState.roomJoin, config.rateLimits.roomJoinPerMinute, WINDOW_MINUTE_MS, currentTime)) {
             handleRateLimitedMessage(session, message.type);
             sendError(session.socket, "rate_limited", "请求过于频繁。");
@@ -145,6 +154,10 @@ export function createMessageHandler(options: {
             message.payload.displayName,
             message.payload.memberToken
           );
+          if (previousRoomCode && previousRoomCode !== room.code) {
+            options.onRoomLeft?.(session, previousRoomCode);
+          }
+          options.onRoomJoined?.(session, room.code, previousRoomCode);
           send(session.socket, {
             type: "room:joined",
             payload: {

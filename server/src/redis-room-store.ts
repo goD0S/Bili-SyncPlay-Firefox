@@ -1,9 +1,11 @@
 import { Redis } from "ioredis";
+import type { RoomListQuery } from "./admin/types.js";
 import { createPersistedRoom, type RoomStore, type RoomUpdateResult } from "./room-store.js";
 import type { PersistedRoom } from "./types.js";
 
 const ROOM_KEY_PREFIX = "bsp:room:";
 const ROOM_EXPIRY_KEY = "bsp:room-expiry";
+const ROOM_INDEX_KEY = "bsp:room-index";
 const DELETE_EXPIRED_ROOMS_LUA = `
 local expiryKey = KEYS[1]
 local roomKeyPrefix = ARGV[1]
@@ -47,6 +49,16 @@ function parseRoom(value: string | null): PersistedRoom | null {
   return JSON.parse(value) as PersistedRoom;
 }
 
+function matchesQuery(room: PersistedRoom, query: Pick<RoomListQuery, "keyword" | "includeExpired">): boolean {
+  if (!query.includeExpired && room.expiresAt !== null && room.expiresAt <= Date.now()) {
+    return false;
+  }
+  if (query.keyword && !room.code.toLowerCase().includes(query.keyword.toLowerCase())) {
+    return false;
+  }
+  return true;
+}
+
 async function updateExpiryIndex(redis: Redis, room: PersistedRoom): Promise<void> {
   if (room.expiresAt === null) {
     await redis.zrem(ROOM_EXPIRY_KEY, room.code);
@@ -62,11 +74,38 @@ export async function createRedisRoomStore(redisUrl: string): Promise<RoomStore 
   });
   await redis.connect();
 
+  async function fetchRooms(query: Pick<RoomListQuery, "keyword" | "includeExpired" | "page" | "pageSize" | "sortBy" | "sortOrder">) {
+    const ascending = query.sortOrder === "asc";
+    const codes =
+      query.sortBy === "lastActiveAt"
+        ? ascending
+          ? await redis.zrange(ROOM_INDEX_KEY, 0, -1)
+          : await redis.zrevrange(ROOM_INDEX_KEY, 0, -1)
+        : await redis.keys(`${ROOM_KEY_PREFIX}*`);
+
+    const normalizedCodes = query.sortBy === "createdAt" ? codes.map((key) => key.replace(ROOM_KEY_PREFIX, "")) : codes;
+    const rooms = (await Promise.all(normalizedCodes.map(async (code) => parseRoom(await redis.get(roomKey(code)))))).filter(
+      (room): room is PersistedRoom => room !== null
+    );
+
+    rooms.sort((left, right) => {
+      const factor = query.sortOrder === "asc" ? 1 : -1;
+      return (left[query.sortBy] - right[query.sortBy]) * factor;
+    });
+
+    const filtered = rooms.filter((room) => matchesQuery(room, query));
+    const start = (query.page - 1) * query.pageSize;
+    return filtered.slice(start, start + query.pageSize);
+  }
+
   return {
     async createRoom(input) {
       const room = createPersistedRoom(input);
-      const created = await redis.set(roomKey(room.code), serializeRoom(room), "NX");
-      if (created !== "OK") {
+      const transaction = redis.multi();
+      transaction.set(roomKey(room.code), serializeRoom(room), "NX");
+      transaction.zadd(ROOM_INDEX_KEY, String(room.lastActiveAt), room.code);
+      const [created] = (await transaction.exec()) ?? [];
+      if (!created || created[1] !== "OK") {
         throw new Error(`Room ${room.code} already exists.`);
       }
       return room;
@@ -75,7 +114,10 @@ export async function createRedisRoomStore(redisUrl: string): Promise<RoomStore 
       return parseRoom(await redis.get(roomKey(code)));
     },
     async saveRoom(room) {
-      await redis.set(roomKey(room.code), serializeRoom(room));
+      const transaction = redis.multi();
+      transaction.set(roomKey(room.code), serializeRoom(room));
+      transaction.zadd(ROOM_INDEX_KEY, String(room.lastActiveAt), room.code);
+      await transaction.exec();
       await updateExpiryIndex(redis, room);
       return room;
     },
@@ -99,6 +141,7 @@ export async function createRedisRoomStore(redisUrl: string): Promise<RoomStore 
 
         const transaction = redis.multi();
         transaction.set(key, serializeRoom(nextRoom));
+        transaction.zadd(ROOM_INDEX_KEY, String(nextRoom.lastActiveAt), code);
         if (nextRoom.expiresAt === null) {
           transaction.zrem(ROOM_EXPIRY_KEY, code);
         } else {
@@ -114,12 +157,36 @@ export async function createRedisRoomStore(redisUrl: string): Promise<RoomStore 
       }
     },
     async deleteRoom(code) {
-      await redis.del(roomKey(code));
-      await redis.zrem(ROOM_EXPIRY_KEY, code);
+      const transaction = redis.multi();
+      transaction.del(roomKey(code));
+      transaction.zrem(ROOM_EXPIRY_KEY, code);
+      transaction.zrem(ROOM_INDEX_KEY, code);
+      await transaction.exec();
     },
     async deleteExpiredRooms(now) {
       const deletedCount = await redis.eval(DELETE_EXPIRED_ROOMS_LUA, 1, ROOM_EXPIRY_KEY, ROOM_KEY_PREFIX, String(now));
       return Number(deletedCount);
+    },
+    async listRooms(query: Pick<RoomListQuery, "keyword" | "includeExpired" | "page" | "pageSize" | "sortBy" | "sortOrder">) {
+      return await fetchRooms(query);
+    },
+    async countRooms(query: Pick<RoomListQuery, "keyword" | "includeExpired">) {
+      const rooms = await fetchRooms({
+        ...query,
+        page: 1,
+        pageSize: Number.MAX_SAFE_INTEGER,
+        sortBy: "lastActiveAt",
+        sortOrder: "desc"
+      });
+      return rooms.length;
+    },
+    async isReady() {
+      try {
+        const pong = await redis.ping();
+        return pong === "PONG";
+      } catch {
+        return false;
+      }
     },
     async close() {
       await redis.quit();
