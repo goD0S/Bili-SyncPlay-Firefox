@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "prebuild": "npm --prefix ../packages/protocol run build",
     "build": "node scripts/build.mjs",
     "pretest": "npm --prefix ../packages/protocol run build",
     "test": "tsx --test test/**/*.test.ts"
