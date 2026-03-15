@@ -80,6 +80,11 @@ let connectProbe: Promise<void> | null = null;
 let lastPopupStateLogKey: string | null = null;
 let pendingJoinAttemptResolvers: Array<(result: "joined" | "failed" | "timeout") => void> = [];
 const HEARTBEAT_LOG_INTERVAL_MS = 10000;
+const ADMIN_SESSION_RESET_REASONS = new Set([
+  "Admin kicked member",
+  "Admin disconnected session",
+  "Admin closed room"
+]);
 const outgoingMessageLogState = new Map<string, number>();
 const incomingMessageLogState = new Map<string, number>();
 const popupPorts = new Set<chrome.runtime.Port>();
@@ -154,6 +159,19 @@ async function bootstrap(): Promise<void> {
       chrome.tabs.onRemoved.addListener(listener);
     }
   });
+}
+
+function formatAdminSessionResetReason(reason: string): string {
+  if (reason === "Admin kicked member") {
+    return "你已被管理员移出房间。";
+  }
+  if (reason === "Admin disconnected session") {
+    return "你的连接已被管理员断开。";
+  }
+  if (reason === "Admin closed room") {
+    return "当前房间已被管理员关闭。";
+  }
+  return `已退出房间：${reason}`;
 }
 
 async function connect(): Promise<void> {
@@ -253,6 +271,10 @@ async function openSocketWithProbe(targetServerUrl: string): Promise<void> {
     clearPendingLocalShare("socket closed before share confirmation");
     const closeReason = event.reason ? ` reason=${JSON.stringify(event.reason)}` : "";
     log("background", `Socket closed code=${event.code} clean=${event.wasClean}${closeReason}`);
+    if (event.reason && ADMIN_SESSION_RESET_REASONS.has(event.reason)) {
+      void clearCurrentRoomContext(`socket closed by server: ${event.reason}`, formatAdminSessionResetReason(event.reason));
+      return;
+    }
     scheduleReconnect();
     notifyAll();
   });
@@ -374,6 +396,15 @@ async function handleServerMessage(message: ServerMessage): Promise<void> {
         memberId = null;
         roomState = null;
         await persistState();
+      }
+      if (
+        roomCode &&
+        !pendingJoinRoomCode &&
+        (message.payload.code === "room_not_found" || message.payload.code === "join_token_invalid")
+      ) {
+        await clearCurrentRoomContext(`server rejected stored room context: ${message.payload.code}`, message.payload.message);
+        log("server", `error(${message.payload.code}): ${message.payload.message}`);
+        return;
       }
       if (message.payload.code === "member_token_invalid") {
         memberToken = null;
@@ -676,6 +707,25 @@ function getRetryInMs(): number | null {
 function resetReconnectState(): void {
   clearReconnectTimer();
   reconnectAttempt = 0;
+}
+
+async function clearCurrentRoomContext(reason: string, errorMessage: string | null = null): Promise<void> {
+  log("background", `Clearing current room context (${reason})`);
+  roomCode = null;
+  joinToken = null;
+  memberToken = null;
+  memberId = null;
+  roomState = null;
+  pendingCreateRoom = false;
+  pendingJoinRoomCode = null;
+  pendingJoinToken = null;
+  pendingJoinRequestSent = false;
+  lastOpenedSharedUrl = null;
+  lastError = errorMessage;
+  resetReconnectState();
+  resetRoomLifecycleTransientState("leave-room", reason);
+  await persistState();
+  notifyAll();
 }
 
 function clearPendingLocalShareTimer(): void {
