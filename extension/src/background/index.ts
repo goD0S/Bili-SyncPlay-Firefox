@@ -79,6 +79,9 @@ let pendingShareToast: (SharedVideoToastPayload & { expiresAt: number; roomCode:
 let connectProbe: Promise<void> | null = null;
 let lastPopupStateLogKey: string | null = null;
 let pendingJoinAttemptResolvers: Array<(result: "joined" | "failed" | "timeout") => void> = [];
+const HEARTBEAT_LOG_INTERVAL_MS = 10000;
+const outgoingMessageLogState = new Map<string, number>();
+const incomingMessageLogState = new Map<string, number>();
 const popupPorts = new Set<chrome.runtime.Port>();
 
 bootstrap().catch(console.error);
@@ -271,7 +274,9 @@ function sendToServer(message: ClientMessage): void {
     void connect();
     return;
   }
-  log("background", `-> ${message.type}`);
+  if (shouldLogHeartbeatMessage(outgoingMessageLogState, message.type)) {
+    log("background", `-> ${message.type}`);
+  }
   socket.send(JSON.stringify(message));
 }
 
@@ -317,7 +322,9 @@ function waitForJoinAttemptResult(timeoutMs = 3000): Promise<"joined" | "failed"
 }
 
 async function handleServerMessage(message: ServerMessage): Promise<void> {
-  log("server", `<- ${message.type}`);
+  if (shouldLogHeartbeatMessage(incomingMessageLogState, message.type)) {
+    log("server", `<- ${message.type}`);
+  }
   switch (message.type) {
     case "room:created":
       pendingJoinRoomCode = null;
@@ -765,6 +772,19 @@ function log(scope: DebugLogEntry["scope"], message: string): void {
   }
 }
 
+function shouldLogHeartbeatMessage(logState: Map<string, number>, type: string, now = Date.now()): boolean {
+  if (type !== "playback:update" && type !== "room:state") {
+    return true;
+  }
+
+  const lastAt = logState.get(type) ?? 0;
+  if (now - lastAt < HEARTBEAT_LOG_INTERVAL_MS) {
+    return false;
+  }
+  logState.set(type, now);
+  return true;
+}
+
 function maybeLogPopupStateRequest(): void {
   const key = `${roomCode ?? "none"}|${connected}|${pendingJoinRoomCode ?? "none"}`;
   if (key === lastPopupStateLogKey) {
@@ -796,8 +816,6 @@ function isActiveSharedTab(tabId: number | undefined, url: string): boolean {
 
   if (decision.reason === "accepted-first") {
     log("background", `Accepted first shared playback tab=${tabId}`);
-  } else if (decision.reason === "accepted-current") {
-    log("background", `Accepted playback from shared tab=${tabId}`);
   } else if (decision.reason === "room-mismatch") {
     log("background", `Ignored playback from shared tab ${tabId} because url no longer matches room`);
   } else if (decision.reason === "ignored-non-shared" && decision.nextSharedTabId !== null) {

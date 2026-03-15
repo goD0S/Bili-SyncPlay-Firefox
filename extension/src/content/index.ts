@@ -57,8 +57,11 @@ const USER_GESTURE_GRACE_MS = 1200;
 const FESTIVAL_SNAPSHOT_TTL_MS = 1200;
 const NAVIGATION_WATCH_INTERVAL_MS = 400;
 const VIDEO_BIND_INTERVAL_MS = 250;
+const HEARTBEAT_LOG_INTERVAL_MS = 10000;
 let lastObservedPageUrl = window.location.href.split("#")[0];
 const festivalBridge = createFestivalBridgeController();
+const broadcastLogState = { key: null as string | null, at: 0 };
+const ignoredSelfPlaybackLogState = { key: null as string | null, at: 0 };
 
 void init();
 
@@ -67,6 +70,15 @@ function debugLog(message: string): void {
     type: "content:debug-log",
     payload: { message }
   }).catch(() => undefined);
+}
+
+function shouldLogHeartbeat(state: { key: string | null; at: number }, key: string, now = Date.now()): boolean {
+  if (state.key === key && now - state.at < HEARTBEAT_LOG_INTERVAL_MS) {
+    return false;
+  }
+  state.key = key;
+  state.at = now;
+  return true;
 }
 
 async function runtimeSendMessage<T>(message: unknown): Promise<T | null> {
@@ -776,7 +788,9 @@ async function broadcastPlayback(video: HTMLVideoElement): Promise<void> {
   if (response === null) {
     return;
   }
-  debugLog(`Broadcast playback ${playState} ${currentVideo.url} t=${payload.currentTime.toFixed(2)} seq=${payload.seq}`);
+  if (shouldLogHeartbeat(broadcastLogState, `${playState}|${normalizeUrl(currentVideo.url) ?? currentVideo.url}`, now)) {
+    debugLog(`Broadcast playback ${playState} ${currentVideo.url} t=${payload.currentTime.toFixed(2)} seq=${payload.seq}`);
+  }
 }
 
 async function applyRoomState(state: RoomState, shareToast: SharedVideoToastPayload | null = null): Promise<void> {
@@ -866,9 +880,16 @@ async function applyRoomState(state: RoomState, shareToast: SharedVideoToastPayl
   });
 
   if (isSelfPlayback && !shouldApplySelfPlayback(video, state.playback)) {
-    debugLog(
-      `Ignored self playback actor=${state.playback.actorId} seq=${state.playback.seq} localPaused=${video.paused} localT=${video.currentTime.toFixed(2)} remoteT=${state.playback.currentTime.toFixed(2)}`
-    );
+    if (
+      shouldLogHeartbeat(
+        ignoredSelfPlaybackLogState,
+        `${state.playback.actorId}|${state.playback.playState}|${normalizeUrl(state.playback.url) ?? state.playback.url}`
+      )
+    ) {
+      debugLog(
+        `Ignored self playback actor=${state.playback.actorId} seq=${state.playback.seq} localPaused=${video.paused} localT=${video.currentTime.toFixed(2)} remoteT=${state.playback.currentTime.toFixed(2)}`
+      );
+    }
     return;
   }
 
