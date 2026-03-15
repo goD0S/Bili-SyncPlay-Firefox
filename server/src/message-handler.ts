@@ -25,7 +25,8 @@ export function createMessageHandler(options: {
     shareVideoForSession: (
       session: Session,
       memberToken: string,
-      video: ClientMessage extends never ? never : Extract<ClientMessage, { type: "video:share" }>["payload"]["video"]
+      video: ClientMessage extends never ? never : Extract<ClientMessage, { type: "video:share" }>["payload"]["video"],
+      playback?: ClientMessage extends never ? never : Extract<ClientMessage, { type: "video:share" }>["payload"]["playback"]
     ) => Promise<{ room: { code: string } }>;
     updatePlaybackForSession: (
       session: Session,
@@ -165,7 +166,12 @@ export function createMessageHandler(options: {
             return;
           }
 
-          const { room } = await roomService.shareVideoForSession(session, message.payload.memberToken, message.payload.video);
+          const { room } = await roomService.shareVideoForSession(
+            session,
+            message.payload.memberToken,
+            message.payload.video,
+            message.payload.playback
+          );
           await broadcastRoomState(room.code);
           return;
         }

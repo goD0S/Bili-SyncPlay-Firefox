@@ -1,4 +1,4 @@
-import type { PlaybackUpdateMessage, RoomState, SharedVideo } from "@bili-syncplay/protocol";
+import type { PlaybackState, RoomState, SharedVideo } from "@bili-syncplay/protocol";
 import type { DebugLogEntry, SharedVideoToastPayload } from "../shared/messages";
 
 export const DEFAULT_SERVER_URL = "ws://localhost:8787";
@@ -34,7 +34,7 @@ export interface RoomSessionState {
   pendingJoinRoomCode: string | null;
   pendingJoinToken: string | null;
   pendingSharedVideo: SharedVideo | null;
-  pendingSharedPlayback: PlaybackUpdateMessage | null;
+  pendingSharedPlayback: PlaybackState | null;
 }
 
 export interface ShareState {

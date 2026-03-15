@@ -1,4 +1,4 @@
-import type { PlaybackUpdateMessage, RoomState, SharedVideo } from "@bili-syncplay/protocol";
+import type { PlaybackState, RoomState, SharedVideo } from "@bili-syncplay/protocol";
 import type { SharedVideoToastPayload } from "../shared/messages";
 
 export function createPendingShareToast(args: {
@@ -65,14 +65,14 @@ export function getPendingShareToastFor(args: {
 
 export function flushPendingShare(args: {
   pendingSharedVideo: SharedVideo | null;
-  pendingSharedPlayback: PlaybackUpdateMessage | null;
+  pendingSharedPlayback: PlaybackState | null;
   connected: boolean;
   roomCode: string | null;
   memberToken: string | null;
 }): {
   shouldFlush: boolean;
   video: SharedVideo | null;
-  playback: PlaybackUpdateMessage | null;
+  playback: PlaybackState | null;
 } {
   if (!args.pendingSharedVideo || !args.connected || !args.roomCode || !args.memberToken) {
     return {

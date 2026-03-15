@@ -139,6 +139,33 @@ test("rejects video:share when title is too long", () => {
   );
 });
 
+test("accepts video:share with an initial playback state", () => {
+  assert.equal(
+    isClientMessage({
+      type: "video:share",
+      payload: {
+        memberToken: VALID_TOKEN,
+        video: {
+          videoId: "BV1xx411c7mD",
+          url: "https://www.bilibili.com/video/BV1xx411c7mD?p=2",
+          title: "Video"
+        },
+        playback: {
+          url: "https://www.bilibili.com/video/BV1xx411c7mD?p=2",
+          currentTime: 12,
+          playState: "playing",
+          playbackRate: 1,
+          updatedAt: 1,
+          serverTime: 0,
+          actorId: "member-1",
+          seq: 1
+        }
+      }
+    }),
+    true
+  );
+});
+
 test("rejects playback:update with an invalid play state", () => {
   assert.equal(
     isClientMessage({

@@ -74,6 +74,7 @@ export interface ShareVideoMessage {
   payload: {
     memberToken: string;
     video: SharedVideo;
+    playback?: PlaybackState;
   };
 }
 
@@ -262,7 +263,12 @@ function isLeaveRoomMessage(value: unknown): value is LeaveRoomMessage {
 }
 
 function isShareVideoPayload(value: unknown): value is ShareVideoMessage["payload"] {
-  return isRecord(value) && isToken(value.memberToken) && isSharedVideo(value.video);
+  return (
+    isRecord(value) &&
+    isToken(value.memberToken) &&
+    isSharedVideo(value.video) &&
+    (value.playback === undefined || isPlaybackState(value.playback))
+  );
 }
 
 function isShareVideoMessage(value: unknown): value is ShareVideoMessage {

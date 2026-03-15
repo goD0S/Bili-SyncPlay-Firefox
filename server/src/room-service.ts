@@ -45,7 +45,12 @@ export function createRoomService(options: {
   createRoomForSession: (session: Session, displayName?: string) => Promise<{ room: PersistedRoom; memberToken: string }>;
   joinRoomForSession: (session: Session, roomCode: string, joinToken: string, displayName?: string) => Promise<{ room: PersistedRoom; memberToken: string }>;
   leaveRoomForSession: (session: Session) => Promise<{ room: PersistedRoom | null }>;
-  shareVideoForSession: (session: Session, memberToken: string, video: SharedVideo) => Promise<{ room: PersistedRoom }>;
+  shareVideoForSession: (
+    session: Session,
+    memberToken: string,
+    video: SharedVideo,
+    playback?: PlaybackState
+  ) => Promise<{ room: PersistedRoom }>;
   updatePlaybackForSession: (
     session: Session,
     memberToken: string,
@@ -355,26 +360,34 @@ export function createRoomService(options: {
 
     leaveRoomForSession: leaveCurrentRoom,
 
-    async shareVideoForSession(session, memberToken, video) {
+    async shareVideoForSession(session, memberToken, video, playback) {
       const access = await requireJoinedRoomSession(session, memberToken, "video:share");
       const currentTime = now();
 
       const room = await withVersionRetry(access.persistedRoom.code, async (currentRoom) => {
+        const nextPlayback: PlaybackState = playback
+          ? {
+              ...playback,
+              url: video.url,
+              actorId: session.id,
+              serverTime: currentTime
+            }
+          : {
+              url: video.url,
+              currentTime: 0,
+              playState: "paused",
+              playbackRate: 1,
+              updatedAt: currentTime,
+              serverTime: currentTime,
+              actorId: session.id,
+              seq: 0
+            };
         const result = await roomStore.updateRoom(currentRoom.code, currentRoom.version, {
           sharedVideo: {
             ...video,
             sharedByMemberId: session.id
           },
-          playback: {
-            url: video.url,
-            currentTime: 0,
-            playState: "paused",
-            playbackRate: 1,
-            updatedAt: currentTime,
-            serverTime: currentTime,
-            actorId: session.id,
-            seq: 0
-          },
+          playback: nextPlayback,
           expiresAt: null,
           lastActiveAt: currentTime
         });

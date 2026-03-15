@@ -10,7 +10,7 @@ import {
   INVALID_CLIENT_MESSAGE_MESSAGE,
   INVALID_JSON_MESSAGE
 } from "../src/app.js";
-import { createInMemoryRoomStore } from "../src/room-store.js";
+import { createInMemoryRoomStore, type RoomStore } from "../src/room-store.js";
 import type { ServerMessage } from "@bili-syncplay/protocol";
 
 const ALLOWED_ORIGIN = "chrome-extension://allowed-extension";
@@ -105,6 +105,32 @@ async function waitForMessageType<TType extends ServerMessage["type"]>(
     const timeoutId = setTimeout(() => {
       socket.off("message", onMessage);
       reject(new Error(`Timed out waiting for message type ${type}`));
+    }, timeoutMs);
+
+    const onMessage = (raw: RawData) => {
+      const message = JSON.parse(raw.toString()) as ServerMessage;
+      if (message.type !== type) {
+        return;
+      }
+
+      clearTimeout(timeoutId);
+      socket.off("message", onMessage);
+      resolve(message as Extract<ServerMessage, { type: TType }>);
+    };
+
+    socket.on("message", onMessage);
+  });
+}
+
+async function maybeWaitForMessageType<TType extends ServerMessage["type"]>(
+  socket: WebSocket,
+  type: TType,
+  timeoutMs = 250
+): Promise<Extract<ServerMessage, { type: TType }> | null> {
+  return await new Promise((resolve) => {
+    const timeoutId = setTimeout(() => {
+      socket.off("message", onMessage);
+      resolve(null);
     }, timeoutMs);
 
     const onMessage = (raw: RawData) => {
@@ -469,6 +495,71 @@ test("overwrites spoofed actorId in playback:update", async () => {
       assert.equal(ownerState.type, "room:state");
       assert.equal(ownerState.payload.playback?.actorId, ownerCreated.payload.memberId);
       assert.notEqual(ownerState.payload.playback?.actorId, "spoofed-actor");
+    } finally {
+      await closeClient(owner);
+    }
+  } finally {
+    await server.close();
+  }
+});
+
+test("applies shared video playback atomically when video:share includes playback", async () => {
+  const baseStore = createInMemoryRoomStore();
+  const roomStore: RoomStore = {
+    ...baseStore,
+    async updateRoom(code, expectedVersion, patch) {
+      if (patch.sharedVideo) {
+        await new Promise((resolve) => setTimeout(resolve, 80));
+      }
+      return await baseStore.updateRoom(code, expectedVersion, patch);
+    }
+  };
+
+  const server = await startTestServer({
+    dependencies: { roomStore }
+  });
+
+  try {
+    const owner = await connectClient(server.url);
+    const collector = createMessageCollector(owner);
+    try {
+      owner.send(JSON.stringify({ type: "room:create", payload: { displayName: "Alice" } }));
+      const created = await collector.next("room:created");
+      await collector.next("room:state");
+
+      owner.send(
+        JSON.stringify({
+          type: "video:share",
+          payload: {
+            memberToken: created.payload.memberToken,
+            video: {
+              videoId: "BV1xx411c7mD",
+              url: "https://www.bilibili.com/video/BV1xx411c7mD?p=2",
+              title: "Episode 2"
+            },
+            playback: {
+              url: "https://www.bilibili.com/video/BV1xx411c7mD?p=2",
+              currentTime: 42,
+              playState: "playing",
+              playbackRate: 1.25,
+              updatedAt: Date.now(),
+              serverTime: 0,
+              actorId: created.payload.memberId,
+              seq: 7
+            }
+          }
+        })
+      );
+
+      const sharedState = await collector.next("room:state");
+
+      assert.equal(sharedState.payload.sharedVideo?.url, "https://www.bilibili.com/video/BV1xx411c7mD?p=2");
+      assert.equal(sharedState.payload.playback?.playState, "playing");
+      assert.equal(sharedState.payload.playback?.currentTime, 42);
+      assert.equal(sharedState.payload.playback?.playbackRate, 1.25);
+
+      const unexpectedError = await maybeWaitForMessageType(owner, "error", 250);
+      assert.equal(unexpectedError, null);
     } finally {
       await closeClient(owner);
     }

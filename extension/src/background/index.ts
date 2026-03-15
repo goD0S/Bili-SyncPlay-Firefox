@@ -3,7 +3,6 @@ import {
   parseBilibiliVideoRef,
   type ClientMessage,
   type PlaybackState,
-  type PlaybackUpdateMessage,
   type RoomState,
   type ServerMessage,
   type SharedVideo
@@ -70,7 +69,7 @@ let clockOffsetMs: number | null = null;
 let rttMs: number | null = null;
 let clockSyncTimer: number | null = null;
 let pendingSharedVideo: SharedVideo | null = null;
-let pendingSharedPlayback: PlaybackUpdateMessage | null = null;
+let pendingSharedPlayback: PlaybackState | null = null;
 let openingSharedUrl: string | null = null;
 let pendingLocalShareUrl: string | null = null;
 let pendingLocalShareExpiresAt: number | null = null;
@@ -428,20 +427,12 @@ function flushPendingShare(): void {
     type: "video:share",
     payload: {
       memberToken,
-      video: plan.video
+      video: plan.video,
+      ...(plan.playback ? { playback: plan.playback } : {})
     }
   });
-  if (plan.playback) {
-    sendToServer({
-      type: "playback:update",
-      payload: {
-        memberToken,
-        playback: plan.playback.payload.playback
-      }
-    });
-    pendingSharedPlayback = null;
-  }
   pendingSharedVideo = null;
+  pendingSharedPlayback = null;
 }
 
 async function getActiveTab(): Promise<chrome.tabs.Tab | null> {
@@ -498,37 +489,27 @@ async function queueOrSendSharedVideo(
       type: "video:share",
       payload: {
         memberToken,
-        video: payload.video
+        video: payload.video,
+        ...(payload.playback
+          ? {
+              playback: {
+                ...payload.playback,
+                serverTime: 0,
+                actorId: memberId ?? payload.playback.actorId
+              }
+            }
+          : {})
       }
     });
-    if (payload.playback) {
-      sendToServer({
-        type: "playback:update",
-        payload: {
-          memberToken,
-          playback: {
-            ...payload.playback,
-            serverTime: 0,
-            actorId: memberId ?? payload.playback.actorId
-          }
-        }
-      });
-    }
     return;
   }
 
   pendingSharedVideo = payload.video;
   pendingSharedPlayback = payload.playback
     ? {
-        type: "playback:update",
-        payload: {
-          memberToken: "",
-          playback: {
-            ...payload.playback,
-            serverTime: 0,
-            actorId: memberId ?? payload.playback.actorId
-          }
-        }
+        ...payload.playback,
+        serverTime: 0,
+        actorId: memberId ?? payload.playback.actorId
       }
     : null;
 

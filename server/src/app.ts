@@ -205,9 +205,12 @@ export async function createSyncServer(
       origin: session.origin,
       result: "ok"
     });
+    let messageQueue = Promise.resolve();
 
     socket.on("message", (raw) => {
-      void (async () => {
+      messageQueue = messageQueue
+        .catch(() => undefined)
+        .then(async () => {
         let parsed: unknown;
         try {
           parsed = parseIncomingMessage(raw);
@@ -229,7 +232,7 @@ export async function createSyncServer(
           console.error("Unhandled client message error", error);
           sendError(socket, "internal_error", INTERNAL_SERVER_ERROR_MESSAGE);
         }
-      })();
+        });
     });
 
     socket.on("close", () => {
