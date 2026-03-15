@@ -1114,6 +1114,15 @@ chrome.runtime.onMessage.addListener((message: PopupToBackgroundMessage | Conten
         if (displayName !== message.payload.displayName) {
           displayName = message.payload.displayName;
           await persistState();
+          if (connected && roomCode && memberToken) {
+            sendToServer({
+              type: "profile:update",
+              payload: {
+                memberToken,
+                displayName
+              }
+            });
+          }
         }
         sendResponse({ ok: true });
         return;

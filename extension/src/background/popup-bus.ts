@@ -13,6 +13,7 @@ export function createPopupStateSnapshot(args: {
       roomCode: args.state.room.roomCode,
       joinToken: args.state.room.joinToken,
       memberId: args.state.room.memberId,
+      displayName: args.state.room.displayName,
       roomState: args.state.room.roomState,
       serverUrl: args.state.connection.serverUrl,
       error: args.state.connection.lastError,

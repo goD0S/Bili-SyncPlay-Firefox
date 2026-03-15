@@ -326,7 +326,7 @@ function render(): void {
   refs.serverStatus.textContent = state.connected ? "已连接" : "未连接";
   refs.roomStatus.textContent = state.roomCode ?? "-";
   refs.membersStatus.textContent = `${state.roomState?.members.length ?? 0} 人在线`;
-  refs.debugMemberStatus.textContent = state.memberId ?? "-";
+  refs.debugMemberStatus.textContent = state.displayName ?? state.memberId ?? "-";
   refs.retryStatusValue.textContent = state.retryInMs !== null ? `${Math.ceil(state.retryInMs / 1000)} 秒` : "-";
   refs.retryStatusCount.textContent = state.retryAttempt > 0
     ? `(${state.retryAttempt}/${state.retryAttemptMax})`

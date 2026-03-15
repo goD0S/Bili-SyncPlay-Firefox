@@ -63,6 +63,14 @@ export interface JoinRoomMessage {
   };
 }
 
+export interface ProfileUpdateMessage {
+  type: "profile:update";
+  payload: {
+    memberToken: string;
+    displayName: string;
+  };
+}
+
 export interface LeaveRoomMessage {
   type: "room:leave";
   payload?: {
@@ -104,6 +112,7 @@ export interface SyncPingMessage {
 export type ClientMessage =
   | CreateRoomMessage
   | JoinRoomMessage
+  | ProfileUpdateMessage
   | LeaveRoomMessage
   | ShareVideoMessage
   | PlaybackUpdateMessage
@@ -252,6 +261,14 @@ function isJoinRoomMessage(value: unknown): value is JoinRoomMessage {
   return isRecord(value) && value.type === "room:join" && isJoinRoomPayload(value.payload);
 }
 
+function isProfileUpdatePayload(value: unknown): value is ProfileUpdateMessage["payload"] {
+  return isRecord(value) && isToken(value.memberToken) && isBoundedString(value.displayName, DISPLAY_NAME_MAX_LENGTH);
+}
+
+function isProfileUpdateMessage(value: unknown): value is ProfileUpdateMessage {
+  return isRecord(value) && value.type === "profile:update" && isProfileUpdatePayload(value.payload);
+}
+
 function isLeaveRoomPayload(value: unknown): value is NonNullable<LeaveRoomMessage["payload"]> {
   return isRecord(value) && (value.memberToken === undefined || isToken(value.memberToken));
 }
@@ -311,6 +328,8 @@ export function isClientMessage(value: unknown): value is ClientMessage {
       return isCreateRoomMessage(value);
     case "room:join":
       return isJoinRoomMessage(value);
+    case "profile:update":
+      return isProfileUpdateMessage(value);
     case "room:leave":
       return isLeaveRoomMessage(value);
     case "video:share":

@@ -446,6 +446,58 @@ test("rejects room messages when the memberToken is missing or invalid", async (
   }
 });
 
+test("updates member display names in room state after profile:update", async () => {
+  const server = await startTestServer();
+  try {
+    const owner = await connectClient(server.url);
+    const joiner = await connectClient(server.url);
+    const ownerCollector = createMessageCollector(owner);
+    const joinerCollector = createMessageCollector(joiner);
+    try {
+      owner.send(JSON.stringify({ type: "room:create", payload: { displayName: "Guest-123" } }));
+      const created = await ownerCollector.next("room:created");
+      await ownerCollector.next("room:state");
+
+      joiner.send(
+        JSON.stringify({
+          type: "room:join",
+          payload: {
+            roomCode: created.payload.roomCode,
+            joinToken: created.payload.joinToken,
+            displayName: "Bob"
+          }
+        })
+      );
+      const joined = await joinerCollector.next("room:joined");
+      await joinerCollector.next("room:state");
+      await ownerCollector.next("room:state");
+
+      owner.send(
+        JSON.stringify({
+          type: "profile:update",
+          payload: {
+            memberToken: created.payload.memberToken,
+            displayName: "Alice"
+          }
+        })
+      );
+
+      const ownerState = await ownerCollector.next("room:state");
+      const joinerState = await joinerCollector.next("room:state");
+      assert.deepEqual(ownerState.payload.members, [
+        { id: created.payload.memberId, name: "Alice" },
+        { id: joined.payload.memberId, name: "Bob" }
+      ]);
+      assert.deepEqual(joinerState.payload.members, ownerState.payload.members);
+    } finally {
+      await closeClient(owner);
+      await closeClient(joiner);
+    }
+  } finally {
+    await server.close();
+  }
+});
+
 test("overwrites spoofed actorId in playback:update", async () => {
   const server = await startTestServer();
   try {

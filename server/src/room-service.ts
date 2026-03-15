@@ -62,6 +62,7 @@ export function createRoomService(options: {
     memberToken: string,
     playback: PlaybackState
   ) => Promise<{ room: PersistedRoom | null; ignored: boolean }>;
+  updateProfileForSession: (session: Session, memberToken: string, displayName: string) => Promise<{ room: PersistedRoom }>;
   getRoomStateForSession: (session: Session, memberToken: string, messageType: ClientMessage["type"]) => Promise<ReturnType<typeof roomStateOf>>;
   getActiveRoom: (roomCode: string) => ReturnType<ActiveRoomRegistry["getRoom"]>;
   getRoomStateByCode: (roomCode: string) => Promise<ReturnType<typeof roomStateOf> | null>;
@@ -484,6 +485,12 @@ export function createRoomService(options: {
       }
 
       return { room: result.room, ignored: false };
+    },
+
+    async updateProfileForSession(session, memberToken, displayName) {
+      const access = await requireJoinedRoomSession(session, memberToken, "profile:update");
+      setSessionDisplayName(session, displayName);
+      return { room: access.persistedRoom };
     },
 
     async getRoomStateForSession(session, memberToken, messageType) {

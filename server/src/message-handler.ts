@@ -39,6 +39,11 @@ export function createMessageHandler(options: {
       memberToken: string,
       playback: Extract<ClientMessage, { type: "playback:update" }>["payload"]["playback"]
     ) => Promise<{ room: { code: string } | null; ignored: boolean }>;
+    updateProfileForSession: (
+      session: Session,
+      memberToken: string,
+      displayName: string
+    ) => Promise<{ room: { code: string } }>;
     getRoomStateForSession: (session: Session, memberToken: string, messageType: ClientMessage["type"]) => Promise<ReturnType<typeof roomStateOf>>;
     getActiveRoom: (roomCode: string) => { members: Map<string, Session> } | null;
   };
@@ -164,6 +169,15 @@ export function createMessageHandler(options: {
             return;
           }
           await leaveRoom(session);
+          return;
+        }
+        case "profile:update": {
+          const { room } = await roomService.updateProfileForSession(
+            session,
+            message.payload.memberToken,
+            message.payload.displayName
+          );
+          await broadcastRoomState(room.code);
           return;
         }
         case "video:share": {

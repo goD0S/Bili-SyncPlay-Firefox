@@ -12,6 +12,7 @@ test("popup snapshot includes connection, room, retry, clock, and logs state", (
   state.room.roomCode = "ROOM01";
   state.room.joinToken = "join-token";
   state.room.memberId = "member-1";
+  state.room.displayName = "Alice";
   state.room.pendingCreateRoom = true;
   state.room.pendingJoinRoomCode = "ROOM02";
   state.clock.clockOffsetMs = 120;
@@ -28,6 +29,7 @@ test("popup snapshot includes connection, room, retry, clock, and logs state", (
   assert.equal(snapshot.payload.connected, true);
   assert.equal(snapshot.payload.serverUrl, "ws://localhost:9999");
   assert.equal(snapshot.payload.roomCode, "ROOM01");
+  assert.equal(snapshot.payload.displayName, "Alice");
   assert.equal(snapshot.payload.retryInMs, 3000);
   assert.equal(snapshot.payload.retryAttempt, 2);
   assert.equal(snapshot.payload.retryAttemptMax, 5);

@@ -38,6 +38,7 @@ export type BackgroundToPopupMessage =
         roomCode: string | null;
         joinToken: string | null;
         memberId: string | null;
+        displayName: string | null;
         roomState: RoomState | null;
         serverUrl: string;
         error: string | null;

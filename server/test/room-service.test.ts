@@ -153,3 +153,28 @@ test("room service reuses member identity when reconnecting with the same member
   const state = await service.getRoomStateForSession(reconnectingOwner, joined.memberToken, "sync:request");
   assert.deepEqual(state.members, [{ id: originalMemberId, name: "Alice" }]);
 });
+
+test("room service updates member display name after join", async () => {
+  const roomStore = createInMemoryRoomStore({ now: () => 1_000 });
+  const service = createRoomService({
+    config: getDefaultSecurityConfig(),
+    persistence: getDefaultPersistenceConfig(),
+    roomStore,
+    activeRooms: createActiveRoomRegistry(),
+    generateToken: (() => {
+      let id = 0;
+      return () => `token-${++id}`.padEnd(16, "x");
+    })(),
+    logEvent: (() => undefined) satisfies LogEvent,
+    now: () => 1_000,
+    createRoomCode: () => "ROOM04"
+  });
+
+  const owner = createSession("owner");
+  const created = await service.createRoomForSession(owner, "Guest-123");
+
+  await service.updateProfileForSession(owner, created.memberToken, "Alice");
+
+  const state = await service.getRoomStateForSession(owner, created.memberToken, "sync:request");
+  assert.deepEqual(state.members, [{ id: owner.memberId, name: "Alice" }]);
+});

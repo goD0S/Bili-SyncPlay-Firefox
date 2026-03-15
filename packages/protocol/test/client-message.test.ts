@@ -105,6 +105,32 @@ test("accepts room:join with an optional memberToken for reconnect", () => {
   );
 });
 
+test("accepts a valid profile:update message", () => {
+  assert.equal(
+    isClientMessage({
+      type: "profile:update",
+      payload: {
+        memberToken: VALID_TOKEN,
+        displayName: "Alice"
+      }
+    }),
+    true
+  );
+});
+
+test("rejects profile:update when displayName is too long", () => {
+  assert.equal(
+    isClientMessage({
+      type: "profile:update",
+      payload: {
+        memberToken: VALID_TOKEN,
+        displayName: "a".repeat(33)
+      }
+    }),
+    false
+  );
+});
+
 test("rejects video:share when required fields are missing", () => {
   assert.equal(
     isClientMessage({
