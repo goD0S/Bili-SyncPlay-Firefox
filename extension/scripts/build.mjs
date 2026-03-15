@@ -16,7 +16,7 @@ await mkdir(distDir, { recursive: true });
 const rootPackage = JSON.parse(await readFile(packageJsonPath, "utf8"));
 const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
 manifest.version = rootPackage.version;
-const extensionKey = process.env.BILI_SYNCPLAY_EXTENSION_KEY?.trim();
+const extensionKey = normalizeExtensionKey(process.env.BILI_SYNCPLAY_EXTENSION_KEY);
 
 if (extensionKey) {
   manifest.key = extensionKey;
@@ -45,3 +45,23 @@ await Promise.all([
   cp(path.join(rootDir, "public", "icon-48.png"), path.join(distDir, "icon-48.png")),
   cp(path.join(rootDir, "public", "icon-128.png"), path.join(distDir, "icon-128.png"))
 ]);
+
+function normalizeExtensionKey(rawValue) {
+  const trimmed = rawValue?.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const normalized = trimmed
+    .replace(/-----BEGIN PUBLIC KEY-----/g, "")
+    .replace(/-----END PUBLIC KEY-----/g, "")
+    .replace(/\s+/g, "");
+
+  if (!/^[A-Za-z0-9+/=]+$/.test(normalized)) {
+    throw new Error(
+      "BILI_SYNCPLAY_EXTENSION_KEY must be a Chrome extension public key body or a PEM-formatted public key."
+    );
+  }
+
+  return normalized;
+}
