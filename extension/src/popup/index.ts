@@ -42,6 +42,7 @@ let lastKnownPendingJoinRoomCode: string | null = null;
 let lastKnownRoomCode: string | null = null;
 let lastRoomEnteredAt = 0;
 let roomCodeDraft = "";
+let localStatusMessage: string | null = null;
 let popupPort: chrome.runtime.Port | null = null;
 const popupStateSync = createPopupStateSyncState();
 
@@ -233,6 +234,11 @@ async function queryState(): Promise<BackgroundToPopupMessage["payload"]> {
   return response.payload;
 }
 
+function applyActionState(state: BackgroundToPopupMessage["payload"]): void {
+  applyState(state, "port");
+  render();
+}
+
 function connectPopupStatePort(): void {
   popupPort?.disconnect();
   popupPort = chrome.runtime.connect({ name: "popup-state" });
@@ -273,6 +279,13 @@ function setRoomActionPending(nextPending: boolean): void {
   }
 }
 
+function setLocalStatusMessage(message: string | null): void {
+  localStatusMessage = message;
+  if (popupStateSync.popupState) {
+    render();
+  }
+}
+
 function applyState(state: BackgroundToPopupMessage["payload"], source: "port" | "query" = "port"): boolean {
   if (!applyIncomingPopupState(popupStateSync, state, source)) {
     return false;
@@ -305,8 +318,9 @@ function render(): void {
     ? `(${state.retryAttempt}/${state.retryAttemptMax})`
     : "";
   refs.clockStatus.textContent = `偏移 ${state.clockOffsetMs ?? "-"}ms / RTT ${state.rttMs ?? "-"}ms`;
-  refs.message.textContent = state.error ?? "";
-  refs.message.hidden = !state.error;
+  const visibleMessage = localStatusMessage ?? state.error;
+  refs.message.textContent = visibleMessage ?? "";
+  refs.message.hidden = !visibleMessage;
 
   if (!roomCodeFocused) {
     if (state.roomCode) {
@@ -445,9 +459,11 @@ function bindActions(nodes: PopupRefs): void {
       return;
     }
     void sendPopupLog("Create room button clicked");
+    setLocalStatusMessage(null);
     setRoomActionPending(true);
     try {
-      await chrome.runtime.sendMessage({ type: "popup:create-room" });
+      const response = (await chrome.runtime.sendMessage({ type: "popup:create-room" })) as BackgroundToPopupMessage;
+      applyActionState(response.payload);
       void sendPopupLog("Create room message resolved");
       setRoomActionPending(false);
     } finally {
@@ -465,18 +481,21 @@ function bindActions(nodes: PopupRefs): void {
     const inviteText = nodes.roomCodeInput.value.trim();
     const invite = parseInviteValue(inviteText);
     if (!invite) {
+      setLocalStatusMessage("邀请格式无效，请输入“房间码:加入码”。");
       void sendPopupLog("Join click ignored because invite string is invalid");
       return;
     }
+    setLocalStatusMessage(null);
     roomCodeDraft = `${invite.roomCode}:${invite.joinToken}`;
     void sendPopupLog(`Join button clicked room=${invite.roomCode}`);
     setRoomActionPending(true);
     try {
-      await chrome.runtime.sendMessage({
+      const response = (await chrome.runtime.sendMessage({
         type: "popup:join-room",
         roomCode: invite.roomCode,
         joinToken: invite.joinToken
-      });
+      })) as BackgroundToPopupMessage;
+      applyActionState(response.payload);
       void sendPopupLog(`Join message resolved room=${invite.roomCode}`);
       setRoomActionPending(false);
     } finally {
@@ -496,10 +515,12 @@ function bindActions(nodes: PopupRefs): void {
       return;
     }
     void sendPopupLog("Leave room button clicked");
+    setLocalStatusMessage(null);
     roomCodeDraft = "";
     setRoomActionPending(true);
     try {
-      await chrome.runtime.sendMessage({ type: "popup:leave-room" });
+      const response = (await chrome.runtime.sendMessage({ type: "popup:leave-room" })) as BackgroundToPopupMessage;
+      applyActionState(response.payload);
       void sendPopupLog("Leave room message resolved");
       setRoomActionPending(false);
     } finally {
@@ -568,18 +589,21 @@ function bindActions(nodes: PopupRefs): void {
     const inviteText = nodes.roomCodeInput.value.trim();
     const invite = parseInviteValue(inviteText);
     if (!invite) {
+      setLocalStatusMessage("邀请格式无效，请输入“房间码:加入码”。");
       void sendPopupLog("Join by Enter ignored because invite string is invalid");
       return;
     }
+    setLocalStatusMessage(null);
     roomCodeDraft = `${invite.roomCode}:${invite.joinToken}`;
     void sendPopupLog(`Join by Enter room=${invite.roomCode}`);
     setRoomActionPending(true);
     try {
-      await chrome.runtime.sendMessage({
+      const response = (await chrome.runtime.sendMessage({
         type: "popup:join-room",
         roomCode: invite.roomCode,
         joinToken: invite.joinToken
-      });
+      })) as BackgroundToPopupMessage;
+      applyActionState(response.payload);
       void sendPopupLog(`Join by Enter resolved room=${invite.roomCode}`);
       setRoomActionPending(false);
     } finally {
@@ -594,12 +618,16 @@ function bindActions(nodes: PopupRefs): void {
     const inviteText = nodes.roomCodeInput.value.trim();
     const invite = parseInviteValue(inviteText);
     roomCodeDraft = invite ? `${invite.roomCode}:${invite.joinToken}` : inviteText;
+    if (localStatusMessage) {
+      setLocalStatusMessage(null);
+    }
     if (invite) {
       void sendPopupLog(`Invite input changed room=${invite.roomCode}`);
     }
   });
 
   const saveServerUrl = async () => {
+    setLocalStatusMessage(null);
     const response = (await chrome.runtime.sendMessage({
       type: "popup:set-server-url",
       serverUrl: nodes.serverUrlInput.value.trim()

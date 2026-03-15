@@ -105,13 +105,13 @@ test("room service rejects expired rooms and old member tokens after restart sem
 
   await assert.rejects(
     restartedService.getRoomStateForSession(owner, oldMemberToken, "sync:request"),
-    /Member token is invalid/
+    /成员令牌无效/
   );
 
   currentTime = 2_500;
   const expiredJoiner = createSession("expired");
   await assert.rejects(
     restartedService.joinRoomForSession(expiredJoiner, created.room.code, created.room.joinToken, "Late"),
-    /Room not found/
+    /房间不存在/
   );
 });

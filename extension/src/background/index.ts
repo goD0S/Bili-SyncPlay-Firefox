@@ -60,6 +60,7 @@ let sharedTabId: number | null = null;
 let pendingCreateRoom = false;
 let pendingJoinRoomCode: string | null = null;
 let pendingJoinToken: string | null = null;
+let pendingJoinRequestSent = false;
 let reconnectTimer: number | null = null;
 let reconnectAttempt = 0;
 let reconnectDeadlineMs: number | null = null;
@@ -77,6 +78,7 @@ let pendingLocalShareTimer: number | null = null;
 let pendingShareToast: (SharedVideoToastPayload & { expiresAt: number; roomCode: string }) | null = null;
 let connectProbe: Promise<void> | null = null;
 let lastPopupStateLogKey: string | null = null;
+let pendingJoinAttemptResolvers: Array<(result: "joined" | "failed" | "timeout") => void> = [];
 const popupPorts = new Set<chrome.runtime.Port>();
 
 bootstrap().catch(console.error);
@@ -199,7 +201,7 @@ async function openSocketWithProbe(targetServerUrl: string): Promise<void> {
         mode: "no-cors"
       });
     } catch {
-      lastError = "Cannot connect to sync server.";
+      lastError = "无法连接到同步服务器。";
       connected = false;
       stopClockSyncTimer();
       log("background", lastError);
@@ -223,14 +225,10 @@ async function openSocketWithProbe(targetServerUrl: string): Promise<void> {
         type: "room:create",
         payload: { displayName: displayName ?? undefined }
       });
-    } else if (pendingJoinRoomCode) {
+    } else if (pendingJoinRoomCode && pendingJoinToken && !pendingJoinRequestSent) {
       const targetRoomCode = pendingJoinRoomCode;
       const targetJoinToken = pendingJoinToken;
-      pendingJoinRoomCode = null;
-      pendingJoinToken = null;
-      if (targetJoinToken) {
-        sendJoinRequest(targetRoomCode, targetJoinToken);
-      }
+      sendJoinRequest(targetRoomCode, targetJoinToken);
     } else if (roomCode) {
       memberToken = null;
       if (joinToken) {
@@ -257,7 +255,7 @@ async function openSocketWithProbe(targetServerUrl: string): Promise<void> {
   });
 
   socket.addEventListener("error", () => {
-    lastError = "Cannot connect to sync server.";
+    lastError = "无法连接到同步服务器。";
     connected = false;
     stopClockSyncTimer();
     clearPendingLocalShare("socket error before share confirmation");
@@ -277,6 +275,7 @@ function sendToServer(message: ClientMessage): void {
 }
 
 function sendJoinRequest(targetRoomCode: string, targetJoinToken: string): void {
+  pendingJoinRequestSent = true;
   sendToServer({
     type: "room:join",
     payload: {
@@ -284,6 +283,34 @@ function sendJoinRequest(targetRoomCode: string, targetJoinToken: string): void 
       joinToken: targetJoinToken,
       displayName: displayName ?? undefined
     }
+  });
+}
+
+function settlePendingJoinAttempt(result: "joined" | "failed" | "timeout"): void {
+  if (pendingJoinAttemptResolvers.length === 0) {
+    return;
+  }
+
+  const resolvers = pendingJoinAttemptResolvers;
+  pendingJoinAttemptResolvers = [];
+  for (const resolve of resolvers) {
+    resolve(result);
+  }
+}
+
+function waitForJoinAttemptResult(timeoutMs = 3000): Promise<"joined" | "failed" | "timeout"> {
+  return new Promise((resolve) => {
+    const timer = globalThis.setTimeout(() => {
+      pendingJoinAttemptResolvers = pendingJoinAttemptResolvers.filter((candidate) => candidate !== finalize);
+      resolve("timeout");
+    }, timeoutMs);
+
+    const finalize = (result: "joined" | "failed" | "timeout") => {
+      globalThis.clearTimeout(timer);
+      resolve(result);
+    };
+
+    pendingJoinAttemptResolvers.push(finalize);
   });
 }
 
@@ -303,12 +330,15 @@ async function handleServerMessage(message: ServerMessage): Promise<void> {
       notifyAll();
       return;
     case "room:joined":
-      pendingJoinRoomCode = null;
-      pendingJoinToken = null;
       roomCode = message.payload.roomCode;
+      joinToken = pendingJoinToken ?? joinToken;
       memberToken = message.payload.memberToken;
       memberId = message.payload.memberId;
+      pendingJoinRequestSent = false;
+      pendingJoinRoomCode = null;
+      pendingJoinToken = null;
       lastError = null;
+      settlePendingJoinAttempt("joined");
       await persistState();
       flushPendingShare();
       notifyAll();
@@ -318,8 +348,15 @@ async function handleServerMessage(message: ServerMessage): Promise<void> {
       return;
     case "error":
       lastError = message.payload.message;
-      if (pendingJoinRoomCode && (message.payload.code === "room_not_found" || message.payload.code === "join_token_invalid")) {
+      if (
+        pendingJoinRoomCode &&
+        (message.payload.code === "room_not_found" ||
+          message.payload.code === "join_token_invalid" ||
+          message.payload.code === "invalid_message")
+      ) {
         log("background", `Join failed for room ${pendingJoinRoomCode}`);
+        settlePendingJoinAttempt("failed");
+        pendingJoinRequestSent = false;
         pendingJoinRoomCode = null;
         pendingJoinToken = null;
         roomCode = null;
@@ -448,11 +485,11 @@ async function getActiveVideoPayload(): Promise<{
 }> {
   const activeTab = await getActiveTab();
   if (!activeTab?.id) {
-    return { ok: false, payload: null, tabId: null, error: "No active tab." };
+    return { ok: false, payload: null, tabId: null, error: "当前没有活动标签页。" };
   }
 
   if (!activeTab.url || !parseBilibiliVideoRef(activeTab.url)) {
-    return { ok: false, payload: null, tabId: activeTab.id, error: "Please open a Bilibili video page first." };
+    return { ok: false, payload: null, tabId: activeTab.id, error: "请先打开一个哔哩哔哩视频页面。" };
   }
 
   try {
@@ -460,7 +497,7 @@ async function getActiveVideoPayload(): Promise<{
       type: "background:get-current-video"
     });
     if (!response?.ok || !response.payload?.video) {
-      return { ok: false, payload: null, tabId: activeTab.id, error: "Current page does not have a playable video." };
+      return { ok: false, payload: null, tabId: activeTab.id, error: "当前页面没有可播放的视频。" };
     }
     return {
       ok: true,
@@ -468,7 +505,7 @@ async function getActiveVideoPayload(): Promise<{
       tabId: activeTab.id
     };
   } catch {
-    return { ok: false, payload: null, tabId: activeTab.id, error: "Cannot access the current page." };
+    return { ok: false, payload: null, tabId: activeTab.id, error: "无法访问当前页面。" };
   }
 }
 
@@ -481,7 +518,7 @@ async function queueOrSendSharedVideo(
 
   if (connected && roomCode) {
     if (!memberToken) {
-      lastError = "Missing member token. Please rejoin the room.";
+      lastError = "成员令牌缺失，请重新加入房间。";
       notifyAll();
       return;
     }
@@ -595,7 +632,7 @@ function scheduleReconnect(): void {
   ) {
     if (reconnectAttempt >= MAX_RECONNECT_ATTEMPTS) {
       reconnectDeadlineMs = null;
-      lastError = `Cannot connect to sync server after ${MAX_RECONNECT_ATTEMPTS} attempts.`;
+      lastError = `重试 ${MAX_RECONNECT_ATTEMPTS} 次后仍无法连接到同步服务器。`;
       log("background", lastError);
     }
     return;
@@ -976,9 +1013,10 @@ chrome.runtime.onMessage.addListener((message: PopupToBackgroundMessage | Conten
         pendingCreateRoom = false;
         pendingJoinRoomCode = message.roomCode.trim().toUpperCase();
         pendingJoinToken = message.joinToken.trim();
+        pendingJoinRequestSent = false;
         log("background", `Popup requested join for ${pendingJoinRoomCode}`);
-        roomCode = pendingJoinRoomCode;
-        joinToken = pendingJoinToken;
+        roomCode = null;
+        joinToken = null;
         memberToken = null;
         memberId = null;
         roomState = null;
@@ -987,13 +1025,18 @@ chrome.runtime.onMessage.addListener((message: PopupToBackgroundMessage | Conten
         lastError = null;
         await persistState();
         await connect();
+        if (!connected) {
+          sendResponse(popupState());
+          return;
+        }
         if (connected && pendingJoinRoomCode && pendingJoinToken) {
           const targetRoomCode = pendingJoinRoomCode;
           const targetJoinToken = pendingJoinToken;
-          pendingJoinRoomCode = null;
-          pendingJoinToken = null;
-          sendJoinRequest(targetRoomCode, targetJoinToken);
+          if (!pendingJoinRequestSent) {
+            sendJoinRequest(targetRoomCode, targetJoinToken);
+          }
         }
+        await waitForJoinAttemptResult();
         sendResponse(popupState());
         return;
       case "popup:leave-room":
@@ -1011,6 +1054,7 @@ chrome.runtime.onMessage.addListener((message: PopupToBackgroundMessage | Conten
         roomState = null;
         pendingJoinRoomCode = null;
         pendingJoinToken = null;
+        pendingJoinRequestSent = false;
         resetRoomLifecycleTransientState("leave-room", "leave room requested");
         lastOpenedSharedUrl = null;
         pendingCreateRoom = false;
@@ -1044,7 +1088,7 @@ chrome.runtime.onMessage.addListener((message: PopupToBackgroundMessage | Conten
       case "popup:share-current-video": {
         const response = await getActiveVideoPayload();
         if (!response.ok || !response.payload) {
-          lastError = response.error ?? "Cannot read the current video.";
+          lastError = response.error ?? "无法读取当前视频。";
           notifyAll();
           sendResponse({ ok: false, error: lastError });
           return;

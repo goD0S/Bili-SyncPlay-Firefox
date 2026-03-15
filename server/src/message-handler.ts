@@ -96,7 +96,7 @@ export function createMessageHandler(options: {
         case "room:create": {
           if (!consumeFixedWindow(session.rateLimitState.roomCreate, config.rateLimits.roomCreatePerMinute, WINDOW_MINUTE_MS, currentTime)) {
             handleRateLimitedMessage(session, message.type);
-            sendError(session.socket, "rate_limited", "Too many requests.");
+            sendError(session.socket, "rate_limited", "请求过于频繁。");
             return;
           }
 
@@ -123,7 +123,7 @@ export function createMessageHandler(options: {
         case "room:join": {
           if (!consumeFixedWindow(session.rateLimitState.roomJoin, config.rateLimits.roomJoinPerMinute, WINDOW_MINUTE_MS, currentTime)) {
             handleRateLimitedMessage(session, message.type);
-            sendError(session.socket, "rate_limited", "Too many requests.");
+            sendError(session.socket, "rate_limited", "请求过于频繁。");
             return;
           }
 
@@ -153,7 +153,7 @@ export function createMessageHandler(options: {
         }
         case "room:leave": {
           if (message.payload?.memberToken && session.memberToken && message.payload.memberToken !== session.memberToken) {
-            sendError(session.socket, "member_token_invalid", "Member token is invalid.");
+            sendError(session.socket, "member_token_invalid", "成员令牌无效。");
             return;
           }
           await leaveRoom(session);
@@ -162,7 +162,7 @@ export function createMessageHandler(options: {
         case "video:share": {
           if (!consumeFixedWindow(session.rateLimitState.videoShare, config.rateLimits.videoSharePer10Seconds, WINDOW_10_SECONDS_MS, currentTime)) {
             handleRateLimitedMessage(session, message.type);
-            sendError(session.socket, "rate_limited", "Too many requests.");
+            sendError(session.socket, "rate_limited", "请求过于频繁。");
             return;
           }
 
@@ -197,7 +197,7 @@ export function createMessageHandler(options: {
         case "sync:request": {
           if (!consumeFixedWindow(session.rateLimitState.syncRequest, config.rateLimits.syncRequestPer10Seconds, WINDOW_10_SECONDS_MS, currentTime)) {
             handleRateLimitedMessage(session, message.type);
-            sendError(session.socket, "rate_limited", "Too many requests.");
+            sendError(session.socket, "rate_limited", "请求过于频繁。");
             return;
           }
 

@@ -15,9 +15,9 @@ import type { LogEvent, PersistenceConfig, SecurityConfig, Session } from "./typ
 
 export type { PersistenceConfig, SecurityConfig } from "./types.js";
 
-export const INVALID_JSON_MESSAGE = "Invalid JSON message.";
-export const INVALID_CLIENT_MESSAGE_MESSAGE = "Invalid client message payload.";
-export const INTERNAL_SERVER_ERROR_MESSAGE = "Internal server error.";
+export const INVALID_JSON_MESSAGE = "无效的 JSON 消息。";
+export const INVALID_CLIENT_MESSAGE_MESSAGE = "无效的客户端消息体。";
+export const INTERNAL_SERVER_ERROR_MESSAGE = "服务器内部错误。";
 
 const CLOSE_CODE_POLICY_VIOLATION = 1008;
 

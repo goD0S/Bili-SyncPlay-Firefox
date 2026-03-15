@@ -1,6 +1,6 @@
 import { DEFAULT_SERVER_URL } from "./runtime-state";
 
-export const INVALID_SERVER_URL_MESSAGE = "Server URL must start with ws:// or wss://.";
+export const INVALID_SERVER_URL_MESSAGE = "服务端地址必须以 ws:// 或 wss:// 开头。";
 
 type ServerUrlValidationResult =
   | { ok: true; normalizedUrl: string }

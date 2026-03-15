@@ -29,4 +29,6 @@ test("parseInviteValue extracts roomCode and joinToken from an invite string", (
 test("parseInviteValue returns null for malformed input", () => {
   assert.equal(parseInviteValue("ABC123"), null);
   assert.equal(parseInviteValue(""), null);
+  assert.equal(parseInviteValue("AB12:join-token-123456"), null);
+  assert.equal(parseInviteValue("ABC123:short-token"), null);
 });
