@@ -7,6 +7,7 @@ import {
   syncServerUrlDraft,
   updateServerUrlDraft
 } from "./server-url-draft";
+import { DEFAULT_SERVER_URL } from "../background/runtime-state";
 import { applyIncomingPopupState, createPopupStateSyncState } from "./state-sync";
 
 const app = document.getElementById("app");
@@ -146,7 +147,7 @@ async function init(): Promise<void> {
             <div class="metric" style="grid-column: span 2;">
               <span class="metric-label">服务端地址</span>
               <div class="settings-row">
-                <input id="server-url" placeholder="ws://localhost:8787">
+                <input id="server-url" placeholder="${escapeHtml(DEFAULT_SERVER_URL)}">
                 <button class="secondary compact-button" id="save-server-url" type="button">保存</button>
               </div>
             </div>

@@ -263,7 +263,7 @@ Chrome 显示的扩展版本来自 `extension/dist/manifest.json`。
 wss://sync.example.com
 ```
 
-扩展的服务器地址只接受 `ws://` 和 `wss://`；空输入会回退到默认值 `ws://localhost:8787`。
+扩展的服务器地址只接受 `ws://` 和 `wss://`；空输入会回退到当前构建内置的默认值。未设置 `BILI_SYNCPLAY_DEFAULT_SERVER_URL` 时，该默认值是 `ws://localhost:8787`。
 
 如果你希望 Chrome 应用商店提交包内置公共服务器地址、而 GitHub 源码继续保持 `ws://localhost:8787`，构建扩展时设置环境变量 `BILI_SYNCPLAY_DEFAULT_SERVER_URL` 即可，例如在 PowerShell 中：
 
@@ -272,7 +272,7 @@ $env:BILI_SYNCPLAY_DEFAULT_SERVER_URL="wss://sync.example.com"
 npm run build:release
 ```
 
-不设置该环境变量时，构建产物仍然使用 `ws://localhost:8787`。
+不设置该环境变量时，构建产物仍然使用 `ws://localhost:8787`；设置后，用户在弹窗里清空服务器地址并保存，也会回退到这个构建时注入的地址。
 
 本地开发时，`ALLOWED_ORIGINS` 必须包含当前 `chrome-extension://<extension-id>`，否则服务端会以 `origin_not_allowed` 拒绝 WebSocket 握手。
 
