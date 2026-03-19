@@ -18,6 +18,7 @@ import {
   shouldForcePauseWhileWaitingForInitialRoomState,
 } from "./sync-guards";
 import { createContentStateStore } from "./content-store";
+import { createNavigationController } from "./navigation-controller";
 import { createRoomStateController } from "./room-state-controller";
 import { createShareController } from "./share-controller";
 import { createSyncController } from "./sync-controller";
@@ -27,7 +28,6 @@ let seq = 0;
 let lastBroadcastAt = 0;
 let hydrateRetryTimer: number | null = null;
 let videoBindingTimer: number | null = null;
-let navigationWatchTimer: number | null = null;
 const lastAppliedVersionByActor = new Map<
   string,
   { serverTime: number; seq: number }
@@ -47,7 +47,6 @@ const FESTIVAL_SNAPSHOT_TTL_MS = 1200;
 const NAVIGATION_WATCH_INTERVAL_MS = 400;
 const VIDEO_BIND_INTERVAL_MS = 250;
 const HEARTBEAT_LOG_INTERVAL_MS = 10000;
-let lastObservedPageUrl = window.location.href.split("#")[0];
 const festivalBridge = createFestivalBridgeController();
 const broadcastLogState = { key: null as string | null, at: 0 };
 const ignoredSelfPlaybackLogState = { key: null as string | null, at: 0 };
@@ -100,6 +99,23 @@ const syncController = createSyncController({
   maybeShowSharedVideoToast: (toast, state) =>
     roomStateController.maybeShowSharedVideoToast(toast, state),
 });
+const navigationController = createNavigationController({
+  runtimeState,
+  intervalMs: NAVIGATION_WATCH_INTERVAL_MS,
+  userGestureGraceMs: USER_GESTURE_GRACE_MS,
+  initialRoomStatePauseHoldMs: INITIAL_ROOM_STATE_PAUSE_HOLD_MS,
+  getCurrentPageUrl: () => window.location.href.split("#")[0],
+  isSupportedVideoPage: (url) => Boolean(normalizeBilibiliUrl(url)),
+  clearFestivalSnapshot: () => {
+    festivalBridge.clearSnapshot();
+  },
+  attachPlaybackListeners,
+  getVideoElement,
+  pauseVideo,
+  hydrateRoomState,
+  activatePauseHold,
+  debugLog,
+});
 
 void init();
 
@@ -144,7 +160,7 @@ function resetPlaybackSyncState(reason: string): void {
 async function init(): Promise<void> {
   startUserGestureTracking();
   startPlaybackBinding();
-  startNavigationWatch();
+  navigationController.start();
   document.addEventListener("fullscreenchange", () => {
     toastPresenter.resetMountTarget();
   });
@@ -296,53 +312,6 @@ function attachPlaybackListeners(): void {
       }
     },
   });
-}
-
-function startNavigationWatch(): void {
-  const handlePotentialNavigation = () => {
-    const nextPageUrl = window.location.href.split("#")[0];
-    if (nextPageUrl === lastObservedPageUrl) {
-      return;
-    }
-
-    lastObservedPageUrl = nextPageUrl;
-    festivalBridge.clearSnapshot();
-    runtimeState.pendingPlaybackApplication = null;
-    runtimeState.explicitNonSharedPlaybackUrl = null;
-
-    if (!runtimeState.activeRoomCode || !normalizeBilibiliUrl(nextPageUrl)) {
-      return;
-    }
-
-    runtimeState.hasReceivedInitialRoomState = false;
-    runtimeState.pendingRoomStateHydration = true;
-    runtimeState.intendedPlayState = "paused";
-    activatePauseHold(INITIAL_ROOM_STATE_PAUSE_HOLD_MS);
-    debugLog(
-      `Detected in-room navigation to ${nextPageUrl}, waiting for room state`,
-    );
-    attachPlaybackListeners();
-    const video = getVideoElement();
-    if (
-      video &&
-      !video.paused &&
-      Date.now() - runtimeState.lastUserGestureAt >= USER_GESTURE_GRACE_MS
-    ) {
-      debugLog(
-        `Suppressed autoplay immediately after in-room navigation to ${nextPageUrl}`,
-      );
-      pauseVideo(video);
-    }
-    void hydrateRoomState();
-  };
-
-  handlePotentialNavigation();
-  if (navigationWatchTimer === null) {
-    navigationWatchTimer = window.setInterval(
-      handlePotentialNavigation,
-      NAVIGATION_WATCH_INTERVAL_MS,
-    );
-  }
 }
 
 function forcePauseWhileWaitingForInitialRoomState(

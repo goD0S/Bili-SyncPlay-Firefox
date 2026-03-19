@@ -1,0 +1,77 @@
+import type { ContentRuntimeState } from "./runtime-state";
+
+export interface NavigationController {
+  start(): void;
+}
+
+export function createNavigationController(args: {
+  runtimeState: ContentRuntimeState;
+  intervalMs: number;
+  userGestureGraceMs: number;
+  initialRoomStatePauseHoldMs: number;
+  getCurrentPageUrl: () => string;
+  isSupportedVideoPage: (url: string) => boolean;
+  clearFestivalSnapshot: () => void;
+  attachPlaybackListeners: () => void;
+  getVideoElement: () => HTMLVideoElement | null;
+  pauseVideo: (video: HTMLVideoElement) => void;
+  hydrateRoomState: () => Promise<void>;
+  activatePauseHold: (durationMs?: number) => void;
+  debugLog: (message: string) => void;
+}): NavigationController {
+  let navigationWatchTimer: number | null = null;
+  let lastObservedPageUrl = args.getCurrentPageUrl();
+
+  function handlePotentialNavigation(): void {
+    const nextPageUrl = args.getCurrentPageUrl();
+    if (nextPageUrl === lastObservedPageUrl) {
+      return;
+    }
+
+    lastObservedPageUrl = nextPageUrl;
+    args.clearFestivalSnapshot();
+    args.runtimeState.pendingPlaybackApplication = null;
+    args.runtimeState.explicitNonSharedPlaybackUrl = null;
+
+    if (
+      !args.runtimeState.activeRoomCode ||
+      !args.isSupportedVideoPage(nextPageUrl)
+    ) {
+      return;
+    }
+
+    args.runtimeState.hasReceivedInitialRoomState = false;
+    args.runtimeState.pendingRoomStateHydration = true;
+    args.runtimeState.intendedPlayState = "paused";
+    args.activatePauseHold(args.initialRoomStatePauseHoldMs);
+    args.debugLog(
+      `Detected in-room navigation to ${nextPageUrl}, waiting for room state`,
+    );
+    args.attachPlaybackListeners();
+    const video = args.getVideoElement();
+    if (
+      video &&
+      !video.paused &&
+      Date.now() - args.runtimeState.lastUserGestureAt >=
+        args.userGestureGraceMs
+    ) {
+      args.debugLog(
+        `Suppressed autoplay immediately after in-room navigation to ${nextPageUrl}`,
+      );
+      args.pauseVideo(video);
+    }
+    void args.hydrateRoomState();
+  }
+
+  return {
+    start() {
+      handlePotentialNavigation();
+      if (navigationWatchTimer === null) {
+        navigationWatchTimer = window.setInterval(
+          handlePotentialNavigation,
+          args.intervalMs,
+        );
+      }
+    },
+  };
+}

@@ -73,6 +73,7 @@
 - T08 第二阶段已落地：新增 `extension/src/content/sync-controller.ts`，将 `broadcastPlayback`、`applyRoomState`、`hydrateRoomState` 与同步相关的回声抑制/本地意图守卫主流程从 `content/index.ts` 抽离，content 主入口开始退化为装配层
 - T08 第三阶段已落地：新增 `extension/src/content/room-state-controller.ts`，将 `background:sync-status` 的房间切换处理、共享页判断与 toast 协调从 `content/index.ts` 抽离，入口文件进一步收敛到事件绑定与页面协同
 - T08 第四阶段已落地：新增 `extension/src/content/share-controller.ts`，将当前页面共享视频识别、festival 快照刷新与分享载荷解析从 `content/index.ts` 抽离，content 主入口只保留绑定与导航层协同逻辑
+- T09 第一阶段已落地：新增 `extension/src/content/navigation-controller.ts`，将页面 URL 轮询、房间内导航后的初始状态重置、自动暂停守卫与重试 hydration 触发从 `content/index.ts` 抽离，主入口继续收敛为 controller 装配与消息绑定层
 
 ## T01 建立统一 lint/format 工具链
 
