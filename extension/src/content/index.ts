@@ -36,7 +36,7 @@ import {
   shouldSuppressLocalEcho as shouldSuppressLocalEchoGuard,
   shouldSuppressRemotePlayTransition as shouldSuppressRemotePlayTransitionGuard,
 } from "./sync-guards";
-import { createContentRuntimeState } from "./runtime-state";
+import { createContentStateStore } from "./content-store";
 import {
   createToastCoordinatorState,
   createToastPresenter,
@@ -53,7 +53,8 @@ const lastAppliedVersionByActor = new Map<
   string,
   { serverTime: number; seq: number }
 >();
-const runtimeState = createContentRuntimeState();
+const contentStateStore = createContentStateStore();
+const runtimeState = contentStateStore.getState();
 const toastState = createToastCoordinatorState();
 const toastPresenter = createToastPresenter();
 
