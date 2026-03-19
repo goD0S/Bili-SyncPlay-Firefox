@@ -27,6 +27,7 @@ import type { ContentRuntimeState } from "./runtime-state";
 
 export interface SyncController {
   resetPlaybackSyncState(reason: string): void;
+  hasRecentRemoteStopIntent(currentVideoUrl: string): boolean;
   applyPendingPlaybackApplication(video: HTMLVideoElement): void;
   broadcastPlayback(video: HTMLVideoElement): Promise<void>;
   applyRoomState(
@@ -611,6 +612,7 @@ export function createSyncController(args: {
 
   return {
     resetPlaybackSyncState,
+    hasRecentRemoteStopIntent,
     applyPendingPlaybackApplication,
     broadcastPlayback,
     applyRoomState,

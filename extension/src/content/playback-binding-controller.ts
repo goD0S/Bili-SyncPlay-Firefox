@@ -1,0 +1,259 @@
+import type { SharedVideo } from "@bili-syncplay/protocol";
+import {
+  bindVideoElement,
+  getVideoElement,
+  pauseVideo,
+} from "./player-binding";
+import {
+  evaluateNonSharedPageGuard,
+  shouldForcePauseWhileWaitingForInitialRoomState,
+} from "./sync-guards";
+import type { ContentRuntimeState } from "./runtime-state";
+
+export interface PlaybackBindingController {
+  start(): void;
+  attachPlaybackListeners(): void;
+}
+
+export function createPlaybackBindingController(args: {
+  runtimeState: ContentRuntimeState;
+  videoBindIntervalMs: number;
+  userGestureGraceMs: number;
+  initialRoomStatePauseHoldMs: number;
+  getSharedVideo: () => SharedVideo | null;
+  hasRecentRemoteStopIntent: (currentVideoUrl: string) => boolean;
+  normalizeUrl: (url: string | undefined | null) => string | null;
+  getLastBroadcastAt: () => number;
+  broadcastPlayback: (video: HTMLVideoElement) => Promise<void>;
+  applyPendingPlaybackApplication: (video: HTMLVideoElement) => void;
+  activatePauseHold: (durationMs?: number) => void;
+  debugLog: (message: string) => void;
+  getNow?: () => number;
+}): PlaybackBindingController {
+  let videoBindingTimer: number | null = null;
+  const nowOf = () => args.getNow?.() ?? Date.now();
+
+  function scheduleBroadcast(video: HTMLVideoElement, followUpMs?: number) {
+    void args.broadcastPlayback(video);
+    if (followUpMs) {
+      window.setTimeout(() => {
+        void args.broadcastPlayback(video);
+      }, followUpMs);
+    }
+  }
+
+  function rememberExplicitPlaybackAction(playState: "playing" | "paused") {
+    if (
+      nowOf() - args.runtimeState.lastUserGestureAt <
+      args.userGestureGraceMs
+    ) {
+      args.runtimeState.lastExplicitPlaybackAction = {
+        playState,
+        at: nowOf(),
+      };
+    }
+  }
+
+  function isCurrentVideoShared(currentVideo: SharedVideo | null): boolean {
+    if (!currentVideo || !args.runtimeState.activeSharedUrl) {
+      return false;
+    }
+    return (
+      args.normalizeUrl(currentVideo.url) === args.runtimeState.activeSharedUrl
+    );
+  }
+
+  function forcePauseWhileWaitingForInitialRoomState(
+    video: HTMLVideoElement,
+  ): boolean {
+    if (
+      !shouldForcePauseWhileWaitingForInitialRoomState({
+        activeRoomCode: args.runtimeState.activeRoomCode,
+        pendingRoomStateHydration: args.runtimeState.pendingRoomStateHydration,
+        videoPaused: video.paused,
+        now: nowOf(),
+        lastUserGestureAt: args.runtimeState.lastUserGestureAt,
+        userGestureGraceMs: args.userGestureGraceMs,
+      })
+    ) {
+      if (
+        args.runtimeState.activeRoomCode &&
+        args.runtimeState.pendingRoomStateHydration &&
+        !video.paused &&
+        nowOf() - args.runtimeState.lastUserGestureAt < args.userGestureGraceMs
+      ) {
+        args.debugLog(
+          `Allowed user-initiated playback while waiting for initial room state of ${args.runtimeState.activeRoomCode}`,
+        );
+      }
+      return false;
+    }
+
+    if (
+      nowOf() - args.runtimeState.lastUserGestureAt <
+      args.userGestureGraceMs
+    ) {
+      args.debugLog(
+        `Allowed user-initiated playback while waiting for initial room state of ${args.runtimeState.activeRoomCode}`,
+      );
+      return false;
+    }
+
+    args.debugLog(
+      `Suppressed page autoplay while waiting for initial room state of ${args.runtimeState.activeRoomCode}`,
+    );
+    args.runtimeState.intendedPlayState = "paused";
+    window.setTimeout(() => {
+      if (!video.paused) {
+        pauseVideo(video);
+      }
+    }, 0);
+    return true;
+  }
+
+  function forcePauseOnNonSharedPage(video: HTMLVideoElement): boolean {
+    if (
+      !args.runtimeState.activeRoomCode ||
+      !args.runtimeState.activeSharedUrl
+    ) {
+      return false;
+    }
+
+    const currentVideo = args.getSharedVideo();
+    const normalizedCurrentUrl = args.normalizeUrl(currentVideo?.url);
+    if (!currentVideo) {
+      args.runtimeState.explicitNonSharedPlaybackUrl = null;
+      return false;
+    }
+
+    const decision = evaluateNonSharedPageGuard({
+      activeRoomCode: args.runtimeState.activeRoomCode,
+      activeSharedUrl: args.runtimeState.activeSharedUrl,
+      normalizedCurrentUrl,
+      videoPaused: video.paused,
+      explicitNonSharedPlaybackUrl:
+        args.runtimeState.explicitNonSharedPlaybackUrl,
+      lastExplicitPlaybackAction: args.runtimeState.lastExplicitPlaybackAction,
+      now: nowOf(),
+      userGestureGraceMs: args.userGestureGraceMs,
+    });
+
+    if (
+      !normalizedCurrentUrl ||
+      normalizedCurrentUrl === args.runtimeState.activeSharedUrl
+    ) {
+      args.runtimeState.explicitNonSharedPlaybackUrl = null;
+      return false;
+    }
+
+    args.runtimeState.explicitNonSharedPlaybackUrl =
+      decision.nextExplicitNonSharedPlaybackUrl;
+    if (!decision.shouldPause) {
+      return false;
+    }
+
+    args.runtimeState.intendedPlayState = "paused";
+    args.activatePauseHold(args.initialRoomStatePauseHoldMs);
+    window.setTimeout(() => {
+      if (!video.paused) {
+        pauseVideo(video);
+      }
+    }, 0);
+    return true;
+  }
+
+  function attachPlaybackListeners(): void {
+    const video = getVideoElement();
+    if (!video) {
+      return;
+    }
+
+    const guardUnexpectedResume = () => {
+      const currentVideo = args.getSharedVideo();
+      if (
+        currentVideo &&
+        isCurrentVideoShared(currentVideo) &&
+        args.hasRecentRemoteStopIntent(currentVideo.url) &&
+        args.runtimeState.intendedPlayState !== "playing" &&
+        nowOf() - args.runtimeState.lastUserGestureAt >= args.userGestureGraceMs
+      ) {
+        args.debugLog(
+          `Forced pause hold reapplied after unexpected resume intended=${args.runtimeState.intendedPlayState}`,
+        );
+        window.setTimeout(() => {
+          pauseVideo(video);
+        }, 0);
+        return true;
+      }
+      if (forcePauseOnNonSharedPage(video)) {
+        return true;
+      }
+      if (forcePauseWhileWaitingForInitialRoomState(video)) {
+        return true;
+      }
+      return false;
+    };
+
+    bindVideoElement({
+      video,
+      onPlay: () => {
+        rememberExplicitPlaybackAction("playing");
+        if (!guardUnexpectedResume()) {
+          scheduleBroadcast(video, 180);
+        }
+      },
+      onPause: () => {
+        const currentVideo = args.getSharedVideo();
+        rememberExplicitPlaybackAction("paused");
+        if (
+          currentVideo &&
+          args.normalizeUrl(currentVideo.url) ===
+            args.runtimeState.explicitNonSharedPlaybackUrl
+        ) {
+          args.runtimeState.explicitNonSharedPlaybackUrl = null;
+        }
+        scheduleBroadcast(video, 120);
+      },
+      onWaiting: () => scheduleBroadcast(video),
+      onStalled: () => scheduleBroadcast(video),
+      onLoadedMetadata: () => {
+        if (!forcePauseWhileWaitingForInitialRoomState(video)) {
+          args.applyPendingPlaybackApplication(video);
+        }
+      },
+      onCanPlay: () => {
+        if (!forcePauseWhileWaitingForInitialRoomState(video)) {
+          args.applyPendingPlaybackApplication(video);
+        }
+        scheduleBroadcast(video, 120);
+      },
+      onPlaying: () => {
+        rememberExplicitPlaybackAction("playing");
+        if (!guardUnexpectedResume()) {
+          scheduleBroadcast(video, 180);
+        }
+      },
+      onSeeking: () => scheduleBroadcast(video),
+      onSeeked: () => scheduleBroadcast(video, 120),
+      onRateChange: () => scheduleBroadcast(video, 120),
+      onTimeUpdate: () => {
+        if (nowOf() - args.getLastBroadcastAt() > 2000 && !video.paused) {
+          void args.broadcastPlayback(video);
+        }
+      },
+    });
+  }
+
+  return {
+    start() {
+      attachPlaybackListeners();
+      if (videoBindingTimer === null) {
+        videoBindingTimer = window.setInterval(
+          attachPlaybackListeners,
+          args.videoBindIntervalMs,
+        );
+      }
+    },
+    attachPlaybackListeners,
+  };
+}

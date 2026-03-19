@@ -1,24 +1,13 @@
-import {
-  normalizeBilibiliUrl,
-  type RoomState,
-  type SharedVideo,
-} from "@bili-syncplay/protocol";
+import { normalizeBilibiliUrl, type RoomState } from "@bili-syncplay/protocol";
 import type {
   BackgroundToContentMessage,
   SharedVideoToastPayload,
 } from "../shared/messages";
 import { createFestivalBridgeController } from "./festival-bridge";
-import {
-  bindVideoElement,
-  getVideoElement,
-  pauseVideo,
-} from "./player-binding";
-import {
-  evaluateNonSharedPageGuard,
-  shouldForcePauseWhileWaitingForInitialRoomState,
-} from "./sync-guards";
+import { getVideoElement, pauseVideo } from "./player-binding";
 import { createContentStateStore } from "./content-store";
 import { createNavigationController } from "./navigation-controller";
+import { createPlaybackBindingController } from "./playback-binding-controller";
 import { createRoomStateController } from "./room-state-controller";
 import { createShareController } from "./share-controller";
 import { createSyncController } from "./sync-controller";
@@ -27,7 +16,6 @@ import { createToastCoordinatorState, createToastPresenter } from "./toast";
 let seq = 0;
 let lastBroadcastAt = 0;
 let hydrateRetryTimer: number | null = null;
-let videoBindingTimer: number | null = null;
 const lastAppliedVersionByActor = new Map<
   string,
   { serverTime: number; seq: number }
@@ -99,6 +87,22 @@ const syncController = createSyncController({
   maybeShowSharedVideoToast: (toast, state) =>
     roomStateController.maybeShowSharedVideoToast(toast, state),
 });
+const playbackBindingController = createPlaybackBindingController({
+  runtimeState,
+  videoBindIntervalMs: VIDEO_BIND_INTERVAL_MS,
+  userGestureGraceMs: USER_GESTURE_GRACE_MS,
+  initialRoomStatePauseHoldMs: INITIAL_ROOM_STATE_PAUSE_HOLD_MS,
+  getSharedVideo: () => shareController.getSharedVideo(),
+  hasRecentRemoteStopIntent: (currentVideoUrl) =>
+    syncController.hasRecentRemoteStopIntent(currentVideoUrl),
+  normalizeUrl,
+  getLastBroadcastAt: () => lastBroadcastAt,
+  broadcastPlayback,
+  applyPendingPlaybackApplication: (video) =>
+    syncController.applyPendingPlaybackApplication(video),
+  activatePauseHold,
+  debugLog,
+});
 const navigationController = createNavigationController({
   runtimeState,
   intervalMs: NAVIGATION_WATCH_INTERVAL_MS,
@@ -109,7 +113,8 @@ const navigationController = createNavigationController({
   clearFestivalSnapshot: () => {
     festivalBridge.clearSnapshot();
   },
-  attachPlaybackListeners,
+  attachPlaybackListeners: () =>
+    playbackBindingController.attachPlaybackListeners(),
   getVideoElement,
   pauseVideo,
   hydrateRoomState,
@@ -159,7 +164,7 @@ function resetPlaybackSyncState(reason: string): void {
 
 async function init(): Promise<void> {
   startUserGestureTracking();
-  startPlaybackBinding();
+  playbackBindingController.start();
   navigationController.start();
   document.addEventListener("fullscreenchange", () => {
     toastPresenter.resetMountTarget();
@@ -204,225 +209,12 @@ function startUserGestureTracking(): void {
   document.addEventListener("keydown", markUserGesture, true);
 }
 
-function startPlaybackBinding(): void {
-  attachPlaybackListeners();
-  if (videoBindingTimer === null) {
-    videoBindingTimer = window.setInterval(
-      attachPlaybackListeners,
-      VIDEO_BIND_INTERVAL_MS,
-    );
-  }
-}
-
-function attachPlaybackListeners(): void {
-  const video = getVideoElement();
-  if (!video) {
-    return;
-  }
-
-  const scheduleBroadcast = (followUpMs?: number) => {
-    void broadcastPlayback(video);
-    if (followUpMs) {
-      window.setTimeout(() => {
-        void broadcastPlayback(video);
-      }, followUpMs);
-    }
-  };
-
-  const rememberExplicitPlaybackAction = (playState: "playing" | "paused") => {
-    if (Date.now() - runtimeState.lastUserGestureAt < USER_GESTURE_GRACE_MS) {
-      runtimeState.lastExplicitPlaybackAction = {
-        playState,
-        at: Date.now(),
-      };
-    }
-  };
-
-  const guardUnexpectedResume = () => {
-    const currentVideo = shareController.getSharedVideo();
-    if (
-      currentVideo &&
-      isCurrentVideoShared(currentVideo) &&
-      hasRecentRemoteStopIntent(currentVideo.url) &&
-      runtimeState.intendedPlayState !== "playing" &&
-      Date.now() - runtimeState.lastUserGestureAt >= USER_GESTURE_GRACE_MS
-    ) {
-      debugLog(
-        `Forced pause hold reapplied after unexpected resume intended=${runtimeState.intendedPlayState}`,
-      );
-      window.setTimeout(() => {
-        pauseVideo(video);
-      }, 0);
-      return true;
-    }
-    if (forcePauseOnNonSharedPage(video)) {
-      return true;
-    }
-    if (forcePauseWhileWaitingForInitialRoomState(video)) {
-      return true;
-    }
-    return false;
-  };
-
-  bindVideoElement({
-    video,
-    onPlay: () => {
-      rememberExplicitPlaybackAction("playing");
-      if (!guardUnexpectedResume()) {
-        scheduleBroadcast(180);
-      }
-    },
-    onPause: () => {
-      const currentVideo = shareController.getSharedVideo();
-      rememberExplicitPlaybackAction("paused");
-      if (
-        currentVideo &&
-        normalizeUrl(currentVideo.url) ===
-          runtimeState.explicitNonSharedPlaybackUrl
-      ) {
-        runtimeState.explicitNonSharedPlaybackUrl = null;
-      }
-      scheduleBroadcast(120);
-    },
-    onWaiting: () => scheduleBroadcast(),
-    onStalled: () => scheduleBroadcast(),
-    onLoadedMetadata: () => {
-      if (!forcePauseWhileWaitingForInitialRoomState(video)) {
-        applyPendingPlaybackApplication(video);
-      }
-    },
-    onCanPlay: () => {
-      if (!forcePauseWhileWaitingForInitialRoomState(video)) {
-        applyPendingPlaybackApplication(video);
-      }
-      scheduleBroadcast(120);
-    },
-    onPlaying: () => {
-      rememberExplicitPlaybackAction("playing");
-      if (!guardUnexpectedResume()) {
-        scheduleBroadcast(180);
-      }
-    },
-    onSeeking: () => scheduleBroadcast(),
-    onSeeked: () => scheduleBroadcast(120),
-    onRateChange: () => scheduleBroadcast(120),
-    onTimeUpdate: () => {
-      if (Date.now() - lastBroadcastAt > 2000 && !video.paused) {
-        void broadcastPlayback(video);
-      }
-    },
-  });
-}
-
-function forcePauseWhileWaitingForInitialRoomState(
-  video: HTMLVideoElement,
-): boolean {
-  if (
-    !shouldForcePauseWhileWaitingForInitialRoomState({
-      activeRoomCode: runtimeState.activeRoomCode,
-      pendingRoomStateHydration: runtimeState.pendingRoomStateHydration,
-      videoPaused: video.paused,
-      now: Date.now(),
-      lastUserGestureAt: runtimeState.lastUserGestureAt,
-      userGestureGraceMs: USER_GESTURE_GRACE_MS,
-    })
-  ) {
-    if (
-      runtimeState.activeRoomCode &&
-      runtimeState.pendingRoomStateHydration &&
-      !video.paused &&
-      Date.now() - runtimeState.lastUserGestureAt < USER_GESTURE_GRACE_MS
-    ) {
-      debugLog(
-        `Allowed user-initiated playback while waiting for initial room state of ${runtimeState.activeRoomCode}`,
-      );
-    }
-    return false;
-  }
-
-  if (Date.now() - runtimeState.lastUserGestureAt < USER_GESTURE_GRACE_MS) {
-    debugLog(
-      `Allowed user-initiated playback while waiting for initial room state of ${runtimeState.activeRoomCode}`,
-    );
-    return false;
-  }
-
-  debugLog(
-    `Suppressed page autoplay while waiting for initial room state of ${runtimeState.activeRoomCode}`,
-  );
-  runtimeState.intendedPlayState = "paused";
-  window.setTimeout(() => {
-    if (!video.paused) {
-      pauseVideo(video);
-    }
-  }, 0);
-  return true;
-}
-
-function forcePauseOnNonSharedPage(video: HTMLVideoElement): boolean {
-  if (!runtimeState.activeRoomCode || !runtimeState.activeSharedUrl) {
-    return false;
-  }
-
-  const currentVideo = shareController.getSharedVideo();
-  const normalizedCurrentUrl = normalizeUrl(currentVideo?.url);
-  if (!currentVideo) {
-    runtimeState.explicitNonSharedPlaybackUrl = null;
-    return false;
-  }
-
-  const decision = evaluateNonSharedPageGuard({
-    activeRoomCode: runtimeState.activeRoomCode,
-    activeSharedUrl: runtimeState.activeSharedUrl,
-    normalizedCurrentUrl,
-    videoPaused: video.paused,
-    explicitNonSharedPlaybackUrl: runtimeState.explicitNonSharedPlaybackUrl,
-    lastExplicitPlaybackAction: runtimeState.lastExplicitPlaybackAction,
-    now: Date.now(),
-    userGestureGraceMs: USER_GESTURE_GRACE_MS,
-  });
-
-  if (
-    !normalizedCurrentUrl ||
-    normalizedCurrentUrl === runtimeState.activeSharedUrl
-  ) {
-    runtimeState.explicitNonSharedPlaybackUrl = null;
-    return false;
-  }
-
-  runtimeState.explicitNonSharedPlaybackUrl =
-    decision.nextExplicitNonSharedPlaybackUrl;
-  if (!decision.shouldPause) {
-    return false;
-  }
-
-  runtimeState.intendedPlayState = "paused";
-  activatePauseHold(INITIAL_ROOM_STATE_PAUSE_HOLD_MS);
-  window.setTimeout(() => {
-    if (!video.paused) {
-      pauseVideo(video);
-    }
-  }, 0);
-  return true;
-}
-
-function isCurrentVideoShared(currentVideo: SharedVideo | null): boolean {
-  if (!currentVideo || !runtimeState.activeSharedUrl) {
-    return false;
-  }
-  return normalizeUrl(currentVideo.url) === runtimeState.activeSharedUrl;
-}
-
 function activatePauseHold(durationMs = PAUSE_HOLD_MS): void {
   runtimeState.pauseHoldUntil = Date.now() + durationMs;
 }
 
 function scheduleHydrationRetry(delayMs = 350): void {
   syncController.scheduleHydrationRetry(delayMs);
-}
-
-function applyPendingPlaybackApplication(video: HTMLVideoElement): void {
-  syncController.applyPendingPlaybackApplication(video);
 }
 
 function normalizeUrl(url: string | undefined | null): string | null {
