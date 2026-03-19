@@ -1,10 +1,6 @@
 import {
-  parseBilibiliVideoRef,
   type ClientMessage,
-  type PlaybackState,
-  type RoomState,
   type ServerMessage,
-  type SharedVideo,
 } from "@bili-syncplay/protocol";
 import type {
   BackgroundToContentMessage,
@@ -13,35 +9,29 @@ import type {
 } from "../shared/messages";
 import { normalizeSharedVideoUrl } from "../shared/url";
 import {
-  createPendingLocalShareExpiry,
-  PENDING_LOCAL_SHARE_TIMEOUT_MS,
-  preparePendingLocalShareCleanup,
   preparePendingLocalShareCleanupForRoomLifecycle,
   type RoomLifecycleAction,
-  shouldClearPendingLocalShareOnServerUrlChange,
 } from "./room-state";
 import {
-  compensateRoomStateForClock,
-  CLOCK_SYNC_INTERVAL_MS,
   toConnectionCheckUrl as buildConnectionCheckUrl,
   toHealthcheckUrl as buildHealthcheckUrl,
-  updateClockSample,
 } from "./clock-sync";
 import { notifyContentTabs } from "./content-bus";
 import { bootstrapBackground } from "./bootstrap";
+import { createClockController } from "./clock-controller";
 import { createDiagnosticsController } from "./diagnostics-controller";
 import { flushPendingShare as getPendingShareFlushPlan } from "./room-manager";
 import { createPopupStateController } from "./popup-state-controller";
 import { createRoomSessionController } from "./room-session-controller";
 import {
   BILIBILI_VIDEO_URL_PATTERNS,
-  DEFAULT_SERVER_URL,
   MAX_RECONNECT_ATTEMPTS,
   SHARE_TOAST_TTL_MS,
 } from "./runtime-state";
+import { createServerUrlController } from "./server-url-controller";
+import { createShareController } from "./share-controller";
 import { createSocketController } from "./socket-controller";
 import { createBackgroundStateStore } from "./state-store";
-import { validateServerUrl } from "./server-url";
 import {
   loadPersistedBackgroundSnapshot,
   persistBackgroundState,
@@ -72,6 +62,24 @@ const tabController = createTabController({
   normalizeUrl,
   bilibiliVideoUrlPatterns: BILIBILI_VIDEO_URL_PATTERNS,
 });
+const clockController = createClockController({
+  connectionState,
+  clockState,
+  sendToServer,
+  log: (scope, message) => diagnosticsController.log(scope, message),
+});
+const shareController = createShareController({
+  connectionState,
+  roomSessionState,
+  shareState,
+  log: (scope, message) => diagnosticsController.log(scope, message),
+  sendToServer,
+  connect: () => socketController.connect(),
+  persistState,
+  notifyAll,
+  rememberSharedSourceTab: (tabId, videoUrl) =>
+    tabController.rememberSharedSourceTab(tabId, videoUrl),
+});
 const roomSessionController = createRoomSessionController({
   connectionState,
   roomSessionState,
@@ -87,9 +95,10 @@ const roomSessionController = createRoomSessionController({
   flushPendingShare,
   ensureSharedVideoOpen: () => tabController.ensureSharedVideoOpen(),
   notifyContentScripts,
-  compensateRoomState,
-  clearPendingLocalShare,
-  expirePendingLocalShareIfNeeded,
+  compensateRoomState: (state) => clockController.compensateRoomState(state),
+  clearPendingLocalShare: (reason) => shareController.clearPendingLocalShare(reason),
+  expirePendingLocalShareIfNeeded: () =>
+    shareController.expirePendingLocalShareIfNeeded(),
   normalizeUrl,
   logServerError,
   shareToastTtlMs: SHARE_TOAST_TTL_MS,
@@ -102,10 +111,10 @@ const socketController = createSocketController({
   logInvalidServerUrl,
   logConnectionProbeFailure,
   notifyAll,
-  stopClockSyncTimer,
-  syncClock,
-  startClockSyncTimer,
-  clearPendingLocalShare,
+  stopClockSyncTimer: () => clockController.stopClockSyncTimer(),
+  syncClock: () => clockController.syncClock(),
+  startClockSyncTimer: () => clockController.startClockSyncTimer(),
+  clearPendingLocalShare: (reason) => shareController.clearPendingLocalShare(reason),
   sendJoinRequest: (...args) => roomSessionController.sendJoinRequest(...args),
   sendToServer,
   handleServerMessage,
@@ -123,6 +132,19 @@ const socketController = createSocketController({
     t("popupErrorReconnectFailed", {
       attempts: MAX_RECONNECT_ATTEMPTS,
     }),
+});
+const serverUrlController = createServerUrlController({
+  connectionState,
+  roomSessionState,
+  shareState,
+  persistState,
+  notifyAll,
+  connect: () => socketController.connect(),
+  resetReconnectState: () => socketController.resetReconnectState(),
+  stopClockSyncTimer: () => clockController.stopClockSyncTimer(),
+  clearPendingLocalShare: (reason) => shareController.clearPendingLocalShare(reason),
+  log: (scope, message) => diagnosticsController.log(scope, message),
+  logInvalidServerUrl,
 });
 const popupStateController = createPopupStateController({
   createState: syncRuntimeStateStore,
@@ -292,6 +314,18 @@ async function handleServerMessage(message: ServerMessage): Promise<void> {
   notifyAll();
 }
 
+function updateClockOffset(
+  clientSendTime: number,
+  serverReceiveTime: number,
+  serverSendTime: number,
+): void {
+  clockController.updateClockOffset(
+    clientSendTime,
+    serverReceiveTime,
+    serverSendTime,
+  );
+}
+
 function flushPendingShare(): void {
   const plan = getPendingShareFlushPlan({
     pendingSharedVideo: roomSessionState.pendingSharedVideo,
@@ -315,243 +349,10 @@ function flushPendingShare(): void {
   roomSessionState.pendingSharedPlayback = null;
 }
 
-async function getActiveTab(): Promise<chrome.tabs.Tab | null> {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  return tab ?? null;
-}
-
-async function getActiveVideoPayload(): Promise<{
-  ok: boolean;
-  payload: { video: SharedVideo; playback: PlaybackState | null } | null;
-  tabId: number | null;
-  error?: string;
-}> {
-  const activeTab = await getActiveTab();
-  if (!activeTab?.id) {
-    return {
-      ok: false,
-      payload: null,
-      tabId: null,
-      error: t("popupErrorNoActiveTab"),
-    };
-  }
-
-  if (!activeTab.url || !parseBilibiliVideoRef(activeTab.url)) {
-    return {
-      ok: false,
-      payload: null,
-      tabId: activeTab.id,
-      error: t("popupErrorOpenBilibiliVideo"),
-    };
-  }
-
-  try {
-    const response = await chrome.tabs.sendMessage(activeTab.id, {
-      type: "background:get-current-video",
-    });
-    if (!response?.ok || !response.payload?.video) {
-      return {
-        ok: false,
-        payload: null,
-        tabId: activeTab.id,
-        error: t("popupErrorNoPlayableVideo"),
-      };
-    }
-    return {
-      ok: true,
-      payload: response.payload,
-      tabId: activeTab.id,
-    };
-  } catch {
-    return {
-      ok: false,
-      payload: null,
-      tabId: activeTab.id,
-      error: t("popupErrorCannotAccessPage"),
-    };
-  }
-}
-
-async function queueOrSendSharedVideo(
-  payload: { video: SharedVideo; playback: PlaybackState | null },
-  tabId: number | null,
-): Promise<void> {
-  tabController.rememberSharedSourceTab(tabId ?? undefined, payload.video.url);
-  setPendingLocalShare(payload.video.url);
-
-  if (connectionState.connected && roomSessionState.roomCode) {
-    if (!roomSessionState.memberToken) {
-      connectionState.lastError = t("popupErrorMemberTokenMissing");
-      notifyAll();
-      return;
-    }
-    sendToServer({
-      type: "video:share",
-      payload: {
-        memberToken: roomSessionState.memberToken,
-        video: payload.video,
-        ...(payload.playback
-          ? {
-              playback: {
-                ...payload.playback,
-                serverTime: 0,
-                actorId: roomSessionState.memberId ?? payload.playback.actorId,
-              },
-            }
-          : {}),
-      },
-    });
-    return;
-  }
-
-  roomSessionState.pendingSharedVideo = payload.video;
-  roomSessionState.pendingSharedPlayback = payload.playback
-    ? {
-        ...payload.playback,
-        serverTime: 0,
-        actorId: roomSessionState.memberId ?? payload.playback.actorId,
-      }
-    : null;
-
-  if (roomSessionState.roomCode) {
-    roomSessionState.memberToken = null;
-    void socketController.connect();
-    return;
-  }
-
-  roomSessionState.roomCode = null;
-  roomSessionState.joinToken = null;
-  roomSessionState.memberToken = null;
-  roomSessionState.memberId = null;
-  roomSessionState.roomState = null;
-  shareState.pendingShareToast = null;
-  await persistState();
-  void socketController.connect();
-  if (connectionState.connected) {
-    roomSessionState.pendingCreateRoom = false;
-    sendToServer({
-      type: "room:create",
-      payload: { displayName: roomSessionState.displayName ?? undefined },
-    });
-  } else {
-    roomSessionState.pendingCreateRoom = true;
-  }
-}
-
-function syncClock(): void {
-  if (!connectionState.connected) {
-    return;
-  }
-  sendToServer({
-    type: "sync:ping",
-    payload: {
-      clientSendTime: Date.now(),
-    },
-  });
-}
-
-function startClockSyncTimer(): void {
-  stopClockSyncTimer();
-  clockState.clockSyncTimer = self.setInterval(() => {
-    syncClock();
-  }, CLOCK_SYNC_INTERVAL_MS);
-}
-
-function stopClockSyncTimer(): void {
-  if (clockState.clockSyncTimer !== null) {
-    clearInterval(clockState.clockSyncTimer);
-    clockState.clockSyncTimer = null;
-  }
-}
-
-function updateClockOffset(
-  clientSendTime: number,
-  serverReceiveTime: number,
-  serverSendTime: number,
-): void {
-  const sample = updateClockSample({
-    clientSendTime,
-    serverReceiveTime,
-    serverSendTime,
-    now: Date.now(),
-    previousRttMs: clockState.rttMs,
-    previousClockOffsetMs: clockState.clockOffsetMs,
-  });
-  clockState.rttMs = sample.rttMs;
-  clockState.clockOffsetMs = sample.clockOffsetMs;
-  diagnosticsController.log(
-    "background",
-    `Clock sync offset=${clockState.clockOffsetMs}ms rtt=${clockState.rttMs}ms`,
-  );
-}
-
-function compensateRoomState(state: RoomState): RoomState {
-  return compensateRoomStateForClock(state, clockState.clockOffsetMs);
-}
-
-function clearPendingLocalShareTimer(): void {
-  if (shareState.pendingLocalShareTimer !== null) {
-    clearTimeout(shareState.pendingLocalShareTimer);
-    shareState.pendingLocalShareTimer = null;
-  }
-}
-
-function clearPendingLocalShare(reason: string): void {
-  const cleanup = preparePendingLocalShareCleanup({
-    pendingLocalShareUrl: shareState.pendingLocalShareUrl,
-    pendingLocalShareExpiresAt: shareState.pendingLocalShareExpiresAt,
-    pendingLocalShareTimer: shareState.pendingLocalShareTimer,
-  });
-  if (!cleanup.hadPendingLocalShare) {
-    return;
-  }
-  if (cleanup.shouldCancelTimer) {
-    clearPendingLocalShareTimer();
-  }
-  diagnosticsController.log(
-    "background",
-    `Cleared pending local share (${reason})`,
-  );
-  ({
-    pendingLocalShareUrl: shareState.pendingLocalShareUrl,
-    pendingLocalShareExpiresAt: shareState.pendingLocalShareExpiresAt,
-    pendingLocalShareTimer: shareState.pendingLocalShareTimer,
-  } = cleanup.nextState);
-}
-
-function expirePendingLocalShareIfNeeded(): void {
-  const activePendingShare = getActivePendingLocalShareUrl({
-    pendingLocalShareUrl: shareState.pendingLocalShareUrl,
-    pendingLocalShareExpiresAt: shareState.pendingLocalShareExpiresAt,
-    now: Date.now(),
-  });
-  if (shareState.pendingLocalShareUrl && activePendingShare === null) {
-    clearPendingLocalShare(
-      `share confirmation timed out after ${PENDING_LOCAL_SHARE_TIMEOUT_MS}ms`,
-    );
-  }
-}
-
-function setPendingLocalShare(url: string): void {
-  clearPendingLocalShareTimer();
-  shareState.pendingLocalShareUrl = url;
-  shareState.pendingLocalShareExpiresAt = createPendingLocalShareExpiry(
-    Date.now(),
-  );
-  diagnosticsController.log(
-    "background",
-    `Waiting up to ${PENDING_LOCAL_SHARE_TIMEOUT_MS}ms for share confirmation ${url}`,
-  );
-  shareState.pendingLocalShareTimer = self.setTimeout(() => {
-    expirePendingLocalShareIfNeeded();
-    notifyAll();
-  }, PENDING_LOCAL_SHARE_TIMEOUT_MS);
-}
-
 function disconnectSocket(): void {
   socketController.resetReconnectState();
-  stopClockSyncTimer();
-  clearPendingLocalShare("socket disconnected");
+  clockController.stopClockSyncTimer();
+  shareController.clearPendingLocalShare("socket disconnected");
   roomSessionState.memberToken = null;
   if (!connectionState.socket) {
     connectionState.connected = false;
@@ -575,7 +376,10 @@ function resetRoomLifecycleTransientState(
   });
   if (cleanup.hadPendingLocalShare) {
     if (cleanup.shouldCancelTimer) {
-      clearPendingLocalShareTimer();
+      if (shareState.pendingLocalShareTimer !== null) {
+        clearTimeout(shareState.pendingLocalShareTimer);
+        shareState.pendingLocalShareTimer = null;
+      }
     }
     diagnosticsController.log(
       "background",
@@ -656,53 +460,7 @@ function syncRuntimeStateStore() {
 }
 
 async function updateServerUrl(nextServerUrl: string): Promise<void> {
-  const serverUrlResult = validateServerUrl(nextServerUrl);
-  if (!serverUrlResult.ok) {
-    connectionState.lastError = serverUrlResult.message;
-    logInvalidServerUrl(
-      "update-server-url",
-      nextServerUrl.trim() || DEFAULT_SERVER_URL,
-    );
-    notifyAll();
-    return;
-  }
-
-  const normalized = serverUrlResult.normalizedUrl;
-  if (normalized === connectionState.serverUrl) {
-    return;
-  }
-
-  if (
-    shouldClearPendingLocalShareOnServerUrlChange({
-      currentServerUrl: connectionState.serverUrl,
-      nextServerUrl: normalized,
-      pendingLocalShareUrl: shareState.pendingLocalShareUrl,
-    })
-  ) {
-    clearPendingLocalShare("server URL changed");
-  }
-
-  connectionState.serverUrl = normalized;
-  connectionState.lastError = null;
-  await persistState();
-  diagnosticsController.log(
-    "background",
-    `Server URL updated to ${connectionState.serverUrl}`,
-  );
-
-  if (connectionState.socket) {
-    socketController.resetReconnectState();
-    stopClockSyncTimer();
-    const currentSocket = connectionState.socket;
-    connectionState.socket = null;
-    connectionState.connected = false;
-    currentSocket.close();
-  }
-
-  if (roomSessionState.roomCode || roomSessionState.pendingCreateRoom) {
-    void socketController.connect();
-  }
-  notifyAll();
+  await serverUrlController.updateServerUrl(nextServerUrl);
 }
 
 chrome.runtime.onMessage.addListener(
@@ -745,7 +503,7 @@ chrome.runtime.onMessage.addListener(
           sendResponse(popupStateController.popupState());
           return;
         case "popup:get-active-video": {
-          const response = await getActiveVideoPayload();
+          const response = await shareController.getActiveVideoPayload();
           if (!response.ok && response.error) {
             connectionState.lastError = response.error;
           } else {
@@ -756,7 +514,7 @@ chrome.runtime.onMessage.addListener(
           return;
         }
         case "popup:share-current-video": {
-          const response = await getActiveVideoPayload();
+          const response = await shareController.getActiveVideoPayload();
           if (!response.ok || !response.payload) {
             connectionState.lastError =
               response.error ?? t("popupErrorCannotReadCurrentVideo");
@@ -765,7 +523,10 @@ chrome.runtime.onMessage.addListener(
             return;
           }
           connectionState.lastError = null;
-          await queueOrSendSharedVideo(response.payload, response.tabId);
+          await shareController.queueOrSendSharedVideo(
+            response.payload,
+            response.tabId,
+          );
           await persistState();
           notifyAll();
           sendResponse({ ok: true });
@@ -837,7 +598,9 @@ chrome.runtime.onMessage.addListener(
             roomSessionState.roomState
               ? {
                   ok: true,
-                  roomState: compensateRoomState(roomSessionState.roomState),
+                  roomState: clockController.compensateRoomState(
+                    roomSessionState.roomState,
+                  ),
                   memberId: roomSessionState.memberId,
                   roomCode: roomSessionState.roomCode,
                 }
