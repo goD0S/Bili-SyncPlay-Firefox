@@ -1,0 +1,89 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { isServerMessage } from "../src/index.js";
+
+const VALID_TOKEN = "valid-member-token-123";
+
+test("accepts a valid room:created message", () => {
+  assert.equal(
+    isServerMessage({
+      type: "room:created",
+      payload: {
+        roomCode: "ABC123",
+        memberId: "member-1",
+        joinToken: VALID_TOKEN,
+        memberToken: VALID_TOKEN,
+      },
+    }),
+    true,
+  );
+});
+
+test("accepts a valid room:state message", () => {
+  assert.equal(
+    isServerMessage({
+      type: "room:state",
+      payload: {
+        roomCode: "ABC123",
+        sharedVideo: {
+          videoId: "BV1xx411c7mD",
+          url: "https://www.bilibili.com/video/BV1xx411c7mD?p=2",
+          title: "Video",
+        },
+        playback: {
+          url: "https://www.bilibili.com/video/BV1xx411c7mD?p=2",
+          currentTime: 12,
+          playState: "playing",
+          playbackRate: 1,
+          updatedAt: 1,
+          serverTime: 1,
+          actorId: "member-1",
+          seq: 1,
+        },
+        members: [{ id: "member-1", name: "Alice" }],
+      },
+    }),
+    true,
+  );
+});
+
+test("rejects room:state when members contain invalid items", () => {
+  assert.equal(
+    isServerMessage({
+      type: "room:state",
+      payload: {
+        roomCode: "ABC123",
+        sharedVideo: null,
+        playback: null,
+        members: [{ id: "member-1", name: 123 }],
+      },
+    }),
+    false,
+  );
+});
+
+test("rejects error when payload shape is invalid", () => {
+  assert.equal(
+    isServerMessage({
+      type: "error",
+      payload: {
+        code: "room_not_found",
+      },
+    }),
+    false,
+  );
+});
+
+test("accepts a valid sync:pong message", () => {
+  assert.equal(
+    isServerMessage({
+      type: "sync:pong",
+      payload: {
+        clientSendTime: 1,
+        serverReceiveTime: 2,
+        serverSendTime: 3,
+      },
+    }),
+    true,
+  );
+});
