@@ -8,7 +8,7 @@ export function rememberSharedSource(args: {
 } {
   return {
     sharedTabId: args.tabId ?? args.currentSharedTabId,
-    lastOpenedSharedUrl: args.url
+    lastOpenedSharedUrl: args.url,
   };
 }
 
@@ -20,49 +20,62 @@ export function decideSharedPlaybackTab(args: {
 }): {
   accepted: boolean;
   nextSharedTabId: number | null;
-  reason: "missing-tab" | "accepted-first" | "accepted-current" | "room-mismatch" | "ignored-non-shared";
+  reason:
+    | "missing-tab"
+    | "accepted-first"
+    | "accepted-current"
+    | "room-mismatch"
+    | "ignored-non-shared";
 } {
   if (args.tabId === undefined) {
     return {
       accepted: false,
       nextSharedTabId: args.sharedTabId,
-      reason: "missing-tab"
+      reason: "missing-tab",
     };
   }
 
   if (args.sharedTabId === null) {
-    if (args.normalizedRoomUrl && args.normalizedPayloadUrl && args.normalizedRoomUrl === args.normalizedPayloadUrl) {
+    if (
+      args.normalizedRoomUrl &&
+      args.normalizedPayloadUrl &&
+      args.normalizedRoomUrl === args.normalizedPayloadUrl
+    ) {
       return {
         accepted: true,
         nextSharedTabId: args.tabId,
-        reason: "accepted-first"
+        reason: "accepted-first",
       };
     }
     return {
       accepted: false,
       nextSharedTabId: null,
-      reason: "ignored-non-shared"
+      reason: "ignored-non-shared",
     };
   }
 
   if (args.sharedTabId === args.tabId) {
-    if (!args.normalizedRoomUrl || !args.normalizedPayloadUrl || args.normalizedRoomUrl !== args.normalizedPayloadUrl) {
+    if (
+      !args.normalizedRoomUrl ||
+      !args.normalizedPayloadUrl ||
+      args.normalizedRoomUrl !== args.normalizedPayloadUrl
+    ) {
       return {
         accepted: false,
         nextSharedTabId: args.sharedTabId,
-        reason: "room-mismatch"
+        reason: "room-mismatch",
       };
     }
     return {
       accepted: true,
       nextSharedTabId: args.sharedTabId,
-      reason: "accepted-current"
+      reason: "accepted-current",
     };
   }
 
   return {
     accepted: false,
     nextSharedTabId: args.sharedTabId,
-    reason: "ignored-non-shared"
+    reason: "ignored-non-shared",
   };
 }

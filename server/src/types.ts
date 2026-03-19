@@ -1,6 +1,12 @@
 import type { IncomingMessage } from "node:http";
 import type { WebSocket } from "ws";
-import type { ErrorCode, PlaybackState, RoomState, ServerMessage, SharedVideo } from "@bili-syncplay/protocol";
+import type {
+  ErrorCode,
+  PlaybackState,
+  RoomState,
+  ServerMessage,
+  SharedVideo,
+} from "@bili-syncplay/protocol";
 import type { AdminRole } from "./admin/types.js";
 
 export type WindowCounter = {
@@ -103,7 +109,11 @@ export type LogEvent = (event: string, data: Record<string, unknown>) => void;
 
 export type SendMessage = (socket: WebSocket, message: ServerMessage) => void;
 
-export type SendError = (socket: WebSocket, code: ErrorCode, message: string) => void;
+export type SendError = (
+  socket: WebSocket,
+  code: ErrorCode,
+  message: string,
+) => void;
 
 declare module "node:http" {
   interface IncomingMessage {

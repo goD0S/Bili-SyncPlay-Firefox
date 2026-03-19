@@ -6,13 +6,25 @@
   --text-muted: #66748e;
   --text-soft: #6c7a95;
   --panel-bg:
-    radial-gradient(circle at top left, rgba(255, 126, 167, 0.24), transparent 34%),
-    radial-gradient(circle at top right, rgba(77, 163, 255, 0.2), transparent 30%),
+    radial-gradient(
+      circle at top left,
+      rgba(255, 126, 167, 0.24),
+      transparent 34%
+    ),
+    radial-gradient(
+      circle at top right,
+      rgba(77, 163, 255, 0.2),
+      transparent 30%
+    ),
     linear-gradient(180deg, #fff7fb 0%, #fffdf8 54%, #f8fbff 100%);
   --card-bg: rgba(255, 255, 255, 0.86);
   --card-border: rgba(255, 255, 255, 0.7);
   --card-shadow: 0 18px 42px rgba(22, 32, 51, 0.08);
-  --metric-bg: linear-gradient(180deg, rgba(248, 250, 255, 0.92), rgba(255, 255, 255, 0.82));
+  --metric-bg: linear-gradient(
+    180deg,
+    rgba(248, 250, 255, 0.92),
+    rgba(255, 255, 255, 0.82)
+  );
   --metric-border: rgba(209, 221, 240, 0.85);
   --input-bg: rgba(255, 255, 255, 0.95);
   --input-border: #d4def2;
@@ -21,7 +33,11 @@
   --secondary-text: #42506b;
   --secondary-border: #d8e1f3;
   --video-bg:
-    radial-gradient(circle at right top, rgba(255, 126, 167, 0.18), transparent 28%),
+    radial-gradient(
+      circle at right top,
+      rgba(255, 126, 167, 0.18),
+      transparent 28%
+    ),
     linear-gradient(180deg, rgba(247, 249, 255, 0.98), rgba(255, 255, 255, 0.9));
   --video-border: rgba(214, 224, 242, 0.9);
   --log-bg: rgba(247, 250, 255, 0.88);
@@ -115,7 +131,11 @@ body {
   padding: 6px 10px;
   border-radius: 16px;
   border: 1px solid rgba(255, 171, 185, 0.9);
-  background: linear-gradient(135deg, rgba(255, 244, 246, 0.96), rgba(255, 248, 240, 0.92));
+  background: linear-gradient(
+    135deg,
+    rgba(255, 244, 246, 0.96),
+    rgba(255, 248, 240, 0.92)
+  );
   color: #a33c5f;
   font-size: 11px;
   font-weight: 600;
@@ -333,7 +353,10 @@ input {
   background: var(--input-bg);
   color: var(--text-primary);
   outline: none;
-  transition: border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease,
+    transform 120ms ease;
 }
 
 input:focus {
@@ -347,7 +370,10 @@ button {
   color: #fff;
   border: none;
   font-weight: 700;
-  transition: transform 120ms ease, box-shadow 120ms ease, opacity 120ms ease;
+  transition:
+    transform 120ms ease,
+    box-shadow 120ms ease,
+    opacity 120ms ease;
   box-shadow: 0 12px 24px rgba(255, 107, 154, 0.22);
 }
 
@@ -533,13 +559,25 @@ button.secondary {
     --text-muted: #9eaccb;
     --text-soft: #90a0c1;
     --panel-bg:
-      radial-gradient(circle at top left, rgba(255, 126, 167, 0.18), transparent 34%),
-      radial-gradient(circle at top right, rgba(77, 163, 255, 0.16), transparent 30%),
+      radial-gradient(
+        circle at top left,
+        rgba(255, 126, 167, 0.18),
+        transparent 34%
+      ),
+      radial-gradient(
+        circle at top right,
+        rgba(77, 163, 255, 0.16),
+        transparent 30%
+      ),
       linear-gradient(180deg, #121625 0%, #171b2e 52%, #101521 100%);
     --card-bg: rgba(22, 28, 46, 0.84);
     --card-border: rgba(117, 134, 174, 0.2);
     --card-shadow: 0 18px 42px rgba(0, 0, 0, 0.34);
-    --metric-bg: linear-gradient(180deg, rgba(31, 39, 62, 0.96), rgba(22, 29, 48, 0.88));
+    --metric-bg: linear-gradient(
+      180deg,
+      rgba(31, 39, 62, 0.96),
+      rgba(22, 29, 48, 0.88)
+    );
     --metric-border: rgba(102, 122, 168, 0.3);
     --input-bg: rgba(14, 20, 34, 0.9);
     --input-border: rgba(96, 114, 158, 0.38);
@@ -548,7 +586,11 @@ button.secondary {
     --secondary-text: #d5ddf3;
     --secondary-border: rgba(102, 122, 168, 0.34);
     --video-bg:
-      radial-gradient(circle at right top, rgba(255, 126, 167, 0.16), transparent 28%),
+      radial-gradient(
+        circle at right top,
+        rgba(255, 126, 167, 0.16),
+        transparent 28%
+      ),
       linear-gradient(180deg, rgba(29, 36, 59, 0.98), rgba(22, 29, 48, 0.92));
     --video-border: rgba(102, 122, 168, 0.3);
     --log-bg: rgba(16, 22, 36, 0.92);
@@ -584,7 +626,11 @@ button.secondary {
 
   .status-banner {
     border-color: rgba(182, 83, 117, 0.34);
-    background: linear-gradient(135deg, rgba(74, 28, 44, 0.72), rgba(68, 43, 33, 0.68));
+    background: linear-gradient(
+      135deg,
+      rgba(74, 28, 44, 0.72),
+      rgba(68, 43, 33, 0.68)
+    );
     color: #ffc0d1;
   }
 

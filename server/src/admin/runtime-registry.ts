@@ -24,7 +24,9 @@ export type RuntimeRegistry = {
   getActiveRoomCodes: () => Set<string>;
 };
 
-export function createRuntimeRegistry(now: () => number = Date.now): RuntimeRegistry {
+export function createRuntimeRegistry(
+  now: () => number = Date.now,
+): RuntimeRegistry {
   const startedAt = now();
   const sessionsById = new Map<string, Session>();
   const sessionIdsByRemoteAddress = new Map<string, Set<string>>();
@@ -33,13 +35,22 @@ export function createRuntimeRegistry(now: () => number = Date.now): RuntimeRegi
   const lifetimeEventCounts: Record<string, number> = {};
 
   function pruneEvents(currentTime: number): void {
-    while (timedEvents.length > 0 && timedEvents[0] && currentTime - timedEvents[0].timestamp > COUNTER_WINDOW_MS) {
+    while (
+      timedEvents.length > 0 &&
+      timedEvents[0] &&
+      currentTime - timedEvents[0].timestamp > COUNTER_WINDOW_MS
+    ) {
       timedEvents.shift();
     }
   }
 
-  function detachSessionFromRooms(sessionId: string, preferredRoomCode?: string | null): void {
-    const candidateRoomCodes = preferredRoomCode ? [preferredRoomCode, ...roomSessionIds.keys()] : roomSessionIds.keys();
+  function detachSessionFromRooms(
+    sessionId: string,
+    preferredRoomCode?: string | null,
+  ): void {
+    const candidateRoomCodes = preferredRoomCode
+      ? [preferredRoomCode, ...roomSessionIds.keys()]
+      : roomSessionIds.keys();
     const visited = new Set<string>();
 
     for (const roomCode of candidateRoomCodes) {
@@ -60,7 +71,9 @@ export function createRuntimeRegistry(now: () => number = Date.now): RuntimeRegi
     registerSession(session) {
       sessionsById.set(session.id, session);
       if (session.remoteAddress) {
-        const ids = sessionIdsByRemoteAddress.get(session.remoteAddress) ?? new Set<string>();
+        const ids =
+          sessionIdsByRemoteAddress.get(session.remoteAddress) ??
+          new Set<string>();
         ids.add(session.id);
         sessionIdsByRemoteAddress.set(session.remoteAddress, ids);
       }
@@ -153,6 +166,6 @@ export function createRuntimeRegistry(now: () => number = Date.now): RuntimeRegi
     },
     getActiveRoomCodes() {
       return new Set(roomSessionIds.keys());
-    }
+    },
   };
 }

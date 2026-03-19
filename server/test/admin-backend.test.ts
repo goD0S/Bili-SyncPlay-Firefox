@@ -3,7 +3,12 @@ import { createHash } from "node:crypto";
 import { once } from "node:events";
 import test from "node:test";
 import { WebSocket, type RawData } from "ws";
-import { createSyncServer, getDefaultPersistenceConfig, getDefaultSecurityConfig, type SyncServerDependencies } from "../src/app.js";
+import {
+  createSyncServer,
+  getDefaultPersistenceConfig,
+  getDefaultSecurityConfig,
+  type SyncServerDependencies,
+} from "../src/app.js";
 import type { AdminRole } from "../src/admin/types.js";
 
 const ALLOWED_ORIGIN = "chrome-extension://allowed-extension";
@@ -16,7 +21,7 @@ async function startAdminServer(dependencies: SyncServerDependencies = {}) {
   const server = await createSyncServer(
     {
       ...getDefaultSecurityConfig(),
-      allowedOrigins: [ALLOWED_ORIGIN]
+      allowedOrigins: [ALLOWED_ORIGIN],
     },
     getDefaultPersistenceConfig(),
     {
@@ -26,10 +31,10 @@ async function startAdminServer(dependencies: SyncServerDependencies = {}) {
         passwordHash: `sha256:${sha256Hex("secret-123")}`,
         sessionSecret: "session-secret-123",
         sessionTtlMs: 60_000,
-        role: "admin"
+        role: "admin",
       },
-      serviceVersion: "0.7.0-test"
-    }
+      serviceVersion: "0.7.0-test",
+    },
   );
 
   await new Promise<void>((resolve, reject) => {
@@ -45,7 +50,7 @@ async function startAdminServer(dependencies: SyncServerDependencies = {}) {
   return {
     close: server.close,
     httpBaseUrl: `http://127.0.0.1:${address.port}`,
-    wsUrl: `ws://127.0.0.1:${address.port}`
+    wsUrl: `ws://127.0.0.1:${address.port}`,
   };
 }
 
@@ -56,20 +61,20 @@ async function requestJson(
     method?: string;
     token?: string;
     body?: unknown;
-  } = {}
+  } = {},
 ) {
   const response = await fetch(`${baseUrl}${path}`, {
     method: options.method ?? "GET",
     headers: {
       ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
-      ...(options.body ? { "content-type": "application/json" } : {})
+      ...(options.body ? { "content-type": "application/json" } : {}),
     },
-    body: options.body ? JSON.stringify(options.body) : undefined
+    body: options.body ? JSON.stringify(options.body) : undefined,
   });
 
   return {
     status: response.status,
-    body: (await response.json()) as Record<string, unknown>
+    body: (await response.json()) as Record<string, unknown>,
   };
 }
 
@@ -79,16 +84,18 @@ async function requestText(
   options: {
     method?: string;
     token?: string;
-  } = {}
+  } = {},
 ) {
   const response = await fetch(`${baseUrl}${path}`, {
     method: options.method ?? "GET",
-    headers: options.token ? { Authorization: `Bearer ${options.token}` } : undefined
+    headers: options.token
+      ? { Authorization: `Bearer ${options.token}` }
+      : undefined,
   });
 
   return {
     status: response.status,
-    body: await response.text()
+    body: await response.text(),
   };
 }
 
@@ -108,14 +115,16 @@ function createMessageCollector(socket: WebSocket) {
     async next(type: string, timeoutMs = 2_000) {
       const startedAt = Date.now();
       while (Date.now() - startedAt < timeoutMs) {
-        const index = queuedMessages.findIndex((message) => message.type === type);
+        const index = queuedMessages.findIndex(
+          (message) => message.type === type,
+        );
         if (index >= 0) {
           return queuedMessages.splice(index, 1)[0] as Record<string, unknown>;
         }
         await new Promise((resolve) => setTimeout(resolve, 10));
       }
       throw new Error(`Timed out waiting for message type ${type}`);
-    }
+    },
   };
 }
 
@@ -123,10 +132,14 @@ async function closeClient(socket: WebSocket): Promise<void> {
   socket.terminate();
 }
 
-async function login(baseUrl: string, username = "admin", password = "secret-123"): Promise<string> {
+async function login(
+  baseUrl: string,
+  username = "admin",
+  password = "secret-123",
+): Promise<string> {
   const response = await requestJson(baseUrl, "/api/admin/auth/login", {
     method: "POST",
-    body: { username, password }
+    body: { username, password },
   });
   assert.equal(response.status, 200);
   return (response.body.data as { token: string }).token;
@@ -139,9 +152,9 @@ function adminDependencies(role: AdminRole = "admin"): SyncServerDependencies {
       passwordHash: `sha256:${sha256Hex("secret-123")}`,
       sessionSecret: "session-secret-123",
       sessionTtlMs: 60_000,
-      role
+      role,
     },
-    serviceVersion: "0.7.0-test"
+    serviceVersion: "0.7.0-test",
   };
 }
 
@@ -151,30 +164,42 @@ test("admin endpoints support auth, overview, rooms, and events without breaking
   try {
     const adminHtml = await fetch(`${server.httpBaseUrl}/admin`);
     assert.equal(adminHtml.status, 200);
-    assert.equal(adminHtml.headers.get("content-type")?.includes("text/html"), true);
+    assert.equal(
+      adminHtml.headers.get("content-type")?.includes("text/html"),
+      true,
+    );
     assert.equal((await adminHtml.text()).includes("/admin/app.js"), true);
 
     const adminAsset = await fetch(`${server.httpBaseUrl}/admin/app.js`);
     assert.equal(adminAsset.status, 200);
-    assert.equal(adminAsset.headers.get("content-type")?.includes("text/javascript"), true);
+    assert.equal(
+      adminAsset.headers.get("content-type")?.includes("text/javascript"),
+      true,
+    );
 
     const root = await requestJson(server.httpBaseUrl, "/");
     assert.equal(root.status, 200);
     assert.equal(root.body.ok, true);
 
-    const connectionCheck = await fetch(`${server.httpBaseUrl}/api/connection-check`, {
-      headers: {
-        Origin: ALLOWED_ORIGIN
-      }
-    });
+    const connectionCheck = await fetch(
+      `${server.httpBaseUrl}/api/connection-check`,
+      {
+        headers: {
+          Origin: ALLOWED_ORIGIN,
+        },
+      },
+    );
     assert.equal(connectionCheck.status, 200);
-    assert.equal(connectionCheck.headers.get("access-control-allow-origin"), "*");
+    assert.equal(
+      connectionCheck.headers.get("access-control-allow-origin"),
+      "*",
+    );
     assert.deepEqual(await connectionCheck.json(), {
       ok: true,
       data: {
         websocketAllowed: true,
-        reason: null
-      }
+        reason: null,
+      },
     });
 
     const health = await requestJson(server.httpBaseUrl, "/healthz");
@@ -188,31 +213,50 @@ test("admin endpoints support auth, overview, rooms, and events without breaking
     const unauthorized = await requestJson(server.httpBaseUrl, "/api/admin/me");
     assert.equal(unauthorized.status, 401);
 
-    const login = await requestJson(server.httpBaseUrl, "/api/admin/auth/login", {
-      method: "POST",
-      body: { username: "admin", password: "secret-123" }
-    });
+    const login = await requestJson(
+      server.httpBaseUrl,
+      "/api/admin/auth/login",
+      {
+        method: "POST",
+        body: { username: "admin", password: "secret-123" },
+      },
+    );
     assert.equal(login.status, 200);
-    const token = ((login.body.data as { token: string }).token);
+    const token = (login.body.data as { token: string }).token;
     assert.ok(token);
 
-    const me = await requestJson(server.httpBaseUrl, "/api/admin/me", { token });
+    const me = await requestJson(server.httpBaseUrl, "/api/admin/me", {
+      token,
+    });
     assert.equal(me.status, 200);
     assert.equal((me.body.data as { username: string }).username, "admin");
 
     const socket = await connectClient(server.wsUrl);
     const collector = createMessageCollector(socket);
     try {
-      socket.send(JSON.stringify({ type: "room:create", payload: { displayName: "Alice" } }));
+      socket.send(
+        JSON.stringify({
+          type: "room:create",
+          payload: { displayName: "Alice" },
+        }),
+      );
       const created = await collector.next("room:created");
       await collector.next("room:state");
-      const roomCode = ((created.payload as { roomCode: string }).roomCode);
+      const roomCode = (created.payload as { roomCode: string }).roomCode;
 
-      const overview = await requestJson(server.httpBaseUrl, "/api/admin/overview", { token });
+      const overview = await requestJson(
+        server.httpBaseUrl,
+        "/api/admin/overview",
+        { token },
+      );
       assert.equal(overview.status, 200);
       const overviewData = overview.body.data as {
         service: { instanceId: string };
-        runtime: { connectionCount: number; activeRoomCount: number; activeMemberCount: number };
+        runtime: {
+          connectionCount: number;
+          activeRoomCount: number;
+          activeMemberCount: number;
+        };
         rooms: { totalNonExpired: number };
       };
       assert.equal(overviewData.service.instanceId, "instance-1");
@@ -221,15 +265,31 @@ test("admin endpoints support auth, overview, rooms, and events without breaking
       assert.equal(overviewData.runtime.activeMemberCount, 1);
       assert.equal(overviewData.rooms.totalNonExpired, 1);
 
-      const rooms = await requestJson(server.httpBaseUrl, "/api/admin/rooms?status=active&page=1&pageSize=10", { token });
+      const rooms = await requestJson(
+        server.httpBaseUrl,
+        "/api/admin/rooms?status=active&page=1&pageSize=10",
+        { token },
+      );
       assert.equal(rooms.status, 200);
-      const roomItems = (rooms.body.data as { items: Array<{ roomCode: string; memberCount: number; isActive: boolean }> }).items;
+      const roomItems = (
+        rooms.body.data as {
+          items: Array<{
+            roomCode: string;
+            memberCount: number;
+            isActive: boolean;
+          }>;
+        }
+      ).items;
       assert.equal(roomItems.length, 1);
       assert.equal(roomItems[0]?.roomCode, roomCode);
       assert.equal(roomItems[0]?.memberCount, 1);
       assert.equal(roomItems[0]?.isActive, true);
 
-      const detail = await requestJson(server.httpBaseUrl, `/api/admin/rooms/${roomCode}`, { token });
+      const detail = await requestJson(
+        server.httpBaseUrl,
+        `/api/admin/rooms/${roomCode}`,
+        { token },
+      );
       assert.equal(detail.status, 200);
       const detailData = detail.body.data as {
         instanceId: string;
@@ -240,11 +300,22 @@ test("admin endpoints support auth, overview, rooms, and events without breaking
       assert.equal(detailData.instanceId, "instance-1");
       assert.equal(detailData.room.instanceId, "instance-1");
       assert.equal(detailData.members[0]?.displayName, "Alice");
-      assert.equal(detailData.recentEvents.some((event) => event.event === "room_created"), true);
+      assert.equal(
+        detailData.recentEvents.some((event) => event.event === "room_created"),
+        true,
+      );
 
-      const events = await requestJson(server.httpBaseUrl, `/api/admin/events?event=room_created&roomCode=${roomCode}`, { token });
+      const events = await requestJson(
+        server.httpBaseUrl,
+        `/api/admin/events?event=room_created&roomCode=${roomCode}`,
+        { token },
+      );
       assert.equal(events.status, 200);
-      const eventItems = (events.body.data as { items: Array<{ event: string; roomCode: string }> }).items;
+      const eventItems = (
+        events.body.data as {
+          items: Array<{ event: string; roomCode: string }>;
+        }
+      ).items;
       assert.equal(eventItems.length, 1);
       assert.equal(eventItems[0]?.event, "room_created");
       assert.equal(eventItems[0]?.roomCode, roomCode);
@@ -252,13 +323,21 @@ test("admin endpoints support auth, overview, rooms, and events without breaking
       await closeClient(socket);
     }
 
-    const logout = await requestJson(server.httpBaseUrl, "/api/admin/auth/logout", {
-      method: "POST",
-      token
-    });
+    const logout = await requestJson(
+      server.httpBaseUrl,
+      "/api/admin/auth/logout",
+      {
+        method: "POST",
+        token,
+      },
+    );
     assert.equal(logout.status, 200);
 
-    const meAfterLogout = await requestJson(server.httpBaseUrl, "/api/admin/me", { token });
+    const meAfterLogout = await requestJson(
+      server.httpBaseUrl,
+      "/api/admin/me",
+      { token },
+    );
     assert.equal(meAfterLogout.status, 401);
   } finally {
     await server.close();
@@ -269,7 +348,10 @@ test("admin demo mode stays disabled by default and only enables when explicitly
   const defaultServer = await startAdminServer();
 
   try {
-    const defaultHtml = await requestText(defaultServer.httpBaseUrl, "/admin/login?demo=1");
+    const defaultHtml = await requestText(
+      defaultServer.httpBaseUrl,
+      "/admin/login?demo=1",
+    );
     assert.equal(defaultHtml.status, 200);
     assert.equal(defaultHtml.body.includes('"demoEnabled":false'), true);
   } finally {
@@ -278,12 +360,15 @@ test("admin demo mode stays disabled by default and only enables when explicitly
 
   const enabledServer = await startAdminServer({
     adminUiConfig: {
-      demoEnabled: true
-    }
+      demoEnabled: true,
+    },
   });
 
   try {
-    const enabledHtml = await requestText(enabledServer.httpBaseUrl, "/admin/login?demo=1");
+    const enabledHtml = await requestText(
+      enabledServer.httpBaseUrl,
+      "/admin/login?demo=1",
+    );
     assert.equal(enabledHtml.status, 200);
     assert.equal(enabledHtml.body.includes('"demoEnabled":true'), true);
   } finally {
@@ -295,10 +380,14 @@ test("admin login rejects invalid credentials", async () => {
   const server = await startAdminServer();
 
   try {
-    const login = await requestJson(server.httpBaseUrl, "/api/admin/auth/login", {
-      method: "POST",
-      body: { username: "admin", password: "wrong-password" }
-    });
+    const login = await requestJson(
+      server.httpBaseUrl,
+      "/api/admin/auth/login",
+      {
+        method: "POST",
+        body: { username: "admin", password: "wrong-password" },
+      },
+    );
     assert.equal(login.status, 401);
     assert.equal(login.body.ok, false);
   } finally {
@@ -311,11 +400,15 @@ test("viewer cannot call admin action endpoints", async () => {
 
   try {
     const token = await login(server.httpBaseUrl);
-    const response = await requestJson(server.httpBaseUrl, "/api/admin/rooms/ROOM01/close", {
-      method: "POST",
-      token,
-      body: { reason: "not allowed" }
-    });
+    const response = await requestJson(
+      server.httpBaseUrl,
+      "/api/admin/rooms/ROOM01/close",
+      {
+        method: "POST",
+        token,
+        body: { reason: "not allowed" },
+      },
+    );
     assert.equal(response.status, 403);
     assert.equal(response.body.ok, false);
   } finally {
@@ -331,11 +424,17 @@ test("operator can execute admin actions and query audit logs", async () => {
     const owner = await connectClient(server.wsUrl);
     const ownerCollector = createMessageCollector(owner);
     try {
-      owner.send(JSON.stringify({ type: "room:create", payload: { displayName: "Alice" } }));
+      owner.send(
+        JSON.stringify({
+          type: "room:create",
+          payload: { displayName: "Alice" },
+        }),
+      );
       const created = await ownerCollector.next("room:created");
       await ownerCollector.next("room:state");
       const roomCode = (created.payload as { roomCode: string }).roomCode;
-      const memberToken = (created.payload as { memberToken: string }).memberToken;
+      const memberToken = (created.payload as { memberToken: string })
+        .memberToken;
 
       owner.send(
         JSON.stringify({
@@ -345,22 +444,32 @@ test("operator can execute admin actions and query audit logs", async () => {
             video: {
               videoId: "BV1xx411c7mD",
               url: "https://www.bilibili.com/video/BV1xx411c7mD",
-              title: "Video"
-            }
-          }
-        })
+              title: "Video",
+            },
+          },
+        }),
       );
       await ownerCollector.next("room:state");
 
-      const clearVideo = await requestJson(server.httpBaseUrl, `/api/admin/rooms/${roomCode}/clear-video`, {
-        method: "POST",
-        token,
-        body: { reason: "reset room" }
-      });
+      const clearVideo = await requestJson(
+        server.httpBaseUrl,
+        `/api/admin/rooms/${roomCode}/clear-video`,
+        {
+          method: "POST",
+          token,
+          body: { reason: "reset room" },
+        },
+      );
       assert.equal(clearVideo.status, 200);
       const clearedState = await ownerCollector.next("room:state");
-      assert.equal((clearedState.payload as { sharedVideo: unknown | null }).sharedVideo, null);
-      assert.equal((clearedState.payload as { playback: unknown | null }).playback, null);
+      assert.equal(
+        (clearedState.payload as { sharedVideo: unknown | null }).sharedVideo,
+        null,
+      );
+      assert.equal(
+        (clearedState.payload as { playback: unknown | null }).playback,
+        null,
+      );
 
       const joiner = await connectClient(server.wsUrl);
       const joinerCollector = createMessageCollector(joiner);
@@ -372,20 +481,25 @@ test("operator can execute admin actions and query audit logs", async () => {
             payload: {
               roomCode,
               joinToken: (created.payload as { joinToken: string }).joinToken,
-              displayName: "Bob"
-            }
-          })
+              displayName: "Bob",
+            },
+          }),
         );
         const joined = await joinerCollector.next("room:joined");
-        kickedMemberToken = (joined.payload as { memberToken: string }).memberToken;
+        kickedMemberToken = (joined.payload as { memberToken: string })
+          .memberToken;
         await joinerCollector.next("room:state");
         await ownerCollector.next("room:state");
 
-        const kick = await requestJson(server.httpBaseUrl, `/api/admin/rooms/${roomCode}/members/${(joined.payload as { memberId: string }).memberId}/kick`, {
-          method: "POST",
-          token,
-          body: { reason: "remove member" }
-        });
+        const kick = await requestJson(
+          server.httpBaseUrl,
+          `/api/admin/rooms/${roomCode}/members/${(joined.payload as { memberId: string }).memberId}/kick`,
+          {
+            method: "POST",
+            token,
+            body: { reason: "remove member" },
+          },
+        );
         assert.equal(kick.status, 200);
         await once(joiner, "close");
       } finally {
@@ -402,59 +516,94 @@ test("operator can execute admin actions and query audit logs", async () => {
               roomCode,
               joinToken: (created.payload as { joinToken: string }).joinToken,
               memberToken: kickedMemberToken,
-              displayName: "Bob"
-            }
-          })
+              displayName: "Bob",
+            },
+          }),
         );
         const kickedError = await reconnectCollector.next("error");
         assert.deepEqual(kickedError.payload, {
           code: "join_token_invalid",
-          message: "You were removed from the room by an admin. Rejoin the room."
+          message:
+            "You were removed from the room by an admin. Rejoin the room.",
         });
       } finally {
         await closeClient(reconnectingJoiner);
       }
 
-      const detail = await requestJson(server.httpBaseUrl, `/api/admin/rooms/${roomCode}`, { token });
+      const detail = await requestJson(
+        server.httpBaseUrl,
+        `/api/admin/rooms/${roomCode}`,
+        { token },
+      );
       assert.equal(detail.status, 200);
-      const ownerSessionId = (detail.body.data as { members: Array<{ sessionId: string; displayName: string }> }).members.find(
-        (member) => member.displayName === "Alice"
-      )?.sessionId;
+      const ownerSessionId = (
+        detail.body.data as {
+          members: Array<{ sessionId: string; displayName: string }>;
+        }
+      ).members.find((member) => member.displayName === "Alice")?.sessionId;
       assert.ok(ownerSessionId);
 
-      const disconnect = await requestJson(server.httpBaseUrl, `/api/admin/sessions/${ownerSessionId}/disconnect`, {
-        method: "POST",
-        token,
-        body: { reason: "disconnect owner" }
-      });
+      const disconnect = await requestJson(
+        server.httpBaseUrl,
+        `/api/admin/sessions/${ownerSessionId}/disconnect`,
+        {
+          method: "POST",
+          token,
+          body: { reason: "disconnect owner" },
+        },
+      );
       assert.equal(disconnect.status, 200);
       await once(owner, "close");
 
-      const expire = await requestJson(server.httpBaseUrl, `/api/admin/rooms/${roomCode}/expire`, {
-        method: "POST",
-        token,
-        body: { reason: "cleanup idle room" }
-      });
+      const expire = await requestJson(
+        server.httpBaseUrl,
+        `/api/admin/rooms/${roomCode}/expire`,
+        {
+          method: "POST",
+          token,
+          body: { reason: "cleanup idle room" },
+        },
+      );
       assert.equal(expire.status, 200);
 
-      const missingRoom = await requestJson(server.httpBaseUrl, `/api/admin/rooms/${roomCode}`, { token });
+      const missingRoom = await requestJson(
+        server.httpBaseUrl,
+        `/api/admin/rooms/${roomCode}`,
+        { token },
+      );
       assert.equal(missingRoom.status, 404);
 
-      const auditLogs = await requestJson(server.httpBaseUrl, "/api/admin/audit-logs?page=1&pageSize=10", { token });
+      const auditLogs = await requestJson(
+        server.httpBaseUrl,
+        "/api/admin/audit-logs?page=1&pageSize=10",
+        { token },
+      );
       assert.equal(auditLogs.status, 200);
-      const actions = (auditLogs.body.data as { items: Array<{ action: string; instanceId: string }> }).items.map((item) => item.action);
+      const actions = (
+        auditLogs.body.data as {
+          items: Array<{ action: string; instanceId: string }>;
+        }
+      ).items.map((item) => item.action);
       assert.equal(actions.includes("clear_room_video"), true);
       assert.equal(actions.includes("kick_member"), true);
       assert.equal(actions.includes("disconnect_session"), true);
       assert.equal(actions.includes("expire_room"), true);
       assert.equal(
-        (auditLogs.body.data as { items: Array<{ instanceId: string }> }).items.every((item) => item.instanceId === "instance-1"),
-        true
+        (
+          auditLogs.body.data as { items: Array<{ instanceId: string }> }
+        ).items.every((item) => item.instanceId === "instance-1"),
+        true,
       );
 
-      const filteredAuditLogs = await requestJson(server.httpBaseUrl, "/api/admin/audit-logs?action=kick_member&page=1&pageSize=10", { token });
+      const filteredAuditLogs = await requestJson(
+        server.httpBaseUrl,
+        "/api/admin/audit-logs?action=kick_member&page=1&pageSize=10",
+        { token },
+      );
       assert.equal(filteredAuditLogs.status, 200);
-      const filteredItems = (filteredAuditLogs.body.data as { items: Array<{ action: string }> }).items;
+      const filteredItems = (
+        filteredAuditLogs.body.data as { items: Array<{ action: string }> }
+      ).items;
       assert.equal(filteredItems.length, 1);
       assert.equal(filteredItems[0]?.action, "kick_member");
     } finally {
@@ -474,23 +623,37 @@ test("expire room rejects active rooms and only deletes idle rooms", async () =>
     const collector = createMessageCollector(owner);
 
     try {
-      owner.send(JSON.stringify({ type: "room:create", payload: { displayName: "Alice" } }));
+      owner.send(
+        JSON.stringify({
+          type: "room:create",
+          payload: { displayName: "Alice" },
+        }),
+      );
       const created = await collector.next("room:created");
       await collector.next("room:state");
       const roomCode = (created.payload as { roomCode: string }).roomCode;
 
-      const activeExpire = await requestJson(server.httpBaseUrl, `/api/admin/rooms/${roomCode}/expire`, {
-        method: "POST",
-        token,
-        body: { reason: "should not expire active room" }
-      });
+      const activeExpire = await requestJson(
+        server.httpBaseUrl,
+        `/api/admin/rooms/${roomCode}/expire`,
+        {
+          method: "POST",
+          token,
+          body: { reason: "should not expire active room" },
+        },
+      );
       assert.equal(activeExpire.status, 409);
       assert.deepEqual(activeExpire.body.error, {
         code: "room_active",
-        message: "Room still has active members. Close the room instead of expiring it early."
+        message:
+          "Room still has active members. Close the room instead of expiring it early.",
       });
 
-      const stillExists = await requestJson(server.httpBaseUrl, `/api/admin/rooms/${roomCode}`, { token });
+      const stillExists = await requestJson(
+        server.httpBaseUrl,
+        `/api/admin/rooms/${roomCode}`,
+        { token },
+      );
       assert.equal(stillExists.status, 200);
 
       owner.close();
@@ -498,10 +661,14 @@ test("expire room rejects active rooms and only deletes idle rooms", async () =>
 
       let roomBecameIdle = false;
       for (let attempt = 0; attempt < 20; attempt += 1) {
-        const detail = await requestJson(server.httpBaseUrl, `/api/admin/rooms/${roomCode}`, { token });
+        const detail = await requestJson(
+          server.httpBaseUrl,
+          `/api/admin/rooms/${roomCode}`,
+          { token },
+        );
         if (
           detail.status === 200 &&
-          ((detail.body.data as { members: Array<unknown> }).members.length === 0)
+          (detail.body.data as { members: Array<unknown> }).members.length === 0
         ) {
           roomBecameIdle = true;
           break;
@@ -510,14 +677,22 @@ test("expire room rejects active rooms and only deletes idle rooms", async () =>
       }
       assert.equal(roomBecameIdle, true);
 
-      const idleExpire = await requestJson(server.httpBaseUrl, `/api/admin/rooms/${roomCode}/expire`, {
-        method: "POST",
-        token,
-        body: { reason: "cleanup idle room" }
-      });
+      const idleExpire = await requestJson(
+        server.httpBaseUrl,
+        `/api/admin/rooms/${roomCode}/expire`,
+        {
+          method: "POST",
+          token,
+          body: { reason: "cleanup idle room" },
+        },
+      );
       assert.equal(idleExpire.status, 200);
 
-      const missingRoom = await requestJson(server.httpBaseUrl, `/api/admin/rooms/${roomCode}`, { token });
+      const missingRoom = await requestJson(
+        server.httpBaseUrl,
+        `/api/admin/rooms/${roomCode}`,
+        { token },
+      );
       assert.equal(missingRoom.status, 404);
     } finally {
       await closeClient(owner);
@@ -535,9 +710,14 @@ test("admin exposes metrics and config summary", async () => {
     const metrics = await requestText(server.httpBaseUrl, "/metrics");
     assert.equal(metrics.status, 200);
     assert.equal(metrics.body.includes("bili_syncplay_connections"), true);
-    assert.equal(metrics.body.includes("bili_syncplay_room_created_total"), true);
+    assert.equal(
+      metrics.body.includes("bili_syncplay_room_created_total"),
+      true,
+    );
 
-    const config = await requestJson(server.httpBaseUrl, "/api/admin/config", { token });
+    const config = await requestJson(server.httpBaseUrl, "/api/admin/config", {
+      token,
+    });
     assert.equal(config.status, 200);
     const configData = config.body.data as {
       instanceId: string;
@@ -563,25 +743,46 @@ test("operator can close an active room", async () => {
     const owner = await connectClient(server.wsUrl);
     const ownerCollector = createMessageCollector(owner);
     try {
-      owner.send(JSON.stringify({ type: "room:create", payload: { displayName: "Alice" } }));
+      owner.send(
+        JSON.stringify({
+          type: "room:create",
+          payload: { displayName: "Alice" },
+        }),
+      );
       const created = await ownerCollector.next("room:created");
       await ownerCollector.next("room:state");
       const roomCode = (created.payload as { roomCode: string }).roomCode;
 
-      const closeRoom = await requestJson(server.httpBaseUrl, `/api/admin/rooms/${roomCode}/close`, {
-        method: "POST",
-        token,
-        body: { reason: "shut down room" }
-      });
+      const closeRoom = await requestJson(
+        server.httpBaseUrl,
+        `/api/admin/rooms/${roomCode}/close`,
+        {
+          method: "POST",
+          token,
+          body: { reason: "shut down room" },
+        },
+      );
       assert.equal(closeRoom.status, 200);
       await once(owner, "close");
 
-      const roomDetail = await requestJson(server.httpBaseUrl, `/api/admin/rooms/${roomCode}`, { token });
+      const roomDetail = await requestJson(
+        server.httpBaseUrl,
+        `/api/admin/rooms/${roomCode}`,
+        { token },
+      );
       assert.equal(roomDetail.status, 404);
 
-      const auditLogs = await requestJson(server.httpBaseUrl, "/api/admin/audit-logs?action=close_room&page=1&pageSize=10", { token });
+      const auditLogs = await requestJson(
+        server.httpBaseUrl,
+        "/api/admin/audit-logs?action=close_room&page=1&pageSize=10",
+        { token },
+      );
       assert.equal(auditLogs.status, 200);
-      const items = (auditLogs.body.data as { items: Array<{ action: string; targetId: string }> }).items;
+      const items = (
+        auditLogs.body.data as {
+          items: Array<{ action: string; targetId: string }>;
+        }
+      ).items;
       assert.equal(items.length, 1);
       assert.equal(items[0]?.action, "close_room");
       assert.equal(items[0]?.targetId, roomCode);

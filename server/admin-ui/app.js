@@ -1,11 +1,13 @@
-const STORAGE_KEY = "bili-syncplay-admin-token"
-const AUTO_REFRESH_MS = 15000
-const DEMO_QUERY_KEY = "demo"
-const DEMO_TOKEN = "demo-token"
-const ADMIN_UI_CONFIG = normalizeAdminUiConfig(window.__ADMIN_UI_CONFIG__)
+const STORAGE_KEY = "bili-syncplay-admin-token";
+const AUTO_REFRESH_MS = 15000;
+const DEMO_QUERY_KEY = "demo";
+const DEMO_TOKEN = "demo-token";
+const ADMIN_UI_CONFIG = normalizeAdminUiConfig(window.__ADMIN_UI_CONFIG__);
 
 const state = {
-  demo: ADMIN_UI_CONFIG.demoEnabled && new URLSearchParams(location.search).get(DEMO_QUERY_KEY) === "1",
+  demo:
+    ADMIN_UI_CONFIG.demoEnabled &&
+    new URLSearchParams(location.search).get(DEMO_QUERY_KEY) === "1",
   token: localStorage.getItem(STORAGE_KEY) || "",
   me: null,
   currentRoute: "/overview",
@@ -14,244 +16,273 @@ const state = {
   refreshHandle: null,
   lastOverviewData: null,
   instanceId: "",
-  overviewAutoRefresh: true
-}
+  overviewAutoRefresh: true,
+};
 
-let dialogEventsBound = false
+let dialogEventsBound = false;
 
 function normalizeAdminUiConfig(value) {
   if (!value || typeof value !== "object") {
-    return { demoEnabled: false }
+    return { demoEnabled: false };
   }
 
   return {
-    demoEnabled: value.demoEnabled === true
-  }
+    demoEnabled: value.demoEnabled === true,
+  };
 }
 
 const routeMeta = {
-  "/overview": { title: "概览", description: "服务、存储、运行态与近期事件的快速视图。" },
-  "/rooms": { title: "房间管理", description: "筛选房间、查看详情并执行治理动作。" },
+  "/overview": {
+    title: "概览",
+    description: "服务、存储、运行态与近期事件的快速视图。",
+  },
+  "/rooms": {
+    title: "房间管理",
+    description: "筛选房间、查看详情并执行治理动作。",
+  },
   "/events": { title: "运行事件", description: "按条件检索近期运行事件。" },
-  "/audit-logs": { title: "审计日志", description: "查看管理员操作留痕和请求参数。" },
-  "/config": { title: "配置摘要", description: "核对当前实例运行配置，不暴露敏感信息。" }
-}
+  "/audit-logs": {
+    title: "审计日志",
+    description: "查看管理员操作留痕和请求参数。",
+  },
+  "/config": {
+    title: "配置摘要",
+    description: "核对当前实例运行配置，不暴露敏感信息。",
+  },
+};
 
-const appRoot = document.querySelector("#app")
+const appRoot = document.querySelector("#app");
 
 async function bootstrap() {
-  bindDialogEvents()
-  state.currentRoute = normalizePath(location.pathname)
+  bindDialogEvents();
+  state.currentRoute = normalizePath(location.pathname);
 
   if (state.demo) {
-    state.token = DEMO_TOKEN
-    state.me = demoAdminSession()
-    await render()
-    return
+    state.token = DEMO_TOKEN;
+    state.me = demoAdminSession();
+    await render();
+    return;
   }
 
   if (state.token) {
     try {
-      state.me = await api.getMe()
+      state.me = await api.getMe();
     } catch (error) {
       if (error.code !== "unauthorized") {
-        showNotice("error", error.message || "管理员身份校验失败。")
+        showNotice("error", error.message || "管理员身份校验失败。");
       }
-      clearAuth()
+      clearAuth();
     }
   }
 
   if (!state.token && state.currentRoute !== "/login") {
-    navigate("/login", true)
-    return
+    navigate("/login", true);
+    return;
   }
 
   if (state.token && state.currentRoute === "/login") {
-    navigate("/overview", true)
-    return
+    navigate("/overview", true);
+    return;
   }
 
-  await render()
+  await render();
 }
 
 function normalizePath(pathname) {
   if (!pathname.startsWith("/admin")) {
-    return "/login"
+    return "/login";
   }
 
-  const path = pathname.slice("/admin".length) || "/overview"
+  const path = pathname.slice("/admin".length) || "/overview";
   if (path === "/") {
-    return state.token ? "/overview" : "/login"
+    return state.token ? "/overview" : "/login";
   }
-  return path
+  return path;
 }
 
 function routeHref(path) {
-  return `/admin${path}`
+  return `/admin${path}`;
 }
 
 function withDemoQuery(url) {
   if (!state.demo) {
-    return url
+    return url;
   }
 
-  const resolved = new URL(url, location.origin)
-  resolved.searchParams.set(DEMO_QUERY_KEY, "1")
-  return `${resolved.pathname}${resolved.search}`
+  const resolved = new URL(url, location.origin);
+  resolved.searchParams.set(DEMO_QUERY_KEY, "1");
+  return `${resolved.pathname}${resolved.search}`;
 }
 
 function canManage() {
-  return state.me && (state.me.role === "operator" || state.me.role === "admin")
+  return (
+    state.me && (state.me.role === "operator" || state.me.role === "admin")
+  );
 }
 
 function clearRefreshTimer() {
   if (state.refreshHandle) {
-    clearInterval(state.refreshHandle)
-    state.refreshHandle = null
+    clearInterval(state.refreshHandle);
+    state.refreshHandle = null;
   }
 }
 
 function clearAuth() {
-  state.token = ""
-  state.me = null
-  localStorage.removeItem(STORAGE_KEY)
-  clearRefreshTimer()
+  state.token = "";
+  state.me = null;
+  localStorage.removeItem(STORAGE_KEY);
+  clearRefreshTimer();
 }
 
 function showNotice(type, message) {
-  state.notice = { type, message }
+  state.notice = { type, message };
 }
 
 function clearNotice() {
-  state.notice = null
+  state.notice = null;
 }
 
 function setToken(token) {
-  state.token = token
-  localStorage.setItem(STORAGE_KEY, token)
+  state.token = token;
+  localStorage.setItem(STORAGE_KEY, token);
 }
 
 function navigate(path, replace = false) {
-  state.currentRoute = path
-  const method = replace ? history.replaceState : history.pushState
-  method.call(history, null, "", withDemoQuery(routeHref(path)))
-  render().catch(handleFatalRenderError)
+  state.currentRoute = path;
+  const method = replace ? history.replaceState : history.pushState;
+  method.call(history, null, "", withDemoQuery(routeHref(path)));
+  render().catch(handleFatalRenderError);
 }
 
 function navigateToUrl(url, path, replace = false) {
-  state.currentRoute = path
-  const method = replace ? history.replaceState : history.pushState
-  method.call(history, null, "", url)
-  render().catch(handleFatalRenderError)
+  state.currentRoute = path;
+  const method = replace ? history.replaceState : history.pushState;
+  method.call(history, null, "", url);
+  render().catch(handleFatalRenderError);
 }
 
 function formatDateTime(value) {
   if (value === null || value === undefined || value === "") {
-    return "—"
+    return "—";
   }
 
-  const date = typeof value === "number" ? new Date(value) : new Date(value)
+  const date = typeof value === "number" ? new Date(value) : new Date(value);
   if (Number.isNaN(date.getTime())) {
-    return "—"
+    return "—";
   }
 
-  const raw = typeof value === "number" ? String(value) : date.toISOString()
-  return `<span title="${escapeHtml(raw)}">${escapeHtml(date.toLocaleString())}</span>`
+  const raw = typeof value === "number" ? String(value) : date.toISOString();
+  return `<span title="${escapeHtml(raw)}">${escapeHtml(date.toLocaleString())}</span>`;
 }
 
 function renderTimeBlock(value, hint = "") {
   if (value === null || value === undefined || value === "") {
-    return renderEmptyValue()
+    return renderEmptyValue();
   }
 
-  const date = typeof value === "number" ? new Date(value) : new Date(value)
+  const date = typeof value === "number" ? new Date(value) : new Date(value);
   if (Number.isNaN(date.getTime())) {
-    return renderEmptyValue()
+    return renderEmptyValue();
   }
 
-  return renderDataPair(formatDateTime(value), hint || escapeHtml(date.toLocaleDateString()))
+  return renderDataPair(
+    formatDateTime(value),
+    hint || escapeHtml(date.toLocaleDateString()),
+  );
 }
 
 function formatDuration(ms) {
   if (!Number.isFinite(ms) || ms < 0) {
-    return "—"
+    return "—";
   }
 
-  const totalSeconds = Math.floor(ms / 1000)
-  const hours = Math.floor(totalSeconds / 3600)
-  const minutes = Math.floor((totalSeconds % 3600) / 60)
-  const seconds = totalSeconds % 60
+  const totalSeconds = Math.floor(ms / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
   return [hours, minutes, seconds]
-    .map((part, index) => (index === 0 ? String(part) : String(part).padStart(2, "0")))
-    .join(":")
+    .map((part, index) =>
+      index === 0 ? String(part) : String(part).padStart(2, "0"),
+    )
+    .join(":");
 }
 
 function formatPlayback(playback) {
   if (!playback) {
-    return "未同步"
+    return "未同步";
   }
 
-  const status = getPlaybackState(playback)
-  return `${status} @ ${Number(playback.currentTime ?? 0).toFixed(1)}s x${Number(playback.playbackRate ?? 1).toFixed(2)}`
+  const status = getPlaybackState(playback);
+  return `${status} @ ${Number(playback.currentTime ?? 0).toFixed(1)}s x${Number(playback.playbackRate ?? 1).toFixed(2)}`;
 }
 
 function getPlaybackState(playback) {
   if (!playback) {
-    return "paused"
+    return "paused";
   }
 
   if (typeof playback.playState === "string" && playback.playState) {
-    return playback.playState
+    return playback.playState;
   }
 
-  return playback.paused ? "paused" : "playing"
+  return playback.paused ? "paused" : "playing";
 }
 
 function formatJson(value) {
-  return escapeHtml(JSON.stringify(value, null, 2))
+  return escapeHtml(JSON.stringify(value, null, 2));
 }
 
 function renderEmptyValue(value = "—") {
-  return `<span class="empty-value">${escapeHtml(value)}</span>`
+  return `<span class="empty-value">${escapeHtml(value)}</span>`;
 }
 
 function renderResultBadge(value) {
-  const normalized = String(value || "").toLowerCase()
-  let tone = "neutral"
-  if (normalized === "ok" || normalized === "success" || normalized === "ready" || normalized === "healthy") {
-    tone = "success"
-  } else if (normalized === "rejected" || normalized === "error" || normalized === "failed" || normalized === "closed") {
-    tone = "danger"
+  const normalized = String(value || "").toLowerCase();
+  let tone = "neutral";
+  if (
+    normalized === "ok" ||
+    normalized === "success" ||
+    normalized === "ready" ||
+    normalized === "healthy"
+  ) {
+    tone = "success";
+  } else if (
+    normalized === "rejected" ||
+    normalized === "error" ||
+    normalized === "failed" ||
+    normalized === "closed"
+  ) {
+    tone = "danger";
   } else if (normalized) {
-    tone = "warning"
+    tone = "warning";
   }
 
-  return `<span class="status ${tone}">${escapeHtml(value || "—")}</span>`
+  return `<span class="status ${tone}">${escapeHtml(value || "—")}</span>`;
 }
 
 function classifyOrigin(value) {
   if (!value) {
-    return { label: "", tone: "neutral" }
+    return { label: "", tone: "neutral" };
   }
 
   if (value.startsWith("chrome-extension://")) {
-    return { label: "扩展", tone: "extension" }
+    return { label: "扩展", tone: "extension" };
   }
 
   if (value.startsWith("https://")) {
-    return { label: "HTTPS", tone: "web" }
+    return { label: "HTTPS", tone: "web" };
   }
 
   if (value.startsWith("http://")) {
-    return { label: "HTTP", tone: "web" }
+    return { label: "HTTP", tone: "web" };
   }
 
-  return { label: "其他", tone: "neutral" }
+  return { label: "其他", tone: "neutral" };
 }
 
 function renderCompactCode(value, copyLabel = "复制") {
   if (!value) {
-    return renderEmptyValue()
+    return renderEmptyValue();
   }
 
   return `
@@ -259,7 +290,7 @@ function renderCompactCode(value, copyLabel = "复制") {
       <span class="code compact-code" title="${escapeHtml(value)}">${escapeHtml(value)}</span>
       <button class="button link" type="button" data-copy="${escapeHtml(value)}">${copyLabel}</button>
     </div>
-  `
+  `;
 }
 
 function renderDataPair(primary, secondary) {
@@ -268,15 +299,15 @@ function renderDataPair(primary, secondary) {
       <div class="data-pair-primary">${primary}</div>
       ${secondary ? `<div class="data-pair-secondary">${secondary}</div>` : ""}
     </div>
-  `
+  `;
 }
 
 function renderOriginValue(value) {
   if (!value) {
-    return renderEmptyValue()
+    return renderEmptyValue();
   }
 
-  const originMeta = classifyOrigin(value)
+  const originMeta = classifyOrigin(value);
   return `
     <div class="origin-stack">
       <div class="origin-meta">
@@ -285,7 +316,7 @@ function renderOriginValue(value) {
       <span class="code origin-value" title="${escapeHtml(value)}">${escapeHtml(value)}</span>
       <button class="button link" type="button" data-copy="${escapeHtml(value)}">复制</button>
     </div>
-  `
+  `;
 }
 
 function escapeHtml(value) {
@@ -294,41 +325,41 @@ function escapeHtml(value) {
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;")
+    .replaceAll("'", "&#39;");
 }
 
 function serializeQuery(query) {
-  const params = new URLSearchParams()
+  const params = new URLSearchParams();
   if (state.demo) {
-    params.set(DEMO_QUERY_KEY, "1")
+    params.set(DEMO_QUERY_KEY, "1");
   }
   for (const [key, value] of Object.entries(query)) {
     if (value === undefined || value === null || value === "") {
-      continue
+      continue;
     }
-    params.set(key, String(value))
+    params.set(key, String(value));
   }
 
-  const raw = params.toString()
-  return raw ? `?${raw}` : ""
+  const raw = params.toString();
+  return raw ? `?${raw}` : "";
 }
 
 async function withAction(action, successMessage, onSuccess) {
   try {
-    const result = await action()
+    const result = await action();
     if (successMessage) {
-      showNotice("success", successMessage)
+      showNotice("success", successMessage);
     }
     if (typeof onSuccess === "function") {
-      await onSuccess(result)
+      await onSuccess(result);
     } else {
-      await render()
+      await render();
     }
-    return result
+    return result;
   } catch (error) {
-    showNotice("error", error.message || "操作失败。")
-    render().catch(handleFatalRenderError)
-    return null
+    showNotice("error", error.message || "操作失败。");
+    render().catch(handleFatalRenderError);
+    return null;
   }
 }
 
@@ -336,99 +367,108 @@ async function openReasonDialog(config) {
   return new Promise((resolve) => {
     state.dialog = {
       ...config,
-      resolve
-    }
-    render().catch(handleFatalRenderError)
-  })
+      resolve,
+    };
+    render().catch(handleFatalRenderError);
+  });
 }
 
 function syncDialogDom() {
-  const dialogRoot = document.querySelector(".dialog-root")
+  const dialogRoot = document.querySelector(".dialog-root");
   if (!dialogRoot) {
-    return
+    return;
   }
 
   if (!state.dialog) {
-    dialogRoot.hidden = true
-    dialogRoot.replaceChildren()
-    return
+    dialogRoot.hidden = true;
+    dialogRoot.replaceChildren();
+    return;
   }
 
-  dialogRoot.outerHTML = renderDialog()
+  dialogRoot.outerHTML = renderDialog();
 }
 
 function closeDialog(result = null) {
-  const resolver = state.dialog?.resolve
-  state.dialog = null
-  syncDialogDom()
+  const resolver = state.dialog?.resolve;
+  state.dialog = null;
+  syncDialogDom();
   if (resolver) {
-    resolver(result)
+    resolver(result);
   }
-  render().catch(handleFatalRenderError)
+  render().catch(handleFatalRenderError);
 }
 
 function bindDialogEvents() {
   if (dialogEventsBound) {
-    return
+    return;
   }
 
-  dialogEventsBound = true
+  dialogEventsBound = true;
 
   document.addEventListener("click", (event) => {
-    const closeButton = event.target.closest("[data-dialog-close]")
+    const closeButton = event.target.closest("[data-dialog-close]");
     if (!closeButton) {
-      return
+      return;
     }
 
-    event.preventDefault()
-    closeDialog(null)
-  })
+    event.preventDefault();
+    closeDialog(null);
+  });
 
   document.addEventListener("submit", (event) => {
-    const form = event.target.closest("#confirm-dialog")
+    const form = event.target.closest("#confirm-dialog");
     if (!form) {
-      return
+      return;
     }
 
-    event.preventDefault()
-    const reason = new FormData(form).get("reason")?.toString().trim() || ""
-    closeDialog({ reason })
-  })
+    event.preventDefault();
+    const reason = new FormData(form).get("reason")?.toString().trim() || "";
+    closeDialog({ reason });
+  });
 }
 
 async function confirmAction(config) {
-  const result = await openReasonDialog(config)
+  const result = await openReasonDialog(config);
   if (!result) {
-    return
+    return;
   }
-  await withAction(() => config.onConfirm(result.reason), config.successMessage, config.onSuccess)
+  await withAction(
+    () => config.onConfirm(result.reason),
+    config.successMessage,
+    config.onSuccess,
+  );
 }
 
 function handleFatalRenderError(error) {
-  console.error(error)
-  showNotice("error", "页面渲染失败。")
-  appRoot.innerHTML = `<div class="login-shell"><div class="login-card"><h1>渲染失败</h1><p>${escapeHtml(error.message || "未知错误")}</p></div></div>`
+  console.error(error);
+  showNotice("error", "页面渲染失败。");
+  appRoot.innerHTML = `<div class="login-shell"><div class="login-card"><h1>渲染失败</h1><p>${escapeHtml(error.message || "未知错误")}</p></div></div>`;
 }
 
 async function render() {
-  clearRefreshTimer()
+  clearRefreshTimer();
 
   if (!state.token || state.currentRoute === "/login") {
-    renderLogin()
-    bindLoginEvents()
-    return
+    renderLogin();
+    bindLoginEvents();
+    return;
   }
 
-  const page = await loadPage()
+  const page = await loadPage();
   if (page.instanceId) {
-    state.instanceId = page.instanceId
+    state.instanceId = page.instanceId;
   }
   if (!page.instanceId && !state.instanceId) {
-    await ensureInstanceId()
+    await ensureInstanceId();
   }
-  const meta = page.meta || routeMeta[state.currentRoute] || routeMeta["/overview"]
-  const instanceId = page.instanceId || state.instanceId || state.lastOverviewData?.instanceId || "—"
-  document.title = `${meta.title} | Bili-SyncPlay Admin`
+  const meta =
+    page.meta || routeMeta[state.currentRoute] || routeMeta["/overview"];
+  const instanceId =
+    page.instanceId ||
+    state.instanceId ||
+    state.lastOverviewData?.instanceId ||
+    "—";
+  document.title = `${meta.title} | Bili-SyncPlay Admin`;
 
   appRoot.innerHTML = `
     <div class="shell">
@@ -484,28 +524,28 @@ async function render() {
       </main>
     </div>
     ${renderDialog()}
-  `
+  `;
 
-  bindCommonEvents(page)
+  bindCommonEvents(page);
   if (typeof page.bind === "function") {
-    page.bind()
+    page.bind();
   }
 }
 
 function renderNavLink(path, label) {
-  const active = state.currentRoute === path
+  const active = state.currentRoute === path;
   return `
     <a class="nav-link ${active ? "active" : ""}" href="${withDemoQuery(routeHref(path))}" data-nav="${escapeHtml(path)}">
       <span>${escapeHtml(label)}</span>
       <span class="nav-link-mark" aria-hidden="true">${active ? "●" : "·"}</span>
     </a>
-  `
+  `;
 }
 
 async function ensureInstanceId() {
   try {
-    const config = await api.getConfig()
-    state.instanceId = config.instanceId || ""
+    const config = await api.getConfig();
+    state.instanceId = config.instanceId || "";
   } catch {
     // ignore; the current page can still render without instance metadata
   }
@@ -513,10 +553,10 @@ async function ensureInstanceId() {
 
 function renderDialog() {
   if (!state.dialog) {
-    return `<div class="dialog-root" hidden></div>`
+    return `<div class="dialog-root" hidden></div>`;
   }
 
-  const isJsonPreview = state.dialog.mode === "json-preview"
+  const isJsonPreview = state.dialog.mode === "json-preview";
   return `
     <div class="dialog-root">
       <form class="dialog-card ${isJsonPreview ? "json-preview-dialog" : ""}" id="confirm-dialog">
@@ -538,52 +578,54 @@ function renderDialog() {
         </div>
       </form>
     </div>
-  `
+  `;
 }
 
 function bindCommonEvents(page) {
   document.querySelectorAll("[data-nav]").forEach((element) => {
     element.addEventListener("click", (event) => {
-      event.preventDefault()
-      navigate(element.getAttribute("data-nav"))
-    })
-  })
+      event.preventDefault();
+      navigate(element.getAttribute("data-nav"));
+    });
+  });
 
-  document.querySelector("[data-action='logout']")?.addEventListener("click", async () => {
-    try {
-      await api.logout()
-    } catch {
-      // ignore
-    }
-    clearAuth()
-    navigate("/login", true)
-  })
+  document
+    .querySelector("[data-action='logout']")
+    ?.addEventListener("click", async () => {
+      try {
+        await api.logout();
+      } catch {
+        // ignore
+      }
+      clearAuth();
+      navigate("/login", true);
+    });
 
   document.querySelectorAll("[data-copy]").forEach((button) => {
     button.addEventListener("click", async () => {
       try {
-        await navigator.clipboard.writeText(button.getAttribute("data-copy"))
-        showNotice("success", "已复制到剪贴板。")
+        await navigator.clipboard.writeText(button.getAttribute("data-copy"));
+        showNotice("success", "已复制到剪贴板。");
       } catch {
-        showNotice("error", "复制失败。")
+        showNotice("error", "复制失败。");
       }
-      render().catch(handleFatalRenderError)
-    })
-  })
+      render().catch(handleFatalRenderError);
+    });
+  });
 
   if (page.autoRefresh) {
     state.refreshHandle = setInterval(() => {
-      render().catch(handleFatalRenderError)
-    }, AUTO_REFRESH_MS)
+      render().catch(handleFatalRenderError);
+    }, AUTO_REFRESH_MS);
   }
 
   if (state.notice?.type === "success") {
     setTimeout(() => {
       if (state.notice?.type === "success") {
-        clearNotice()
-        render().catch(handleFatalRenderError)
+        clearNotice();
+        render().catch(handleFatalRenderError);
       }
-    }, 2400)
+    }, 2400);
   }
 }
 
@@ -612,61 +654,70 @@ function renderLogin() {
         </form>
       </div>
     </div>
-  `
+  `;
 }
 
 function bindLoginEvents() {
-  document.querySelector("#login-form")?.addEventListener("submit", async (event) => {
-    event.preventDefault()
-    const formData = new FormData(event.currentTarget)
-    const username = formData.get("username")?.toString().trim() || ""
-    const password = formData.get("password")?.toString() || ""
+  document
+    .querySelector("#login-form")
+    ?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const formData = new FormData(event.currentTarget);
+      const username = formData.get("username")?.toString().trim() || "";
+      const password = formData.get("password")?.toString() || "";
 
-    try {
-      clearNotice()
-      const result = await api.login({ username, password })
-      setToken(result.token)
-      state.me = await api.getMe()
-      navigate("/overview", true)
-    } catch (error) {
-      showNotice("error", error.message || "登录失败。")
-      renderLogin()
-      bindLoginEvents()
-    }
-  })
+      try {
+        clearNotice();
+        const result = await api.login({ username, password });
+        setToken(result.token);
+        state.me = await api.getMe();
+        navigate("/overview", true);
+      } catch (error) {
+        showNotice("error", error.message || "登录失败。");
+        renderLogin();
+        bindLoginEvents();
+      }
+    });
 }
 
 async function loadPage() {
   switch (state.currentRoute) {
     case "/overview":
-      return renderOverviewPage()
+      return renderOverviewPage();
     case "/rooms":
-      return renderRoomsPage()
+      return renderRoomsPage();
     case "/events":
-      return renderEventsPage()
+      return renderEventsPage();
     case "/audit-logs":
-      return renderAuditLogsPage()
+      return renderAuditLogsPage();
     case "/config":
-      return renderConfigPage()
+      return renderConfigPage();
     default:
       if (state.currentRoute.startsWith("/rooms/")) {
-        return renderRoomDetailPage(state.currentRoute.slice("/rooms/".length))
+        return renderRoomDetailPage(state.currentRoute.slice("/rooms/".length));
       }
-      navigate("/overview", true)
-      return renderOverviewPage()
+      navigate("/overview", true);
+      return renderOverviewPage();
   }
 }
 
 async function renderOverviewPage() {
-  const [health, ready, overview] = await Promise.all([api.getHealth(), api.getReady(), api.getOverview()])
-  state.lastOverviewData = overview.service
-  const readyWarning = ready.status !== "ready"
+  const [health, ready, overview] = await Promise.all([
+    api.getHealth(),
+    api.getReady(),
+    api.getOverview(),
+  ]);
+  state.lastOverviewData = overview.service;
+  const readyWarning = ready.status !== "ready";
   const overviewHighlights = [
     ["实例", overview.service.instanceId],
     ["存储", overview.storage.provider],
     ["Redis", overview.storage.redisConnected ? "已连接" : "未连接"],
-    ["房间", `${overview.runtime.activeRoomCount} 活跃 / ${overview.rooms.totalNonExpired} 非过期`]
-  ]
+    [
+      "房间",
+      `${overview.runtime.activeRoomCount} 活跃 / ${overview.rooms.totalNonExpired} 非过期`,
+    ],
+  ];
 
   return {
     autoRefresh: state.overviewAutoRefresh,
@@ -682,12 +733,16 @@ async function renderOverviewPage() {
           <button class="button" data-refresh-overview>立即刷新</button>
         </div>
         <section class="panel overview-strip">
-          ${overviewHighlights.map(([label, value]) => `
+          ${overviewHighlights
+            .map(
+              ([label, value]) => `
             <div class="overview-strip-item">
               <span class="overview-strip-label">${escapeHtml(label)}</span>
               <strong>${escapeHtml(value)}</strong>
             </div>
-          `).join("")}
+          `,
+            )
+            .join("")}
         </section>
         <div class="grid cards-4">
           ${metricCard("服务", escapeHtml(overview.service.name), `版本 ${escapeHtml(overview.service.version)}`)}
@@ -728,13 +783,19 @@ async function renderOverviewPage() {
       </div>
     `,
     bind() {
-      document.querySelector("[data-refresh-overview]")?.addEventListener("click", () => render().catch(handleFatalRenderError))
-      document.querySelector("[data-toggle-overview-refresh]")?.addEventListener("click", () => {
-        state.overviewAutoRefresh = !state.overviewAutoRefresh
-        render().catch(handleFatalRenderError)
-      })
-    }
-  }
+      document
+        .querySelector("[data-refresh-overview]")
+        ?.addEventListener("click", () =>
+          render().catch(handleFatalRenderError),
+        );
+      document
+        .querySelector("[data-toggle-overview-refresh]")
+        ?.addEventListener("click", () => {
+          state.overviewAutoRefresh = !state.overviewAutoRefresh;
+          render().catch(handleFatalRenderError);
+        });
+    },
+  };
 }
 
 function metricCard(label, value, meta) {
@@ -744,17 +805,23 @@ function metricCard(label, value, meta) {
       <div class="metric-value">${value}</div>
       <div class="metric-meta">${meta}</div>
     </section>
-  `
+  `;
 }
 
 function renderStatus(kind, text) {
-  return `<span class="status ${escapeHtml(kind)}">${escapeHtml(text)}</span>`
+  return `<span class="status ${escapeHtml(kind)}">${escapeHtml(text)}</span>`;
 }
 
 async function renderRoomsPage() {
-  const query = roomsQueryFromLocation()
-  const data = await api.listRooms(query)
-  const hasFilters = Boolean(query.keyword || query.status !== "all" || query.includeExpired || query.sortBy !== "lastActiveAt" || query.sortOrder !== "desc")
+  const query = roomsQueryFromLocation();
+  const data = await api.listRooms(query);
+  const hasFilters = Boolean(
+    query.keyword ||
+    query.status !== "all" ||
+    query.includeExpired ||
+    query.sortBy !== "lastActiveAt" ||
+    query.sortOrder !== "desc",
+  );
 
   return {
     instanceId: state.lastOverviewData?.instanceId,
@@ -767,9 +834,19 @@ async function renderRoomsPage() {
           </div>
           <form id="rooms-filter" class="form-grid">
             ${textField("keyword", "房间号关键字", query.keyword)}
-            ${selectField("status", "状态", query.status, [["all", "all"], ["active", "active"], ["idle", "idle"]])}
-            ${selectField("sortBy", "排序字段", query.sortBy, [["lastActiveAt", "lastActiveAt"], ["createdAt", "createdAt"]])}
-            ${selectField("sortOrder", "排序方向", query.sortOrder, [["desc", "desc"], ["asc", "asc"]])}
+            ${selectField("status", "状态", query.status, [
+              ["all", "all"],
+              ["active", "active"],
+              ["idle", "idle"],
+            ])}
+            ${selectField("sortBy", "排序字段", query.sortBy, [
+              ["lastActiveAt", "lastActiveAt"],
+              ["createdAt", "createdAt"],
+            ])}
+            ${selectField("sortOrder", "排序方向", query.sortOrder, [
+              ["desc", "desc"],
+              ["asc", "asc"],
+            ])}
             ${textField("pageSize", "每页条数", String(query.pageSize), "number")}
             <div class="field inline align-end">
               <input id="includeExpired" name="includeExpired" type="checkbox" ${query.includeExpired ? "checked" : ""} />
@@ -799,7 +876,10 @@ async function renderRoomsPage() {
               <button class="button" data-refresh-rooms>刷新</button>
             </div>
           </div>
-          ${data.items.length === 0 ? `<div class="empty-state">当前筛选条件下没有房间。</div>` : `
+          ${
+            data.items.length === 0
+              ? `<div class="empty-state">当前筛选条件下没有房间。</div>`
+              : `
             <div class="table-scroll">
             <table>
               <thead>
@@ -817,7 +897,9 @@ async function renderRoomsPage() {
                 </tr>
               </thead>
               <tbody>
-                ${data.items.map((item) => `
+                ${data.items
+                  .map(
+                    (item) => `
                   <tr>
                     <td>${renderDataPair(`<a href="${withDemoQuery(routeHref(`/rooms/${item.roomCode}`))}" data-room-link="${escapeHtml(item.roomCode)}" class="primary-cell-link"><strong>${escapeHtml(item.roomCode)}</strong></a>`, item.sharedVideo?.videoId ? `<span class="primary-code">${escapeHtml(item.sharedVideo.videoId)}</span>` : "")}</td>
                     <td><span class="primary-code">${escapeHtml(item.instanceId || "—")}</span></td>
@@ -830,23 +912,26 @@ async function renderRoomsPage() {
                     <td>${renderTimeBlock(item.expiresAt, "过期")}</td>
                     <td>${roomActionButtons(item.roomCode, item.isActive)}</td>
                   </tr>
-                `).join("")}
+                `,
+                  )
+                  .join("")}
               </tbody>
             </table>
             </div>
             ${renderPagination(query.page, query.pageSize, data.pagination.total, "rooms")}
-          `}
+          `
+          }
         </section>
       </div>
     `,
     bind() {
-      bindRoomsListEvents(query)
-    }
-  }
+      bindRoomsListEvents(query);
+    },
+  };
 }
 
 function roomsQueryFromLocation() {
-  const params = new URLSearchParams(location.search)
+  const params = new URLSearchParams(location.search);
   return {
     keyword: params.get("keyword") || "",
     status: params.get("status") || "all",
@@ -854,18 +939,20 @@ function roomsQueryFromLocation() {
     sortBy: params.get("sortBy") || "lastActiveAt",
     sortOrder: params.get("sortOrder") || "desc",
     page: Number(params.get("page") || "1"),
-    pageSize: Number(params.get("pageSize") || "20")
-  }
+    pageSize: Number(params.get("pageSize") || "20"),
+  };
 }
 
 function roomActionButtons(roomCode, isActive = false) {
-  const view = `<button class="button link" type="button" data-open-room="${escapeHtml(roomCode)}">查看详情</button>`
+  const view = `<button class="button link" type="button" data-open-room="${escapeHtml(roomCode)}">查看详情</button>`;
   if (!canManage()) {
-    return `<div class="table-actions">${view}</div>`
+    return `<div class="table-actions">${view}</div>`;
   }
 
-  const expireDisabled = isActive ? "disabled" : ""
-  const expireHint = isActive ? `title="房间仍有在线成员，仅空闲房间可提前过期"` : ""
+  const expireDisabled = isActive ? "disabled" : "";
+  const expireHint = isActive
+    ? `title="房间仍有在线成员，仅空闲房间可提前过期"`
+    : "";
 
   return `
     <div class="table-actions">
@@ -874,11 +961,11 @@ function roomActionButtons(roomCode, isActive = false) {
       <button class="button link" type="button" data-room-action="expire" data-room-code="${escapeHtml(roomCode)}" ${expireDisabled} ${expireHint}>提前过期</button>
       <button class="button link" type="button" data-room-action="clear-video" data-room-code="${escapeHtml(roomCode)}">清空共享视频</button>
     </div>
-  `
+  `;
 }
 
 function renderPagination(page, pageSize, total, scope) {
-  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
   return `
     <div class="pagination">
       <div>第 ${page} / ${totalPages} 页，共 ${total} 条</div>
@@ -887,63 +974,77 @@ function renderPagination(page, pageSize, total, scope) {
         <button class="button" type="button" data-page-scope="${scope}" data-page-target="${page + 1}" ${page >= totalPages ? "disabled" : ""}>下一页</button>
       </div>
     </div>
-  `
+  `;
 }
 
 function bindRoomsListEvents(query) {
-  document.querySelector("#rooms-filter")?.addEventListener("submit", (event) => {
-    event.preventDefault()
-    const formData = new FormData(event.currentTarget)
-    const nextQuery = {
-      keyword: formData.get("keyword")?.toString().trim() || "",
-      status: formData.get("status")?.toString() || "all",
-      includeExpired: formData.get("includeExpired") === "on",
-      sortBy: formData.get("sortBy")?.toString() || "lastActiveAt",
-      sortOrder: formData.get("sortOrder")?.toString() || "desc",
-      page: 1,
-      pageSize: Number(formData.get("pageSize") || query.pageSize || 20)
-    }
-    history.replaceState(null, "", `${routeHref("/rooms")}${serializeQuery(nextQuery)}`)
-    render().catch(handleFatalRenderError)
-  })
+  document
+    .querySelector("#rooms-filter")
+    ?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const formData = new FormData(event.currentTarget);
+      const nextQuery = {
+        keyword: formData.get("keyword")?.toString().trim() || "",
+        status: formData.get("status")?.toString() || "all",
+        includeExpired: formData.get("includeExpired") === "on",
+        sortBy: formData.get("sortBy")?.toString() || "lastActiveAt",
+        sortOrder: formData.get("sortOrder")?.toString() || "desc",
+        page: 1,
+        pageSize: Number(formData.get("pageSize") || query.pageSize || 20),
+      };
+      history.replaceState(
+        null,
+        "",
+        `${routeHref("/rooms")}${serializeQuery(nextQuery)}`,
+      );
+      render().catch(handleFatalRenderError);
+    });
 
-  document.querySelector("[data-reset-rooms]")?.addEventListener("click", () => {
-    history.replaceState(null, "", withDemoQuery(routeHref("/rooms")))
-    render().catch(handleFatalRenderError)
-  })
+  document
+    .querySelector("[data-reset-rooms]")
+    ?.addEventListener("click", () => {
+      history.replaceState(null, "", withDemoQuery(routeHref("/rooms")));
+      render().catch(handleFatalRenderError);
+    });
 
-  document.querySelector("[data-refresh-rooms]")?.addEventListener("click", () => render().catch(handleFatalRenderError))
+  document
+    .querySelector("[data-refresh-rooms]")
+    ?.addEventListener("click", () => render().catch(handleFatalRenderError));
 
-  document.querySelectorAll("[data-open-room],[data-room-link]").forEach((element) => {
-    element.addEventListener("click", (event) => {
-      event.preventDefault()
-      navigate(`/rooms/${element.getAttribute("data-open-room") || element.getAttribute("data-room-link")}`)
-    })
-  })
+  document
+    .querySelectorAll("[data-open-room],[data-room-link]")
+    .forEach((element) => {
+      element.addEventListener("click", (event) => {
+        event.preventDefault();
+        navigate(
+          `/rooms/${element.getAttribute("data-open-room") || element.getAttribute("data-room-link")}`,
+        );
+      });
+    });
 
-  bindPageButtons("/rooms")
-  bindRoomActionButtons(() => render().catch(handleFatalRenderError))
+  bindPageButtons("/rooms");
+  bindRoomActionButtons(() => render().catch(handleFatalRenderError));
 }
 
 function bindPageButtons(basePath) {
   document.querySelectorAll("[data-page-target]").forEach((button) => {
     button.addEventListener("click", () => {
-      const params = new URLSearchParams(location.search)
-      params.set("page", button.getAttribute("data-page-target"))
+      const params = new URLSearchParams(location.search);
+      params.set("page", button.getAttribute("data-page-target"));
       if (state.demo) {
-        params.set(DEMO_QUERY_KEY, "1")
+        params.set(DEMO_QUERY_KEY, "1");
       }
-      history.replaceState(null, "", `/admin${basePath}?${params.toString()}`)
-      render().catch(handleFatalRenderError)
-    })
-  })
+      history.replaceState(null, "", `/admin${basePath}?${params.toString()}`);
+      render().catch(handleFatalRenderError);
+    });
+  });
 }
 
 function bindRoomActionButtons(onDone) {
   document.querySelectorAll("[data-room-action]").forEach((button) => {
     button.addEventListener("click", async () => {
-      const roomCode = button.getAttribute("data-room-code")
-      const action = button.getAttribute("data-room-action")
+      const roomCode = button.getAttribute("data-room-code");
+      const action = button.getAttribute("data-room-action");
       const config = {
         close: {
           title: `关闭房间 ${roomCode}`,
@@ -953,43 +1054,45 @@ function bindRoomActionButtons(onDone) {
           onConfirm: (reason) => api.closeRoom(roomCode, reason),
           onSuccess: () => {
             if (state.currentRoute === `/rooms/${roomCode}`) {
-              navigate("/rooms", true)
-              return
+              navigate("/rooms", true);
+              return;
             }
-            render().catch(handleFatalRenderError)
-          }
+            render().catch(handleFatalRenderError);
+          },
         },
         expire: {
           title: `提前过期房间 ${roomCode}`,
-          description: "仅空闲房间可提前过期并立即清理；仍有在线成员时请改用关闭房间。",
+          description:
+            "仅空闲房间可提前过期并立即清理；仍有在线成员时请改用关闭房间。",
           confirmLabel: "确认过期",
           successMessage: `房间 ${roomCode} 已提前过期并清理。`,
-          onConfirm: (reason) => api.expireRoom(roomCode, reason)
+          onConfirm: (reason) => api.expireRoom(roomCode, reason),
         },
         "clear-video": {
           title: `清空房间 ${roomCode} 的共享视频`,
-          description: "这会清空当前共享视频和播放状态，并向在线成员广播新状态。",
+          description:
+            "这会清空当前共享视频和播放状态，并向在线成员广播新状态。",
           confirmLabel: "确认清空",
           successMessage: `房间 ${roomCode} 的共享视频已清空。`,
-          onConfirm: (reason) => api.clearRoomVideo(roomCode, reason)
-        }
-      }[action]
+          onConfirm: (reason) => api.clearRoomVideo(roomCode, reason),
+        },
+      }[action];
 
-      await confirmAction(config)
+      await confirmAction(config);
       if (typeof onDone === "function") {
-        onDone()
+        onDone();
       }
-    })
-  })
+    });
+  });
 }
 
 async function renderRoomDetailPage(roomCode) {
   try {
-    const detail = await api.getRoomDetail(roomCode)
+    const detail = await api.getRoomDetail(roomCode);
     return {
       meta: {
         title: `房间 ${detail.room.roomCode}`,
-        description: "查看房间摘要、共享视频、在线成员与最近事件。"
+        description: "查看房间摘要、共享视频、在线成员与最近事件。",
       },
       instanceId: detail.instanceId,
       html: `
@@ -1017,13 +1120,17 @@ async function renderRoomDetailPage(roomCode) {
               <button class="button ghost" data-nav-back>返回房间列表</button>
               <button class="button" data-refresh-detail>刷新</button>
             </div>
-            ${canManage() ? `
+            ${
+              canManage()
+                ? `
               <div class="actions">
                 <button class="button danger" data-room-action="close" data-room-code="${escapeHtml(roomCode)}">关闭房间</button>
                 <button class="button" data-room-action="expire" data-room-code="${escapeHtml(roomCode)}" ${detail.room.isActive ? 'disabled title="房间仍有在线成员，仅空闲房间可提前过期"' : ""}>提前过期</button>
                 <button class="button" data-room-action="clear-video" data-room-code="${escapeHtml(roomCode)}">清空共享视频</button>
               </div>
-            ` : ""}
+            `
+                : ""
+            }
           </div>
           <div class="detail-grid">
             <section class="panel">
@@ -1065,7 +1172,10 @@ async function renderRoomDetailPage(roomCode) {
               </div>
               <div class="pill subtle">在线 ${detail.members.length}</div>
             </div>
-            ${detail.members.length === 0 ? `<div class="empty-state">当前没有在线成员。</div>` : `
+            ${
+              detail.members.length === 0
+                ? `<div class="empty-state">当前没有在线成员。</div>`
+                : `
               <div class="table-scroll">
               <table class="detail-table members-table">
                 <thead>
@@ -1080,7 +1190,9 @@ async function renderRoomDetailPage(roomCode) {
                   </tr>
                 </thead>
                 <tbody>
-                  ${detail.members.map((member) => `
+                  ${detail.members
+                    .map(
+                      (member) => `
                     <tr>
                       <td>${renderDataPair(`<strong>${escapeHtml(member.displayName)}</strong>`, member.memberId ? `memberId ${escapeHtml(member.memberId)}` : "")}</td>
                       <td><div class="copy-stack"><span class="code">${escapeHtml(member.memberId)}</span><button class="button link" type="button" data-copy="${escapeHtml(member.memberId)}">复制</button></div></td>
@@ -1090,11 +1202,14 @@ async function renderRoomDetailPage(roomCode) {
                       <td>${renderOriginValue(member.origin)}</td>
                       <td>${memberActionButtons(roomCode, member)}</td>
                     </tr>
-                  `).join("")}
+                  `,
+                    )
+                    .join("")}
                 </tbody>
               </table>
               </div>
-            `}
+            `
+            }
           </section>
           <section class="table-card">
             <div class="toolbar table-toolbar">
@@ -1104,7 +1219,10 @@ async function renderRoomDetailPage(roomCode) {
               </div>
               <button class="button ghost" data-jump-events="${escapeHtml(roomCode)}">带筛选跳转到事件页</button>
             </div>
-            ${detail.recentEvents.length === 0 ? `<div class="empty-state">暂无近期事件。</div>` : `
+            ${
+              detail.recentEvents.length === 0
+                ? `<div class="empty-state">暂无近期事件。</div>`
+                : `
               <div class="table-scroll">
               <table class="detail-table room-events-table">
                 <thead>
@@ -1117,7 +1235,9 @@ async function renderRoomDetailPage(roomCode) {
                   </tr>
                 </thead>
                 <tbody>
-                  ${detail.recentEvents.map((event) => `
+                  ${detail.recentEvents
+                    .map(
+                      (event) => `
                     <tr>
                       <td>${renderTimeBlock(event.timestamp, "事件")}</td>
                       <td>${renderDataPair(`<span class="event-name">${escapeHtml(event.event)}</span>`, event.roomCode ? `<span class="primary-code">${escapeHtml(event.roomCode)}</span>` : "")}</td>
@@ -1125,30 +1245,44 @@ async function renderRoomDetailPage(roomCode) {
                       <td>${event.result ? renderResultBadge(event.result) : renderEmptyValue()}</td>
                       <td><button class="button link" type="button" data-view-json='${escapeHtml(JSON.stringify(event.details))}'>查看 JSON</button></td>
                     </tr>
-                  `).join("")}
+                  `,
+                    )
+                    .join("")}
                 </tbody>
               </table>
               </div>
-            `}
+            `
+            }
           </section>
         </div>
       `,
       bind() {
-        document.querySelector("[data-nav-back]")?.addEventListener("click", () => navigate("/rooms"))
-        document.querySelector("[data-refresh-detail]")?.addEventListener("click", () => render().catch(handleFatalRenderError))
-        document.querySelector("[data-jump-events]")?.addEventListener("click", (event) => {
-          const targetRoomCode = event.currentTarget.getAttribute("data-jump-events")
-          navigateToUrl(
-            withDemoQuery(`/admin/events?${new URLSearchParams({ roomCode: targetRoomCode }).toString()}`),
-            "/events",
-            true
-          )
-        })
-        bindRoomActionButtons(() => render().catch(handleFatalRenderError))
-        bindMemberActionButtons(roomCode)
-        bindJsonButtons()
-      }
-    }
+        document
+          .querySelector("[data-nav-back]")
+          ?.addEventListener("click", () => navigate("/rooms"));
+        document
+          .querySelector("[data-refresh-detail]")
+          ?.addEventListener("click", () =>
+            render().catch(handleFatalRenderError),
+          );
+        document
+          .querySelector("[data-jump-events]")
+          ?.addEventListener("click", (event) => {
+            const targetRoomCode =
+              event.currentTarget.getAttribute("data-jump-events");
+            navigateToUrl(
+              withDemoQuery(
+                `/admin/events?${new URLSearchParams({ roomCode: targetRoomCode }).toString()}`,
+              ),
+              "/events",
+              true,
+            );
+          });
+        bindRoomActionButtons(() => render().catch(handleFatalRenderError));
+        bindMemberActionButtons(roomCode);
+        bindJsonButtons();
+      },
+    };
   } catch (error) {
     if (error.code === "room_not_found") {
       return {
@@ -1162,17 +1296,19 @@ async function renderRoomDetailPage(roomCode) {
           </div>
         `,
         bind() {
-          document.querySelector("[data-nav-back]")?.addEventListener("click", () => navigate("/rooms"))
-        }
-      }
+          document
+            .querySelector("[data-nav-back]")
+            ?.addEventListener("click", () => navigate("/rooms"));
+        },
+      };
     }
-    throw error
+    throw error;
   }
 }
 
 function memberActionButtons(roomCode, member) {
   if (!canManage()) {
-    return "—"
+    return "—";
   }
 
   return `
@@ -1180,40 +1316,40 @@ function memberActionButtons(roomCode, member) {
       <button class="button link" type="button" data-member-action="kick" data-room-code="${escapeHtml(roomCode)}" data-member-id="${escapeHtml(member.memberId)}">踢出成员</button>
       <button class="button link" type="button" data-member-action="disconnect" data-room-code="${escapeHtml(roomCode)}" data-session-id="${escapeHtml(member.sessionId)}">断开会话</button>
     </div>
-  `
+  `;
 }
 
 function bindMemberActionButtons(roomCode) {
   document.querySelectorAll("[data-member-action]").forEach((button) => {
     button.addEventListener("click", async () => {
-      const action = button.getAttribute("data-member-action")
+      const action = button.getAttribute("data-member-action");
       if (action === "kick") {
-        const memberId = button.getAttribute("data-member-id")
+        const memberId = button.getAttribute("data-member-id");
         await confirmAction({
           title: `踢出成员 ${memberId}`,
           description: "这会断开该成员当前连接。",
           confirmLabel: "确认踢出",
           successMessage: `成员 ${memberId} 已被踢出。`,
-          onConfirm: (reason) => api.kickMember(roomCode, memberId, reason)
-        })
+          onConfirm: (reason) => api.kickMember(roomCode, memberId, reason),
+        });
       } else {
-        const sessionId = button.getAttribute("data-session-id")
+        const sessionId = button.getAttribute("data-session-id");
         await confirmAction({
           title: `断开会话 ${sessionId}`,
           description: "这会强制断开指定会话。",
           confirmLabel: "确认断开",
           successMessage: `会话 ${sessionId} 已断开。`,
-          onConfirm: (reason) => api.disconnectSession(sessionId, reason)
-        })
+          onConfirm: (reason) => api.disconnectSession(sessionId, reason),
+        });
       }
-      render().catch(handleFatalRenderError)
-    })
-  })
+      render().catch(handleFatalRenderError);
+    });
+  });
 }
 
 async function renderEventsPage() {
-  const query = listQueryFromLocation({ pageSize: "20" })
-  const data = await api.listEvents(query)
+  const query = listQueryFromLocation({ pageSize: "20" });
+  const data = await api.listEvents(query);
 
   return {
     html: renderLogPage({
@@ -1233,7 +1369,9 @@ async function renderEventsPage() {
         ${textField("to", "结束时间戳(ms)", query.to, "number")}
         ${textField("pageSize", "每页条数", query.pageSize, "number")}
       `,
-      rows: data.items.map((item) => `
+      rows: data.items
+        .map(
+          (item) => `
         <tr>
           <td>${renderTimeBlock(item.timestamp, "事件")}</td>
           <td><span class="event-name">${escapeHtml(item.event)}</span></td>
@@ -1244,24 +1382,27 @@ async function renderEventsPage() {
           <td>${item.result ? renderResultBadge(item.result) : renderEmptyValue()}</td>
           <td><button class="button link" type="button" data-view-json='${escapeHtml(JSON.stringify(item.details))}'>查看 JSON</button></td>
         </tr>
-      `).join(""),
-      headers: "<th>时间</th><th>事件名</th><th>房间号</th><th>会话 ID</th><th>远端地址</th><th>来源 Origin</th><th>结果</th><th>详情</th>",
+      `,
+        )
+        .join(""),
+      headers:
+        "<th>时间</th><th>事件名</th><th>房间号</th><th>会话 ID</th><th>远端地址</th><th>来源 Origin</th><th>结果</th><th>详情</th>",
       data,
       query,
       basePath: "/events",
-      formId: "events-filter"
+      formId: "events-filter",
     }),
     bind() {
-      bindListFilter("/events", "events-filter")
-      bindPageButtons("/events")
-      bindJsonButtons()
-    }
-  }
+      bindListFilter("/events", "events-filter");
+      bindPageButtons("/events");
+      bindJsonButtons();
+    },
+  };
 }
 
 async function renderAuditLogsPage() {
-  const query = listQueryFromLocation({ pageSize: "20" })
-  const data = await api.listAuditLogs(query)
+  const query = listQueryFromLocation({ pageSize: "20" });
+  const data = await api.listAuditLogs(query);
 
   return {
     html: renderLogPage({
@@ -1280,7 +1421,9 @@ async function renderAuditLogsPage() {
         ${textField("to", "结束时间戳(ms)", query.to, "number")}
         ${textField("pageSize", "每页条数", query.pageSize, "number")}
       `,
-      rows: data.items.map((item) => `
+      rows: data.items
+        .map(
+          (item) => `
         <tr>
           <td>${renderTimeBlock(item.timestamp, "审计")}</td>
           <td><strong>${escapeHtml(item.actor.username)}</strong></td>
@@ -1293,19 +1436,22 @@ async function renderAuditLogsPage() {
           <td>${item.instanceId ? `<span class="primary-code">${escapeHtml(item.instanceId)}</span>` : renderEmptyValue()}</td>
           <td><button class="button link" type="button" data-view-json='${escapeHtml(JSON.stringify(item.request))}'>查看请求</button></td>
         </tr>
-      `).join(""),
-      headers: "<th>时间</th><th>操作人</th><th>角色</th><th>动作</th><th>目标类型</th><th>目标 ID</th><th>结果</th><th>原因</th><th>实例</th><th>请求</th>",
+      `,
+        )
+        .join(""),
+      headers:
+        "<th>时间</th><th>操作人</th><th>角色</th><th>动作</th><th>目标类型</th><th>目标 ID</th><th>结果</th><th>原因</th><th>实例</th><th>请求</th>",
       data,
       query,
       basePath: "/audit-logs",
-      formId: "audit-filter"
+      formId: "audit-filter",
     }),
     bind() {
-      bindListFilter("/audit-logs", "audit-filter")
-      bindPageButtons("/audit-logs")
-      bindJsonButtons()
-    }
-  }
+      bindListFilter("/audit-logs", "audit-filter");
+      bindPageButtons("/audit-logs");
+      bindJsonButtons();
+    },
+  };
 }
 
 function renderLogPage(options) {
@@ -1342,7 +1488,10 @@ function renderLogPage(options) {
             <div class="pill">每页 ${escapeHtml(options.query.pageSize || 20)}</div>
           </div>
         </div>
-        ${options.data.items.length === 0 ? `<div class="empty-state">没有匹配结果。</div>` : `
+        ${
+          options.data.items.length === 0
+            ? `<div class="empty-state">没有匹配结果。</div>`
+            : `
           <div class="table-scroll">
           <table class="logs-table ${escapeHtml(options.tableClass || "")}">
             <thead><tr>${options.headers}</tr></thead>
@@ -1350,14 +1499,15 @@ function renderLogPage(options) {
           </table>
           </div>
           ${renderPagination(Number(options.query.page || 1), Number(options.query.pageSize || 20), options.data.total, "logs")}
-        `}
+        `
+        }
       </section>
     </div>
-  `
+  `;
 }
 
 function listQueryFromLocation(defaults = {}) {
-  const params = new URLSearchParams(location.search)
+  const params = new URLSearchParams(location.search);
   return {
     event: params.get("event") || "",
     roomCode: params.get("roomCode") || "",
@@ -1372,42 +1522,46 @@ function listQueryFromLocation(defaults = {}) {
     from: params.get("from") || "",
     to: params.get("to") || "",
     page: Number(params.get("page") || "1"),
-    pageSize: params.get("pageSize") || defaults.pageSize || "20"
-  }
+    pageSize: params.get("pageSize") || defaults.pageSize || "20",
+  };
 }
 
 function bindListFilter(basePath, formId) {
   document.querySelector(`#${formId}`)?.addEventListener("submit", (event) => {
-    event.preventDefault()
-    const formData = new FormData(event.currentTarget)
-    const query = Object.fromEntries(formData.entries())
-    query.page = "1"
-    history.replaceState(null, "", `${routeHref(basePath)}${serializeQuery(query)}`)
-    render().catch(handleFatalRenderError)
-  })
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const query = Object.fromEntries(formData.entries());
+    query.page = "1";
+    history.replaceState(
+      null,
+      "",
+      `${routeHref(basePath)}${serializeQuery(query)}`,
+    );
+    render().catch(handleFatalRenderError);
+  });
 
   document.querySelector("[data-reset-list]")?.addEventListener("click", () => {
-    history.replaceState(null, "", withDemoQuery(routeHref(basePath)))
-    render().catch(handleFatalRenderError)
-  })
+    history.replaceState(null, "", withDemoQuery(routeHref(basePath)));
+    render().catch(handleFatalRenderError);
+  });
 }
 
 function bindJsonButtons() {
   document.querySelectorAll("[data-view-json]").forEach((button) => {
     button.addEventListener("click", async () => {
-      const payload = JSON.parse(button.getAttribute("data-view-json"))
+      const payload = JSON.parse(button.getAttribute("data-view-json"));
       await openReasonDialog({
         title: "原始 JSON",
         description: "以下内容仅供查看，可复制进行排查。",
         mode: "json-preview",
-        payload
-      })
-    })
-  })
+        payload,
+      });
+    });
+  });
 }
 
 async function renderConfigPage() {
-  const config = await api.getConfig()
+  const config = await api.getConfig();
   return {
     instanceId: config.instanceId,
     html: `
@@ -1441,7 +1595,10 @@ async function renderConfigPage() {
               ${
                 config.security.allowedOrigins.length
                   ? `<div class="config-origin-list">${config.security.allowedOrigins
-                      .map((item) => `<span class="config-origin code">${escapeHtml(item)}</span>`)
+                      .map(
+                        (item) =>
+                          `<span class="config-origin code">${escapeHtml(item)}</span>`,
+                      )
                       .join("")}</div>`
                   : renderEmptyValue("未设置")
               }
@@ -1460,8 +1617,8 @@ async function renderConfigPage() {
           </div>
         </section>
       </div>
-    `
-  }
+    `,
+  };
 }
 
 function textField(name, label, value, type = "text") {
@@ -1470,7 +1627,7 @@ function textField(name, label, value, type = "text") {
       <label for="${escapeHtml(name)}">${escapeHtml(label)}</label>
       <input id="${escapeHtml(name)}" name="${escapeHtml(name)}" type="${escapeHtml(type)}" value="${escapeHtml(value || "")}" />
     </div>
-  `
+  `;
 }
 
 function selectField(name, label, value, options) {
@@ -1481,15 +1638,15 @@ function selectField(name, label, value, options) {
         ${options.map(([optionValue, optionLabel]) => `<option value="${escapeHtml(optionValue)}" ${value === optionValue ? "selected" : ""}>${escapeHtml(optionLabel)}</option>`).join("")}
       </select>
     </div>
-  `
+  `;
 }
 
 function demoAdminSession() {
-  return { id: "admin-demo", username: "demo-admin", role: "admin" }
+  return { id: "admin-demo", username: "demo-admin", role: "admin" };
 }
 
 function createDemoData() {
-  const now = Date.now()
+  const now = Date.now();
   const rooms = [
     {
       roomCode: "ROOM8A",
@@ -1499,12 +1656,12 @@ function createDemoData() {
       sharedVideo: {
         title: "【番剧】第 12 话同步播放",
         videoId: "BV1demo8A",
-        url: "https://www.bilibili.com/video/BV1demo8A"
+        url: "https://www.bilibili.com/video/BV1demo8A",
       },
       playback: { paused: false, currentTime: 428.4, playbackRate: 1 },
       createdAt: now - 1000 * 60 * 86,
       lastActiveAt: now - 1000 * 18,
-      expiresAt: now + 1000 * 60 * 42
+      expiresAt: now + 1000 * 60 * 42,
     },
     {
       roomCode: "ROOM2B",
@@ -1514,12 +1671,12 @@ function createDemoData() {
       sharedVideo: {
         title: "音乐现场回放",
         videoId: "BV1demo2B",
-        url: "https://www.bilibili.com/video/BV1demo2B"
+        url: "https://www.bilibili.com/video/BV1demo2B",
       },
       playback: { paused: true, currentTime: 95.2, playbackRate: 1.25 },
       createdAt: now - 1000 * 60 * 210,
       lastActiveAt: now - 1000 * 60 * 3,
-      expiresAt: now + 1000 * 60 * 18
+      expiresAt: now + 1000 * 60 * 18,
     },
     {
       roomCode: "ARCH9C",
@@ -1530,9 +1687,9 @@ function createDemoData() {
       playback: null,
       createdAt: now - 1000 * 60 * 60 * 8,
       lastActiveAt: now - 1000 * 60 * 52,
-      expiresAt: now - 1000 * 60 * 10
-    }
-  ]
+      expiresAt: now - 1000 * 60 * 10,
+    },
+  ];
 
   const roomMembers = {
     ROOM8A: [
@@ -1542,7 +1699,7 @@ function createDemoData() {
         sessionId: "sess-alice-01",
         joinedAt: now - 1000 * 60 * 28,
         remoteAddress: "203.0.113.10",
-        origin: "chrome-extension://demo-extension"
+        origin: "chrome-extension://demo-extension",
       },
       {
         displayName: "Bob",
@@ -1550,7 +1707,7 @@ function createDemoData() {
         sessionId: "sess-bob-02",
         joinedAt: now - 1000 * 60 * 18,
         remoteAddress: "198.51.100.42",
-        origin: "https://www.bilibili.com"
+        origin: "https://www.bilibili.com",
       },
       {
         displayName: "Carol",
@@ -1558,7 +1715,7 @@ function createDemoData() {
         sessionId: "sess-carol-03",
         joinedAt: now - 1000 * 60 * 11,
         remoteAddress: "198.51.100.77",
-        origin: "http://localhost:5173"
+        origin: "http://localhost:5173",
       },
       {
         displayName: "Dave",
@@ -1566,8 +1723,8 @@ function createDemoData() {
         sessionId: "sess-dave-04",
         joinedAt: now - 1000 * 60 * 4,
         remoteAddress: null,
-        origin: ""
-      }
+        origin: "",
+      },
     ],
     ROOM2B: [
       {
@@ -1576,7 +1733,7 @@ function createDemoData() {
         sessionId: "sess-echo-01",
         joinedAt: now - 1000 * 60 * 14,
         remoteAddress: "192.0.2.15",
-        origin: "https://www.bilibili.com"
+        origin: "https://www.bilibili.com",
       },
       {
         displayName: "Foxtrot",
@@ -1584,19 +1741,64 @@ function createDemoData() {
         sessionId: "sess-foxtrot-02",
         joinedAt: now - 1000 * 60 * 6,
         remoteAddress: "192.0.2.18",
-        origin: "chrome-extension://demo-extension"
-      }
+        origin: "chrome-extension://demo-extension",
+      },
     ],
-    ARCH9C: []
-  }
+    ARCH9C: [],
+  };
 
   const events = [
-    { timestamp: now - 1000 * 15, event: "playback_synced", roomCode: "ROOM8A", sessionId: "sess-alice-01", remoteAddress: "203.0.113.10", origin: "chrome-extension://demo-extension", result: "ok", details: { currentTime: 428.4, playbackRate: 1 } },
-    { timestamp: now - 1000 * 42, event: "room_joined", roomCode: "ROOM8A", sessionId: "sess-dave-04", remoteAddress: null, origin: "", result: "ok", details: { memberId: "member-dave" } },
-    { timestamp: now - 1000 * 60 * 3, event: "room_joined", roomCode: "ROOM2B", sessionId: "sess-foxtrot-02", remoteAddress: "192.0.2.18", origin: "chrome-extension://demo-extension", result: "ok", details: { memberId: "member-foxtrot" } },
-    { timestamp: now - 1000 * 60 * 7, event: "room_idle", roomCode: "ARCH9C", sessionId: "", remoteAddress: null, origin: "", result: "idle", details: { memberCount: 0 } },
-    { timestamp: now - 1000 * 60 * 12, event: "admin_room_video_cleared", roomCode: "ROOM2B", sessionId: "", remoteAddress: null, origin: "", result: "success", details: { actor: "demo-admin" } }
-  ]
+    {
+      timestamp: now - 1000 * 15,
+      event: "playback_synced",
+      roomCode: "ROOM8A",
+      sessionId: "sess-alice-01",
+      remoteAddress: "203.0.113.10",
+      origin: "chrome-extension://demo-extension",
+      result: "ok",
+      details: { currentTime: 428.4, playbackRate: 1 },
+    },
+    {
+      timestamp: now - 1000 * 42,
+      event: "room_joined",
+      roomCode: "ROOM8A",
+      sessionId: "sess-dave-04",
+      remoteAddress: null,
+      origin: "",
+      result: "ok",
+      details: { memberId: "member-dave" },
+    },
+    {
+      timestamp: now - 1000 * 60 * 3,
+      event: "room_joined",
+      roomCode: "ROOM2B",
+      sessionId: "sess-foxtrot-02",
+      remoteAddress: "192.0.2.18",
+      origin: "chrome-extension://demo-extension",
+      result: "ok",
+      details: { memberId: "member-foxtrot" },
+    },
+    {
+      timestamp: now - 1000 * 60 * 7,
+      event: "room_idle",
+      roomCode: "ARCH9C",
+      sessionId: "",
+      remoteAddress: null,
+      origin: "",
+      result: "idle",
+      details: { memberCount: 0 },
+    },
+    {
+      timestamp: now - 1000 * 60 * 12,
+      event: "admin_room_video_cleared",
+      roomCode: "ROOM2B",
+      sessionId: "",
+      remoteAddress: null,
+      origin: "",
+      result: "success",
+      details: { actor: "demo-admin" },
+    },
+  ];
 
   const auditLogs = [
     {
@@ -1608,7 +1810,7 @@ function createDemoData() {
       result: "success",
       reason: "同步下一首视频前清空当前状态",
       instanceId: "instance-1",
-      request: { reason: "同步下一首视频前清空当前状态" }
+      request: { reason: "同步下一首视频前清空当前状态" },
     },
     {
       timestamp: now - 1000 * 60 * 16,
@@ -1619,7 +1821,7 @@ function createDemoData() {
       result: "success",
       reason: "播放源异常，要求重连",
       instanceId: "instance-1",
-      request: { roomCode: "ROOM8A", memberId: "member-carol" }
+      request: { roomCode: "ROOM8A", memberId: "member-carol" },
     },
     {
       timestamp: now - 1000 * 60 * 34,
@@ -1630,49 +1832,55 @@ function createDemoData() {
       result: "success",
       reason: "演示用断开",
       instanceId: "instance-1",
-      request: { sessionId: "sess-echo-01" }
-    }
-  ]
+      request: { sessionId: "sess-echo-01" },
+    },
+  ];
 
-  return { now, rooms, roomMembers, events, auditLogs }
+  return { now, rooms, roomMembers, events, auditLogs };
 }
 
-const demoData = createDemoData()
+const demoData = createDemoData();
 
 function paginate(items, page, pageSize) {
-  const safePage = Math.max(1, Number(page) || 1)
-  const safePageSize = Math.max(1, Number(pageSize) || 20)
-  const start = (safePage - 1) * safePageSize
+  const safePage = Math.max(1, Number(page) || 1);
+  const safePageSize = Math.max(1, Number(pageSize) || 20);
+  const start = (safePage - 1) * safePageSize;
   return {
     items: items.slice(start, start + safePageSize),
     total: items.length,
-    pagination: { total: items.length, page: safePage, pageSize: safePageSize }
-  }
+    pagination: { total: items.length, page: safePage, pageSize: safePageSize },
+  };
 }
 
 function includesText(value, search) {
-  return String(value || "").toLowerCase().includes(String(search || "").toLowerCase())
+  return String(value || "")
+    .toLowerCase()
+    .includes(String(search || "").toLowerCase());
 }
 
-async function mockApiRequest(path, options = {}) {
-  const url = new URL(path, location.origin)
-  const pathname = url.pathname
-  const params = url.searchParams
+async function mockApiRequest(path, _options = {}) {
+  const url = new URL(path, location.origin);
+  const pathname = url.pathname;
+  const params = url.searchParams;
 
   if (pathname === "/api/admin/auth/login") {
-    return { token: DEMO_TOKEN, expiresAt: demoData.now + 12 * 60 * 60 * 1000, admin: demoAdminSession() }
+    return {
+      token: DEMO_TOKEN,
+      expiresAt: demoData.now + 12 * 60 * 60 * 1000,
+      admin: demoAdminSession(),
+    };
   }
   if (pathname === "/api/admin/auth/logout") {
-    return { ok: true }
+    return { ok: true };
   }
   if (pathname === "/api/admin/me") {
-    return demoAdminSession()
+    return demoAdminSession();
   }
   if (pathname === "/healthz") {
-    return { status: "healthy" }
+    return { status: "healthy" };
   }
   if (pathname === "/readyz") {
-    return { status: "ready", checks: { roomStore: "ok", redis: "ok" } }
+    return { status: "ready", checks: { roomStore: "ok", redis: "ok" } };
   }
   if (pathname === "/api/admin/overview") {
     return {
@@ -1681,86 +1889,128 @@ async function mockApiRequest(path, options = {}) {
         version: "0.7.0-demo",
         instanceId: "instance-1",
         startedAt: demoData.now - 1000 * 60 * 60 * 4,
-        uptimeMs: 1000 * 60 * 60 * 4 + 1000 * 60 * 22
+        uptimeMs: 1000 * 60 * 60 * 4 + 1000 * 60 * 22,
       },
       storage: { provider: "redis", redisConnected: true },
       runtime: { connectionCount: 6, activeRoomCount: 2, activeMemberCount: 6 },
       rooms: { totalNonExpired: 2, idle: 1 },
       events: {
-        lastMinute: { room_created: 1, room_joined: 2, rate_limited: 0, ws_connection_rejected: 0, error: 0 },
-        totals: { room_created: 18, room_joined: 143, ws_connection_rejected: 4, rate_limited: 9 }
-      }
-    }
+        lastMinute: {
+          room_created: 1,
+          room_joined: 2,
+          rate_limited: 0,
+          ws_connection_rejected: 0,
+          error: 0,
+        },
+        totals: {
+          room_created: 18,
+          room_joined: 143,
+          ws_connection_rejected: 4,
+          rate_limited: 9,
+        },
+      },
+    };
   }
   if (pathname === "/api/admin/rooms") {
-    let items = demoData.rooms.slice()
-    const keyword = params.get("keyword") || ""
-    const status = params.get("status") || "all"
-    const includeExpired = params.get("includeExpired") === "true"
-    const sortBy = params.get("sortBy") || "lastActiveAt"
-    const sortOrder = params.get("sortOrder") || "desc"
-    const page = params.get("page") || "1"
-    const pageSize = params.get("pageSize") || "20"
+    let items = demoData.rooms.slice();
+    const keyword = params.get("keyword") || "";
+    const status = params.get("status") || "all";
+    const includeExpired = params.get("includeExpired") === "true";
+    const sortBy = params.get("sortBy") || "lastActiveAt";
+    const sortOrder = params.get("sortOrder") || "desc";
+    const page = params.get("page") || "1";
+    const pageSize = params.get("pageSize") || "20";
 
     if (keyword) {
-      items = items.filter((item) => includesText(item.roomCode, keyword) || includesText(item.sharedVideo?.title, keyword))
+      items = items.filter(
+        (item) =>
+          includesText(item.roomCode, keyword) ||
+          includesText(item.sharedVideo?.title, keyword),
+      );
     }
     if (status === "active") {
-      items = items.filter((item) => item.isActive)
+      items = items.filter((item) => item.isActive);
     } else if (status === "idle") {
-      items = items.filter((item) => !item.isActive)
+      items = items.filter((item) => !item.isActive);
     }
     if (!includeExpired) {
-      items = items.filter((item) => item.expiresAt > demoData.now)
+      items = items.filter((item) => item.expiresAt > demoData.now);
     }
     items.sort((a, b) => {
-      const delta = Number(a[sortBy] || 0) - Number(b[sortBy] || 0)
-      return sortOrder === "asc" ? delta : -delta
-    })
-    const paged = paginate(items, page, pageSize)
-    return { items: paged.items, pagination: paged.pagination }
+      const delta = Number(a[sortBy] || 0) - Number(b[sortBy] || 0);
+      return sortOrder === "asc" ? delta : -delta;
+    });
+    const paged = paginate(items, page, pageSize);
+    return { items: paged.items, pagination: paged.pagination };
   }
-  if (pathname.startsWith("/api/admin/rooms/") && !pathname.endsWith("/close") && !pathname.endsWith("/expire") && !pathname.endsWith("/clear-video")) {
-    const roomCode = decodeURIComponent(pathname.split("/")[4] || "")
-    const room = demoData.rooms.find((item) => item.roomCode === roomCode)
+  if (
+    pathname.startsWith("/api/admin/rooms/") &&
+    !pathname.endsWith("/close") &&
+    !pathname.endsWith("/expire") &&
+    !pathname.endsWith("/clear-video")
+  ) {
+    const roomCode = decodeURIComponent(pathname.split("/")[4] || "");
+    const room = demoData.rooms.find((item) => item.roomCode === roomCode);
     if (!room) {
-      throw { code: "room_not_found", message: "房间不存在。" }
+      throw { code: "room_not_found", message: "房间不存在。" };
     }
     return {
       instanceId: room.instanceId,
       room,
       members: demoData.roomMembers[roomCode] || [],
-      recentEvents: demoData.events.filter((event) => event.roomCode === roomCode).slice(0, 20)
-    }
+      recentEvents: demoData.events
+        .filter((event) => event.roomCode === roomCode)
+        .slice(0, 20),
+    };
   }
   if (pathname === "/api/admin/events") {
-    let items = demoData.events.slice()
-    const filters = ["event", "roomCode", "sessionId", "remoteAddress", "origin", "result"]
+    let items = demoData.events.slice();
+    const filters = [
+      "event",
+      "roomCode",
+      "sessionId",
+      "remoteAddress",
+      "origin",
+      "result",
+    ];
     for (const key of filters) {
-      const value = params.get(key)
+      const value = params.get(key);
       if (value) {
-        items = items.filter((item) => includesText(item[key], value))
+        items = items.filter((item) => includesText(item[key], value));
       }
     }
-    items.sort((a, b) => b.timestamp - a.timestamp)
-    const paged = paginate(items, params.get("page") || "1", params.get("pageSize") || "20")
-    return { items: paged.items, total: paged.total }
+    items.sort((a, b) => b.timestamp - a.timestamp);
+    const paged = paginate(
+      items,
+      params.get("page") || "1",
+      params.get("pageSize") || "20",
+    );
+    return { items: paged.items, total: paged.total };
   }
   if (pathname === "/api/admin/audit-logs") {
-    let items = demoData.auditLogs.slice()
-    const actor = params.get("actor")
-    const action = params.get("action")
-    const targetType = params.get("targetType")
-    const targetId = params.get("targetId")
-    const result = params.get("result")
-    if (actor) items = items.filter((item) => includesText(item.actor.username, actor))
-    if (action) items = items.filter((item) => includesText(item.action, action))
-    if (targetType) items = items.filter((item) => includesText(item.targetType, targetType))
-    if (targetId) items = items.filter((item) => includesText(item.targetId, targetId))
-    if (result) items = items.filter((item) => includesText(item.result, result))
-    items.sort((a, b) => b.timestamp - a.timestamp)
-    const paged = paginate(items, params.get("page") || "1", params.get("pageSize") || "20")
-    return { items: paged.items, total: paged.total }
+    let items = demoData.auditLogs.slice();
+    const actor = params.get("actor");
+    const action = params.get("action");
+    const targetType = params.get("targetType");
+    const targetId = params.get("targetId");
+    const result = params.get("result");
+    if (actor)
+      items = items.filter((item) => includesText(item.actor.username, actor));
+    if (action)
+      items = items.filter((item) => includesText(item.action, action));
+    if (targetType)
+      items = items.filter((item) => includesText(item.targetType, targetType));
+    if (targetId)
+      items = items.filter((item) => includesText(item.targetId, targetId));
+    if (result)
+      items = items.filter((item) => includesText(item.result, result));
+    items.sort((a, b) => b.timestamp - a.timestamp);
+    const paged = paginate(
+      items,
+      params.get("page") || "1",
+      params.get("pageSize") || "20",
+    );
+    return { items: paged.items, total: paged.total };
   }
   if (pathname === "/api/admin/config") {
     return {
@@ -1769,16 +2019,19 @@ async function mockApiRequest(path, options = {}) {
         provider: "redis",
         emptyRoomTtlMs: 1800000,
         roomCleanupIntervalMs: 60000,
-        redisConfigured: true
+        redisConfigured: true,
       },
       admin: {
         configured: true,
         username: "demo-admin",
         role: "admin",
-        sessionTtlMs: 43200000
+        sessionTtlMs: 43200000,
       },
       security: {
-        allowedOrigins: ["https://www.bilibili.com", "chrome-extension://demo-extension"],
+        allowedOrigins: [
+          "https://www.bilibili.com",
+          "chrome-extension://demo-extension",
+        ],
         allowMissingOriginInDev: false,
         trustProxyHeaders: true,
         maxConnectionsPerIp: 24,
@@ -1788,114 +2041,140 @@ async function mockApiRequest(path, options = {}) {
         invalidMessageCloseThreshold: 3,
         rateLimits: {
           perIp: { windowMs: 60000, max: 120 },
-          perRoom: { windowMs: 10000, max: 30 }
-        }
-      }
-    }
+          perRoom: { windowMs: 10000, max: 30 },
+        },
+      },
+    };
   }
-  if (pathname.includes("/close") || pathname.includes("/expire") || pathname.includes("/clear-video") || pathname.includes("/kick") || pathname.includes("/disconnect")) {
-    return { ok: true }
+  if (
+    pathname.includes("/close") ||
+    pathname.includes("/expire") ||
+    pathname.includes("/clear-video") ||
+    pathname.includes("/kick") ||
+    pathname.includes("/disconnect")
+  ) {
+    return { ok: true };
   }
 
-  throw { code: "request_failed", message: `未实现的 demo 接口：${pathname}` }
+  throw { code: "request_failed", message: `未实现的 demo 接口：${pathname}` };
 }
 
 const api = {
   async request(path, options = {}) {
     if (state.demo) {
-      return mockApiRequest(path, options)
+      return mockApiRequest(path, options);
     }
 
     const response = await fetch(path, {
       method: options.method || "GET",
       headers: {
         ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}),
-        ...(options.body ? { "content-type": "application/json" } : {})
+        ...(options.body ? { "content-type": "application/json" } : {}),
       },
-      body: options.body ? JSON.stringify(options.body) : undefined
-    })
+      body: options.body ? JSON.stringify(options.body) : undefined,
+    });
 
-    const contentType = response.headers.get("content-type") || ""
-    const payload = contentType.includes("application/json") ? await response.json() : null
+    const contentType = response.headers.get("content-type") || "";
+    const payload = contentType.includes("application/json")
+      ? await response.json()
+      : null;
 
     if (response.status === 401) {
-      clearAuth()
-      navigate("/login", true)
-      throw { code: "unauthorized", message: "登录已失效，请重新登录。" }
+      clearAuth();
+      navigate("/login", true);
+      throw { code: "unauthorized", message: "登录已失效，请重新登录。" };
     }
 
     if (!response.ok || !payload?.ok) {
       throw {
         code: payload?.error?.code || "request_failed",
-        message: payload?.error?.message || "请求失败。"
-      }
+        message: payload?.error?.message || "请求失败。",
+      };
     }
 
-    return payload.data
+    return payload.data;
   },
   login(payload) {
-    return this.request("/api/admin/auth/login", { method: "POST", body: payload })
+    return this.request("/api/admin/auth/login", {
+      method: "POST",
+      body: payload,
+    });
   },
   logout() {
-    return this.request("/api/admin/auth/logout", { method: "POST" })
+    return this.request("/api/admin/auth/logout", { method: "POST" });
   },
   getMe() {
-    return this.request("/api/admin/me")
+    return this.request("/api/admin/me");
   },
   getHealth() {
-    return this.request("/healthz")
+    return this.request("/healthz");
   },
   getReady() {
-    return this.request("/readyz")
+    return this.request("/readyz");
   },
   getOverview() {
-    return this.request("/api/admin/overview")
+    return this.request("/api/admin/overview");
   },
   listRooms(query) {
-    return this.request(`/api/admin/rooms${serializeQuery(query)}`)
+    return this.request(`/api/admin/rooms${serializeQuery(query)}`);
   },
   getRoomDetail(roomCode) {
-    return this.request(`/api/admin/rooms/${encodeURIComponent(roomCode)}`)
+    return this.request(`/api/admin/rooms/${encodeURIComponent(roomCode)}`);
   },
   closeRoom(roomCode, reason) {
-    return this.request(`/api/admin/rooms/${encodeURIComponent(roomCode)}/close`, { method: "POST", body: { reason } })
+    return this.request(
+      `/api/admin/rooms/${encodeURIComponent(roomCode)}/close`,
+      { method: "POST", body: { reason } },
+    );
   },
   expireRoom(roomCode, reason) {
-    return this.request(`/api/admin/rooms/${encodeURIComponent(roomCode)}/expire`, { method: "POST", body: { reason } })
+    return this.request(
+      `/api/admin/rooms/${encodeURIComponent(roomCode)}/expire`,
+      { method: "POST", body: { reason } },
+    );
   },
   clearRoomVideo(roomCode, reason) {
-    return this.request(`/api/admin/rooms/${encodeURIComponent(roomCode)}/clear-video`, { method: "POST", body: { reason } })
+    return this.request(
+      `/api/admin/rooms/${encodeURIComponent(roomCode)}/clear-video`,
+      { method: "POST", body: { reason } },
+    );
   },
   kickMember(roomCode, memberId, reason) {
-    return this.request(`/api/admin/rooms/${encodeURIComponent(roomCode)}/members/${encodeURIComponent(memberId)}/kick`, {
-      method: "POST",
-      body: { reason }
-    })
+    return this.request(
+      `/api/admin/rooms/${encodeURIComponent(roomCode)}/members/${encodeURIComponent(memberId)}/kick`,
+      {
+        method: "POST",
+        body: { reason },
+      },
+    );
   },
   disconnectSession(sessionId, reason) {
-    return this.request(`/api/admin/sessions/${encodeURIComponent(sessionId)}/disconnect`, {
-      method: "POST",
-      body: { reason }
-    })
+    return this.request(
+      `/api/admin/sessions/${encodeURIComponent(sessionId)}/disconnect`,
+      {
+        method: "POST",
+        body: { reason },
+      },
+    );
   },
   listEvents(query) {
-    return this.request(`/api/admin/events${serializeQuery(query)}`)
+    return this.request(`/api/admin/events${serializeQuery(query)}`);
   },
   listAuditLogs(query) {
-    return this.request(`/api/admin/audit-logs${serializeQuery(query)}`)
+    return this.request(`/api/admin/audit-logs${serializeQuery(query)}`);
   },
   getConfig() {
-    return this.request("/api/admin/config")
-  }
-}
+    return this.request("/api/admin/config");
+  },
+};
 
 window.addEventListener("popstate", () => {
-  state.currentRoute = normalizePath(location.pathname)
-  render().catch(handleFatalRenderError)
-})
+  state.currentRoute = normalizePath(location.pathname);
+  render().catch(handleFatalRenderError);
+});
 
 bootstrap().catch((error) => {
-  console.error(error)
-  showNotice("error", "管理控制面板初始化失败。")
-  render().catch(handleFatalRenderError)
-})
+  console.error(error);
+  showNotice("error", "管理控制面板初始化失败。");
+  render().catch(handleFatalRenderError);
+});

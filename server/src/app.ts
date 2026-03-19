@@ -1,7 +1,11 @@
 import { createServer, type Server as HttpServer } from "node:http";
 import { randomBytes, randomUUID } from "node:crypto";
 import { WebSocketServer, type RawData, type WebSocket } from "ws";
-import { isClientMessage, type ErrorCode, type ServerMessage } from "@bili-syncplay/protocol";
+import {
+  isClientMessage,
+  type ErrorCode,
+  type ServerMessage,
+} from "@bili-syncplay/protocol";
 import { createAdminActionService } from "./admin/action-service.js";
 import { createAuditLogService } from "./admin/audit-log.js";
 import { createInMemoryAuthStore } from "./admin/auth-store.js";
@@ -23,18 +27,30 @@ import { createRoomReaper } from "./room-reaper.js";
 import { createRoomService } from "./room-service.js";
 import { createRedisRoomStore } from "./redis-room-store.js";
 import { createSecurityPolicy } from "./security.js";
-import type { AdminConfig, AdminUiConfig, LogEvent, PersistenceConfig, SecurityConfig, Session } from "./types.js";
+import type {
+  AdminConfig,
+  AdminUiConfig,
+  LogEvent,
+  PersistenceConfig,
+  SecurityConfig,
+  Session,
+} from "./types.js";
 import {
   INTERNAL_SERVER_ERROR_MESSAGE,
   INVALID_CLIENT_MESSAGE_MESSAGE,
-  INVALID_JSON_MESSAGE
+  INVALID_JSON_MESSAGE,
 } from "./messages.js";
 
-export type { AdminConfig, AdminUiConfig, PersistenceConfig, SecurityConfig } from "./types.js";
+export type {
+  AdminConfig,
+  AdminUiConfig,
+  PersistenceConfig,
+  SecurityConfig,
+} from "./types.js";
 export {
   INTERNAL_SERVER_ERROR_MESSAGE,
   INVALID_CLIENT_MESSAGE_MESSAGE,
-  INVALID_JSON_MESSAGE
+  INVALID_JSON_MESSAGE,
 } from "./messages.js";
 
 const CLOSE_CODE_POLICY_VIOLATION = 1008;
@@ -72,8 +88,8 @@ export function getDefaultSecurityConfig(): SecurityConfig {
       playbackUpdateBurst: 12,
       syncRequestPer10Seconds: 6,
       syncPingPerSecond: 1,
-      syncPingBurst: 2
-    }
+      syncPingBurst: 2,
+    },
   };
 }
 
@@ -83,17 +99,18 @@ export function getDefaultPersistenceConfig(): PersistenceConfig {
     emptyRoomTtlMs: 15 * 60 * 1000,
     roomCleanupIntervalMs: 60 * 1000,
     redisUrl: "redis://localhost:6379",
-    instanceId: "instance-1"
+    instanceId: "instance-1",
   };
 }
 
 export async function createSyncServer(
   securityConfig: SecurityConfig = getDefaultSecurityConfig(),
   persistenceConfig: PersistenceConfig = getDefaultPersistenceConfig(),
-  dependencies: SyncServerDependencies = {}
+  dependencies: SyncServerDependencies = {},
 ): Promise<SyncServer> {
   const now = dependencies.now ?? Date.now;
-  const generateToken = dependencies.generateToken ?? (() => randomBytes(24).toString("base64url"));
+  const generateToken =
+    dependencies.generateToken ?? (() => randomBytes(24).toString("base64url"));
   const roomStore =
     dependencies.roomStore ??
     (persistenceConfig.provider === "redis"
@@ -101,11 +118,17 @@ export async function createSyncServer(
       : createInMemoryRoomStore({ now }));
   const runtimeRegistry = createRuntimeRegistry(now);
   const eventStore = createEventStore();
-  const logEvent = dependencies.logEvent ?? createStructuredLogger(undefined, eventStore, runtimeRegistry);
+  const logEvent =
+    dependencies.logEvent ??
+    createStructuredLogger(undefined, eventStore, runtimeRegistry);
   const activeRooms = createActiveRoomRegistry();
   const securityPolicy = createSecurityPolicy(securityConfig);
   const authService = dependencies.adminConfig
-    ? createAdminAuthService(dependencies.adminConfig, createInMemoryAuthStore(), now)
+    ? createAdminAuthService(
+        dependencies.adminConfig,
+        createInMemoryAuthStore(),
+        now,
+      )
     : undefined;
   const auditLogService = createAuditLogService();
 
@@ -116,7 +139,7 @@ export async function createSyncServer(
     activeRooms,
     generateToken,
     logEvent,
-    now
+    now,
   });
 
   const messageHandler = createMessageHandler({
@@ -131,40 +154,41 @@ export async function createSyncServer(
     onRoomLeft: (session, roomCode) => {
       runtimeRegistry.markSessionLeftRoom(session.id, roomCode);
     },
-    now
+    now,
   });
 
   const roomReaper = createRoomReaper({
     intervalMs: persistenceConfig.roomCleanupIntervalMs,
     deleteExpiredRooms: roomService.deleteExpiredRooms,
     logEvent,
-    now
+    now,
   });
 
   const overviewService = createAdminOverviewService({
     instanceId: persistenceConfig.instanceId,
     serviceName: "bili-syncplay-server",
-    serviceVersion: dependencies.serviceVersion ?? process.env.npm_package_version ?? "0.0.0",
+    serviceVersion:
+      dependencies.serviceVersion ?? process.env.npm_package_version ?? "0.0.0",
     persistenceConfig,
     roomStore,
     runtimeRegistry,
     eventStore,
-    now
+    now,
   });
   const roomQueryService = createAdminRoomQueryService({
     instanceId: persistenceConfig.instanceId,
     roomStore,
     runtimeRegistry,
-    eventStore
+    eventStore,
   });
   const metricsService = createMetricsService({
     runtimeRegistry,
-    roomStore
+    roomStore,
   });
   const configService = createAdminConfigService({
     adminConfig: dependencies.adminConfig ?? null,
     persistenceConfig,
-    securityConfig
+    securityConfig,
   });
   async function broadcastRoomState(roomCode: string): Promise<void> {
     const state = await roomService.getRoomStateByCode(roomCode);
@@ -174,7 +198,7 @@ export async function createSyncServer(
     for (const session of runtimeRegistry.listSessionsByRoom(roomCode)) {
       send(session.socket, {
         type: "room:state",
-        payload: state
+        payload: state,
       });
     }
   }
@@ -193,9 +217,10 @@ export async function createSyncServer(
     getRoomStateByCode: (roomCode) => roomService.getRoomStateByCode(roomCode),
     broadcastRoomState,
     disconnectSessionSocket,
-    blockMemberToken: (roomCode, memberToken, expiresAt) => activeRooms.blockMemberToken(roomCode, memberToken, expiresAt),
+    blockMemberToken: (roomCode, memberToken, expiresAt) =>
+      activeRooms.blockMemberToken(roomCode, memberToken, expiresAt),
     logEvent,
-    now
+    now,
   });
   const adminRouter = createAdminRouter({
     getConfigSummary: () => configService.getSummary(),
@@ -207,14 +232,19 @@ export async function createSyncServer(
     getRoomDetail: (roomCode) => roomQueryService.getRoomDetail(roomCode),
     auditLogService,
     listAuditLogs: (query) => auditLogService.query(query),
-    closeRoom: (actor, roomCode, reason) => actionService.closeRoom(actor, roomCode, reason),
-    expireRoom: (actor, roomCode, reason) => actionService.expireRoom(actor, roomCode, reason),
-    clearRoomVideo: (actor, roomCode, reason) => actionService.clearRoomVideo(actor, roomCode, reason),
-    kickMember: (actor, roomCode, memberId, reason) => actionService.kickMember(actor, roomCode, memberId, reason),
-    disconnectSession: (actor, sessionId, reason) => actionService.disconnectSession(actor, sessionId, reason),
+    closeRoom: (actor, roomCode, reason) =>
+      actionService.closeRoom(actor, roomCode, reason),
+    expireRoom: (actor, roomCode, reason) =>
+      actionService.expireRoom(actor, roomCode, reason),
+    clearRoomVideo: (actor, roomCode, reason) =>
+      actionService.clearRoomVideo(actor, roomCode, reason),
+    kickMember: (actor, roomCode, memberId, reason) =>
+      actionService.kickMember(actor, roomCode, memberId, reason),
+    disconnectSession: (actor, sessionId, reason) =>
+      actionService.disconnectSession(actor, sessionId, reason),
     eventStore,
     serviceName: "bili-syncplay-server",
-    now
+    now,
   });
 
   const httpServer = createServer((request, response) => {
@@ -228,7 +258,7 @@ export async function createSyncServer(
         "access-control-allow-origin": "*",
         "access-control-allow-methods": "GET, OPTIONS",
         "access-control-allow-headers": "content-type",
-        "cache-control": "no-store"
+        "cache-control": "no-store",
       };
       if (request.method === "OPTIONS") {
         response.writeHead(204, corsHeaders);
@@ -242,9 +272,9 @@ export async function createSyncServer(
             ok: false,
             error: {
               code: "method_not_allowed",
-              message: "Method not allowed."
-            }
-          })
+              message: "Method not allowed.",
+            },
+          }),
         );
         return;
       }
@@ -254,9 +284,9 @@ export async function createSyncServer(
           ok: true,
           data: {
             websocketAllowed: originCheck.ok,
-            reason: originCheck.ok ? null : originCheck.reason
-          }
-        })
+            reason: originCheck.ok ? null : originCheck.reason,
+          },
+        }),
       );
       return;
     }
@@ -265,19 +295,25 @@ export async function createSyncServer(
       if (handled) {
         return;
       }
-      void tryHandleAdminPanel(request, response, dependencies.adminUiConfig).then((adminPanelHandled) => {
+      void tryHandleAdminPanel(
+        request,
+        response,
+        dependencies.adminUiConfig,
+      ).then((adminPanelHandled) => {
         if (adminPanelHandled) {
           return;
         }
         response.writeHead(200, { "content-type": "application/json" });
-        response.end(JSON.stringify({ ok: true, service: "bili-syncplay-server" }));
+        response.end(
+          JSON.stringify({ ok: true, service: "bili-syncplay-server" }),
+        );
       });
     });
   });
 
   const wss = new WebSocketServer({
     noServer: true,
-    maxPayload: securityConfig.maxMessageBytes
+    maxPayload: securityConfig.maxMessageBytes,
   });
 
   function send(socket: WebSocket, message: ServerMessage): void {
@@ -286,10 +322,14 @@ export async function createSyncServer(
     }
   }
 
-  function sendError(socket: WebSocket, code: ErrorCode, message: string): void {
+  function sendError(
+    socket: WebSocket,
+    code: ErrorCode,
+    message: string,
+  ): void {
     send(socket, {
       type: "error",
-      payload: { code, message }
+      payload: { code, message },
     });
   }
 
@@ -311,11 +351,16 @@ export async function createSyncServer(
       origin: session.origin,
       result: "rejected",
       reason,
-      invalidMessageCount: session.invalidMessageCount
+      invalidMessageCount: session.invalidMessageCount,
     });
 
-    if (session.invalidMessageCount >= securityConfig.invalidMessageCloseThreshold) {
-      session.socket.close(CLOSE_CODE_POLICY_VIOLATION, "Too many invalid messages");
+    if (
+      session.invalidMessageCount >= securityConfig.invalidMessageCloseThreshold
+    ) {
+      session.socket.close(
+        CLOSE_CODE_POLICY_VIOLATION,
+        "Too many invalid messages",
+      );
     }
   }
 
@@ -323,9 +368,11 @@ export async function createSyncServer(
     socket: import("node:stream").Duplex,
     statusCode: number,
     statusText: string,
-    details: Record<string, unknown>
+    details: Record<string, unknown>,
   ): void {
-    socket.write(`HTTP/1.1 ${statusCode} ${statusText}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
+    socket.write(
+      `HTTP/1.1 ${statusCode} ${statusText}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`,
+    );
     socket.destroy();
     logEvent("ws_connection_rejected", details);
   }
@@ -337,7 +384,7 @@ export async function createSyncServer(
         remoteAddress: decision.context.remoteAddress,
         origin: decision.context.origin,
         result: "rejected",
-        reason: decision.reason
+        reason: decision.reason,
       });
       return;
     }
@@ -351,7 +398,10 @@ export async function createSyncServer(
   wss.on("connection", (socket, request) => {
     const context = request.biliSyncPlayContext ?? {
       remoteAddress: securityPolicy.getRemoteAddress(request),
-      origin: typeof request.headers.origin === "string" ? request.headers.origin : null
+      origin:
+        typeof request.headers.origin === "string"
+          ? request.headers.origin
+          : null,
     };
     const session: Session = {
       id: randomUUID(),
@@ -364,7 +414,7 @@ export async function createSyncServer(
       memberToken: null,
       joinedAt: null,
       invalidMessageCount: 0,
-      rateLimitState: createSessionRateLimitState(securityConfig)
+      rateLimitState: createSessionRateLimitState(securityConfig),
     };
 
     securityPolicy.incrementConnectionCount(session.remoteAddress);
@@ -373,7 +423,7 @@ export async function createSyncServer(
       sessionId: session.id,
       remoteAddress: session.remoteAddress,
       origin: session.origin,
-      result: "ok"
+      result: "ok",
     });
     let messageQueue = Promise.resolve();
 
@@ -381,27 +431,31 @@ export async function createSyncServer(
       messageQueue = messageQueue
         .catch(() => undefined)
         .then(async () => {
-        let parsed: unknown;
-        try {
-          parsed = parseIncomingMessage(raw);
-        } catch {
-          sendError(socket, "invalid_message", INVALID_JSON_MESSAGE);
-          countInvalidMessage(session, "invalid_json");
-          return;
-        }
+          let parsed: unknown;
+          try {
+            parsed = parseIncomingMessage(raw);
+          } catch {
+            sendError(socket, "invalid_message", INVALID_JSON_MESSAGE);
+            countInvalidMessage(session, "invalid_json");
+            return;
+          }
 
-        if (!isClientMessage(parsed)) {
-          sendError(socket, "invalid_message", INVALID_CLIENT_MESSAGE_MESSAGE);
-          countInvalidMessage(session, "invalid_client_message");
-          return;
-        }
+          if (!isClientMessage(parsed)) {
+            sendError(
+              socket,
+              "invalid_message",
+              INVALID_CLIENT_MESSAGE_MESSAGE,
+            );
+            countInvalidMessage(session, "invalid_client_message");
+            return;
+          }
 
-        try {
-          await messageHandler.handleClientMessage(session, parsed);
-        } catch (error) {
-          console.error("Unhandled client message error", error);
-          sendError(socket, "internal_error", INTERNAL_SERVER_ERROR_MESSAGE);
-        }
+          try {
+            await messageHandler.handleClientMessage(session, parsed);
+          } catch (error) {
+            console.error("Unhandled client message error", error);
+            sendError(socket, "internal_error", INTERNAL_SERVER_ERROR_MESSAGE);
+          }
         });
     });
 
@@ -412,7 +466,7 @@ export async function createSyncServer(
         origin: session.origin,
         roomCode: session.roomCode,
         result: "error",
-        error: error.message
+        error: error.message,
       });
     });
 
@@ -428,7 +482,7 @@ export async function createSyncServer(
           roomCode: session.roomCode,
           result: "closed",
           code,
-          reason: decodeCloseReason(reason)
+          reason: decodeCloseReason(reason),
         });
       })();
     });
@@ -456,10 +510,12 @@ export async function createSyncServer(
           });
         });
       });
-      const maybeClosableStore = roomStore as RoomStore & { close?: () => Promise<void> };
+      const maybeClosableStore = roomStore as RoomStore & {
+        close?: () => Promise<void>;
+      };
       if (typeof maybeClosableStore.close === "function") {
         await maybeClosableStore.close();
       }
-    }
+    },
   };
 }

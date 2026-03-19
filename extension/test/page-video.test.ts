@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildFestivalShareUrl, createSharePayload, resolvePageSharedVideo, resolveSharedVideoTitle } from "../src/content/page-video";
+import {
+  buildFestivalShareUrl,
+  createSharePayload,
+  resolvePageSharedVideo,
+  resolveSharedVideoTitle,
+} from "../src/content/page-video";
 
 test("resolves standard page video and prefers current part title", () => {
   const video = resolvePageSharedVideo({
@@ -9,13 +14,13 @@ test("resolves standard page video and prefers current part title", () => {
     documentTitle: "Doc Title_哔哩哔哩",
     headingTitle: "Heading Title",
     currentPartTitle: "P2 Title",
-    festivalSnapshot: null
+    festivalSnapshot: null,
   });
 
   assert.deepEqual(video, {
     videoId: "BV1xx411c7mD:p2",
     url: "https://www.bilibili.com/video/BV1xx411c7mD?p=2",
-    title: "P2 Title"
+    title: "P2 Title",
   });
 });
 
@@ -29,14 +34,14 @@ test("resolves festival snapshot ahead of URL fallback", () => {
     festivalSnapshot: {
       videoId: "BVfestival:123",
       url: "https://www.bilibili.com/festival/demo?bvid=BVfestival&cid=123",
-      title: "Festival Episode"
-    }
+      title: "Festival Episode",
+    },
   });
 
   assert.deepEqual(video, {
     videoId: "BVfestival:123",
     url: "https://www.bilibili.com/festival/demo?bvid=BVfestival&cid=123",
-    title: "Festival Episode"
+    title: "Festival Episode",
   });
 });
 
@@ -45,16 +50,16 @@ test("builds share payload from video playback snapshot", () => {
     sharedVideo: {
       videoId: "BV1xx411c7mD",
       url: "https://www.bilibili.com/video/BV1xx411c7mD",
-      title: "Video"
+      title: "Video",
     },
     playback: {
       currentTime: 42,
       playbackRate: 1.25,
-      playState: "playing"
+      playState: "playing",
     },
     actorId: "member-1",
     seq: 7,
-    now: 99
+    now: 99,
   });
 
   assert.equal(payload.playback?.seq, 7);
@@ -67,23 +72,27 @@ test("falls back through title sources in order", () => {
     resolveSharedVideoTitle({
       currentPartTitle: null,
       headingTitle: "Heading",
-      documentTitle: "Doc_哔哩哔哩"
+      documentTitle: "Doc_哔哩哔哩",
     }),
-    "Heading"
+    "Heading",
   );
   assert.equal(
     resolveSharedVideoTitle({
       currentPartTitle: null,
       headingTitle: null,
-      documentTitle: "Doc_哔哩哔哩"
+      documentTitle: "Doc_哔哩哔哩",
     }),
-    "Doc"
+    "Doc",
   );
 });
 
 test("builds festival share URL with bvid and cid", () => {
   assert.equal(
-    buildFestivalShareUrl("https://www.bilibili.com/festival/demo?foo=1#hash", "BV1abc", "22"),
-    "https://www.bilibili.com/festival/demo?foo=1&bvid=BV1abc&cid=22"
+    buildFestivalShareUrl(
+      "https://www.bilibili.com/festival/demo?foo=1#hash",
+      "BV1abc",
+      "22",
+    ),
+    "https://www.bilibili.com/festival/demo?foo=1&bvid=BV1abc&cid=22",
   );
 });

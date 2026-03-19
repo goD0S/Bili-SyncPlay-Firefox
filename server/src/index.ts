@@ -5,7 +5,7 @@ import {
   type AdminConfig,
   type AdminUiConfig,
   type PersistenceConfig,
-  type SecurityConfig
+  type SecurityConfig,
 } from "./app.js";
 
 const port = parseIntegerEnv("PORT", 8787);
@@ -14,10 +14,14 @@ const persistenceConfig = loadPersistenceConfig();
 const adminConfig = loadAdminConfig();
 const adminUiConfig = loadAdminUiConfig();
 
-const { httpServer } = await createSyncServer(securityConfig, persistenceConfig, {
-  adminConfig,
-  adminUiConfig
-});
+const { httpServer } = await createSyncServer(
+  securityConfig,
+  persistenceConfig,
+  {
+    adminConfig,
+    adminUiConfig,
+  },
+);
 httpServer.listen(port, () => {
   console.log(`Bili-SyncPlay server listening on http://localhost:${port}`);
 });
@@ -28,44 +32,68 @@ function loadSecurityConfig(): SecurityConfig {
   return {
     ...defaults,
     allowedOrigins: parseCsvEnv("ALLOWED_ORIGINS", defaults.allowedOrigins),
-    allowMissingOriginInDev: parseBooleanEnv("ALLOW_MISSING_ORIGIN_IN_DEV", defaults.allowMissingOriginInDev),
-    trustProxyHeaders: parseBooleanEnv("TRUST_PROXY_HEADERS", defaults.trustProxyHeaders),
-    maxConnectionsPerIp: parsePositiveIntegerEnv("MAX_CONNECTIONS_PER_IP", defaults.maxConnectionsPerIp),
+    allowMissingOriginInDev: parseBooleanEnv(
+      "ALLOW_MISSING_ORIGIN_IN_DEV",
+      defaults.allowMissingOriginInDev,
+    ),
+    trustProxyHeaders: parseBooleanEnv(
+      "TRUST_PROXY_HEADERS",
+      defaults.trustProxyHeaders,
+    ),
+    maxConnectionsPerIp: parsePositiveIntegerEnv(
+      "MAX_CONNECTIONS_PER_IP",
+      defaults.maxConnectionsPerIp,
+    ),
     connectionAttemptsPerMinute: parsePositiveIntegerEnv(
       "CONNECTION_ATTEMPTS_PER_MINUTE",
-      defaults.connectionAttemptsPerMinute
+      defaults.connectionAttemptsPerMinute,
     ),
-    maxMembersPerRoom: parsePositiveIntegerEnv("MAX_MEMBERS_PER_ROOM", defaults.maxMembersPerRoom),
-    maxMessageBytes: parsePositiveIntegerEnv("MAX_MESSAGE_BYTES", defaults.maxMessageBytes),
+    maxMembersPerRoom: parsePositiveIntegerEnv(
+      "MAX_MEMBERS_PER_ROOM",
+      defaults.maxMembersPerRoom,
+    ),
+    maxMessageBytes: parsePositiveIntegerEnv(
+      "MAX_MESSAGE_BYTES",
+      defaults.maxMessageBytes,
+    ),
     invalidMessageCloseThreshold: parsePositiveIntegerEnv(
       "INVALID_MESSAGE_CLOSE_THRESHOLD",
-      defaults.invalidMessageCloseThreshold
+      defaults.invalidMessageCloseThreshold,
     ),
     rateLimits: {
       roomCreatePerMinute: parsePositiveIntegerEnv(
         "RATE_LIMIT_ROOM_CREATE_PER_MINUTE",
-        defaults.rateLimits.roomCreatePerMinute
+        defaults.rateLimits.roomCreatePerMinute,
       ),
-      roomJoinPerMinute: parsePositiveIntegerEnv("RATE_LIMIT_ROOM_JOIN_PER_MINUTE", defaults.rateLimits.roomJoinPerMinute),
+      roomJoinPerMinute: parsePositiveIntegerEnv(
+        "RATE_LIMIT_ROOM_JOIN_PER_MINUTE",
+        defaults.rateLimits.roomJoinPerMinute,
+      ),
       videoSharePer10Seconds: parsePositiveIntegerEnv(
         "RATE_LIMIT_VIDEO_SHARE_PER_10_SECONDS",
-        defaults.rateLimits.videoSharePer10Seconds
+        defaults.rateLimits.videoSharePer10Seconds,
       ),
       playbackUpdatePerSecond: parsePositiveIntegerEnv(
         "RATE_LIMIT_PLAYBACK_UPDATE_PER_SECOND",
-        defaults.rateLimits.playbackUpdatePerSecond
+        defaults.rateLimits.playbackUpdatePerSecond,
       ),
       playbackUpdateBurst: parsePositiveIntegerEnv(
         "RATE_LIMIT_PLAYBACK_UPDATE_BURST",
-        defaults.rateLimits.playbackUpdateBurst
+        defaults.rateLimits.playbackUpdateBurst,
       ),
       syncRequestPer10Seconds: parsePositiveIntegerEnv(
         "RATE_LIMIT_SYNC_REQUEST_PER_10_SECONDS",
-        defaults.rateLimits.syncRequestPer10Seconds
+        defaults.rateLimits.syncRequestPer10Seconds,
       ),
-      syncPingPerSecond: parsePositiveIntegerEnv("RATE_LIMIT_SYNC_PING_PER_SECOND", defaults.rateLimits.syncPingPerSecond),
-      syncPingBurst: parsePositiveIntegerEnv("RATE_LIMIT_SYNC_PING_BURST", defaults.rateLimits.syncPingBurst)
-    }
+      syncPingPerSecond: parsePositiveIntegerEnv(
+        "RATE_LIMIT_SYNC_PING_PER_SECOND",
+        defaults.rateLimits.syncPingPerSecond,
+      ),
+      syncPingBurst: parsePositiveIntegerEnv(
+        "RATE_LIMIT_SYNC_PING_BURST",
+        defaults.rateLimits.syncPingBurst,
+      ),
+    },
   };
 }
 
@@ -75,10 +103,16 @@ function loadPersistenceConfig(): PersistenceConfig {
 
   return {
     provider,
-    emptyRoomTtlMs: parsePositiveIntegerEnv("EMPTY_ROOM_TTL_MS", defaults.emptyRoomTtlMs),
-    roomCleanupIntervalMs: parsePositiveIntegerEnv("ROOM_CLEANUP_INTERVAL_MS", defaults.roomCleanupIntervalMs),
+    emptyRoomTtlMs: parsePositiveIntegerEnv(
+      "EMPTY_ROOM_TTL_MS",
+      defaults.emptyRoomTtlMs,
+    ),
+    roomCleanupIntervalMs: parsePositiveIntegerEnv(
+      "ROOM_CLEANUP_INTERVAL_MS",
+      defaults.roomCleanupIntervalMs,
+    ),
     redisUrl: process.env.REDIS_URL?.trim() || defaults.redisUrl,
-    instanceId: process.env.INSTANCE_ID?.trim() || defaults.instanceId
+    instanceId: process.env.INSTANCE_ID?.trim() || defaults.instanceId,
   };
 }
 
@@ -96,18 +130,27 @@ function loadAdminConfig(): AdminConfig {
     username,
     passwordHash,
     sessionSecret,
-    sessionTtlMs: parsePositiveIntegerEnv("ADMIN_SESSION_TTL_MS", 12 * 60 * 60 * 1000),
-    role: role === "viewer" || role === "operator" || role === "admin" ? role : "admin"
+    sessionTtlMs: parsePositiveIntegerEnv(
+      "ADMIN_SESSION_TTL_MS",
+      12 * 60 * 60 * 1000,
+    ),
+    role:
+      role === "viewer" || role === "operator" || role === "admin"
+        ? role
+        : "admin",
   };
 }
 
 function loadAdminUiConfig(): AdminUiConfig {
   return {
-    demoEnabled: parseBooleanEnv("ADMIN_UI_DEMO_ENABLED", false)
+    demoEnabled: parseBooleanEnv("ADMIN_UI_DEMO_ENABLED", false),
   };
 }
 
-function parseProviderEnv(name: string, fallback: PersistenceConfig["provider"]): PersistenceConfig["provider"] {
+function parseProviderEnv(
+  name: string,
+  fallback: PersistenceConfig["provider"],
+): PersistenceConfig["provider"] {
   const rawValue = process.env[name];
   if (rawValue === undefined || rawValue === "") {
     return fallback;

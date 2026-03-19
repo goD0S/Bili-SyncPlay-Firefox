@@ -14,22 +14,24 @@ test("redis room reaper does not delete rooms whose expiresAt was cleared after 
   const store = await createRedisRoomStore(REDIS_URL);
   const redis = new Redis(REDIS_URL, {
     lazyConnect: true,
-    maxRetriesPerRequest: 1
+    maxRetriesPerRequest: 1,
   });
   await redis.connect();
 
-  const roomCode = `T${Date.now().toString(36).slice(-5).toUpperCase()}`.padEnd(6, "A").slice(0, 6);
+  const roomCode = `T${Date.now().toString(36).slice(-5).toUpperCase()}`
+    .padEnd(6, "A")
+    .slice(0, 6);
 
   try {
     const room = await store.createRoom({
       code: roomCode,
       joinToken: "join-token-123456",
-      createdAt: 1
+      createdAt: 1,
     });
 
     const expired = await store.updateRoom(room.code, room.version, {
       expiresAt: 10,
-      lastActiveAt: 2
+      lastActiveAt: 2,
     });
     assert.equal(expired.ok, true);
     if (!expired.ok) {
@@ -38,7 +40,7 @@ test("redis room reaper does not delete rooms whose expiresAt was cleared after 
 
     const revived = await store.updateRoom(room.code, expired.room.version, {
       expiresAt: null,
-      lastActiveAt: 3
+      lastActiveAt: 3,
     });
     assert.equal(revived.ok, true);
     if (!revived.ok) {

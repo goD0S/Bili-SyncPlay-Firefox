@@ -1,6 +1,14 @@
 import type { ClientMessage } from "@bili-syncplay/protocol";
-import { consumeFixedWindow, consumeTokenBucket, WINDOW_10_SECONDS_MS, WINDOW_MINUTE_MS } from "./rate-limit.js";
-import { MEMBER_TOKEN_INVALID_MESSAGE, RATE_LIMITED_MESSAGE } from "./messages.js";
+import {
+  consumeFixedWindow,
+  consumeTokenBucket,
+  WINDOW_10_SECONDS_MS,
+  WINDOW_MINUTE_MS,
+} from "./rate-limit.js";
+import {
+  MEMBER_TOKEN_INVALID_MESSAGE,
+  RATE_LIMITED_MESSAGE,
+} from "./messages.js";
 import { roomStateOf } from "./room-store.js";
 import { RoomServiceError } from "./room-service.js";
 import type { LogEvent, SendError, SendMessage, Session } from "./types.js";
@@ -20,42 +28,73 @@ export function createMessageHandler(options: {
     };
   };
   roomService: {
-    createRoomForSession: (session: Session, displayName?: string) => Promise<{ room: { code: string; joinToken: string }; memberToken: string }>;
+    createRoomForSession: (
+      session: Session,
+      displayName?: string,
+    ) => Promise<{
+      room: { code: string; joinToken: string };
+      memberToken: string;
+    }>;
     joinRoomForSession: (
       session: Session,
       roomCode: string,
       joinToken: string,
       displayName?: string,
-      previousMemberToken?: string
+      previousMemberToken?: string,
     ) => Promise<{ room: { code: string }; memberToken: string }>;
-    leaveRoomForSession: (session: Session) => Promise<{ room: { code: string } | null }>;
+    leaveRoomForSession: (
+      session: Session,
+    ) => Promise<{ room: { code: string } | null }>;
     shareVideoForSession: (
       session: Session,
       memberToken: string,
-      video: ClientMessage extends never ? never : Extract<ClientMessage, { type: "video:share" }>["payload"]["video"],
-      playback?: ClientMessage extends never ? never : Extract<ClientMessage, { type: "video:share" }>["payload"]["playback"]
+      video: ClientMessage extends never
+        ? never
+        : Extract<ClientMessage, { type: "video:share" }>["payload"]["video"],
+      playback?: ClientMessage extends never
+        ? never
+        : Extract<
+            ClientMessage,
+            { type: "video:share" }
+          >["payload"]["playback"],
     ) => Promise<{ room: { code: string } }>;
     updatePlaybackForSession: (
       session: Session,
       memberToken: string,
-      playback: Extract<ClientMessage, { type: "playback:update" }>["payload"]["playback"]
+      playback: Extract<
+        ClientMessage,
+        { type: "playback:update" }
+      >["payload"]["playback"],
     ) => Promise<{ room: { code: string } | null; ignored: boolean }>;
     updateProfileForSession: (
       session: Session,
       memberToken: string,
-      displayName: string
+      displayName: string,
     ) => Promise<{ room: { code: string } }>;
-    getRoomStateForSession: (session: Session, memberToken: string, messageType: ClientMessage["type"]) => Promise<ReturnType<typeof roomStateOf>>;
-    getActiveRoom: (roomCode: string) => { members: Map<string, Session> } | null;
+    getRoomStateForSession: (
+      session: Session,
+      memberToken: string,
+      messageType: ClientMessage["type"],
+    ) => Promise<ReturnType<typeof roomStateOf>>;
+    getActiveRoom: (
+      roomCode: string,
+    ) => { members: Map<string, Session> } | null;
   };
   logEvent: LogEvent;
   send: SendMessage;
   sendError: SendError;
-  onRoomJoined?: (session: Session, roomCode: string, previousRoomCode: string | null) => void;
+  onRoomJoined?: (
+    session: Session,
+    roomCode: string,
+    previousRoomCode: string | null,
+  ) => void;
   onRoomLeft?: (session: Session, roomCode: string) => void;
   now?: () => number;
 }): {
-  handleClientMessage: (session: Session, message: ClientMessage) => Promise<void>;
+  handleClientMessage: (
+    session: Session,
+    message: ClientMessage,
+  ) => Promise<void>;
   leaveRoom: (session: Session) => Promise<void>;
 } {
   const { config, roomService, logEvent, send, sendError } = options;
@@ -67,16 +106,22 @@ export function createMessageHandler(options: {
       return;
     }
 
-    const firstMember = activeRoom.members.values().next().value as Session | undefined;
+    const firstMember = activeRoom.members.values().next().value as
+      | Session
+      | undefined;
     if (!firstMember?.memberToken) {
       return;
     }
 
-    const roomState = await roomService.getRoomStateForSession(firstMember, firstMember.memberToken, "sync:request");
+    const roomState = await roomService.getRoomStateForSession(
+      firstMember,
+      firstMember.memberToken,
+      "sync:request",
+    );
     for (const member of activeRoom.members.values()) {
       send(member.socket, {
         type: "room:state",
-        payload: roomState
+        payload: roomState,
       });
     }
   }
@@ -92,31 +137,47 @@ export function createMessageHandler(options: {
     await broadcastRoomState(roomCode);
   }
 
-  function handleRateLimitedMessage(session: Session, messageType: string): void {
+  function handleRateLimitedMessage(
+    session: Session,
+    messageType: string,
+  ): void {
     logEvent("rate_limited", {
       sessionId: session.id,
       roomCode: session.roomCode,
       remoteAddress: session.remoteAddress,
       origin: session.origin,
       messageType,
-      result: "rejected"
+      result: "rejected",
     });
   }
 
-  async function handleClientMessage(session: Session, message: ClientMessage): Promise<void> {
+  async function handleClientMessage(
+    session: Session,
+    message: ClientMessage,
+  ): Promise<void> {
     const currentTime = now();
 
     try {
       switch (message.type) {
         case "room:create": {
           const previousRoomCode = session.roomCode;
-          if (!consumeFixedWindow(session.rateLimitState.roomCreate, config.rateLimits.roomCreatePerMinute, WINDOW_MINUTE_MS, currentTime)) {
+          if (
+            !consumeFixedWindow(
+              session.rateLimitState.roomCreate,
+              config.rateLimits.roomCreatePerMinute,
+              WINDOW_MINUTE_MS,
+              currentTime,
+            )
+          ) {
             handleRateLimitedMessage(session, message.type);
             sendError(session.socket, "rate_limited", RATE_LIMITED_MESSAGE);
             return;
           }
 
-          const { room, memberToken } = await roomService.createRoomForSession(session, message.payload?.displayName);
+          const { room, memberToken } = await roomService.createRoomForSession(
+            session,
+            message.payload?.displayName,
+          );
           if (previousRoomCode && previousRoomCode !== room.code) {
             options.onRoomLeft?.(session, previousRoomCode);
           }
@@ -127,8 +188,8 @@ export function createMessageHandler(options: {
               roomCode: room.code,
               memberId: session.memberId ?? session.id,
               joinToken: room.joinToken,
-              memberToken
-            }
+              memberToken,
+            },
           });
           await broadcastRoomState(room.code);
           logEvent("room_created", {
@@ -136,13 +197,20 @@ export function createMessageHandler(options: {
             roomCode: room.code,
             remoteAddress: session.remoteAddress,
             origin: session.origin,
-            result: "ok"
+            result: "ok",
           });
           return;
         }
         case "room:join": {
           const previousRoomCode = session.roomCode;
-          if (!consumeFixedWindow(session.rateLimitState.roomJoin, config.rateLimits.roomJoinPerMinute, WINDOW_MINUTE_MS, currentTime)) {
+          if (
+            !consumeFixedWindow(
+              session.rateLimitState.roomJoin,
+              config.rateLimits.roomJoinPerMinute,
+              WINDOW_MINUTE_MS,
+              currentTime,
+            )
+          ) {
             handleRateLimitedMessage(session, message.type);
             sendError(session.socket, "rate_limited", RATE_LIMITED_MESSAGE);
             return;
@@ -153,7 +221,7 @@ export function createMessageHandler(options: {
             message.payload.roomCode,
             message.payload.joinToken,
             message.payload.displayName,
-            message.payload.memberToken
+            message.payload.memberToken,
           );
           if (previousRoomCode && previousRoomCode !== room.code) {
             options.onRoomLeft?.(session, previousRoomCode);
@@ -164,8 +232,8 @@ export function createMessageHandler(options: {
             payload: {
               roomCode: room.code,
               memberId: session.memberId ?? session.id,
-              memberToken
-            }
+              memberToken,
+            },
           });
           await broadcastRoomState(room.code);
           logEvent("room_joined", {
@@ -173,13 +241,21 @@ export function createMessageHandler(options: {
             roomCode: room.code,
             remoteAddress: session.remoteAddress,
             origin: session.origin,
-            result: "ok"
+            result: "ok",
           });
           return;
         }
         case "room:leave": {
-          if (message.payload?.memberToken && session.memberToken && message.payload.memberToken !== session.memberToken) {
-            sendError(session.socket, "member_token_invalid", MEMBER_TOKEN_INVALID_MESSAGE);
+          if (
+            message.payload?.memberToken &&
+            session.memberToken &&
+            message.payload.memberToken !== session.memberToken
+          ) {
+            sendError(
+              session.socket,
+              "member_token_invalid",
+              MEMBER_TOKEN_INVALID_MESSAGE,
+            );
             return;
           }
           await leaveRoom(session);
@@ -189,13 +265,20 @@ export function createMessageHandler(options: {
           const { room } = await roomService.updateProfileForSession(
             session,
             message.payload.memberToken,
-            message.payload.displayName
+            message.payload.displayName,
           );
           await broadcastRoomState(room.code);
           return;
         }
         case "video:share": {
-          if (!consumeFixedWindow(session.rateLimitState.videoShare, config.rateLimits.videoSharePer10Seconds, WINDOW_10_SECONDS_MS, currentTime)) {
+          if (
+            !consumeFixedWindow(
+              session.rateLimitState.videoShare,
+              config.rateLimits.videoSharePer10Seconds,
+              WINDOW_10_SECONDS_MS,
+              currentTime,
+            )
+          ) {
             handleRateLimitedMessage(session, message.type);
             sendError(session.socket, "rate_limited", RATE_LIMITED_MESSAGE);
             return;
@@ -205,7 +288,7 @@ export function createMessageHandler(options: {
             session,
             message.payload.memberToken,
             message.payload.video,
-            message.payload.playback
+            message.payload.playback,
           );
           await broadcastRoomState(room.code);
           return;
@@ -216,30 +299,45 @@ export function createMessageHandler(options: {
               session.rateLimitState.playbackUpdate,
               config.rateLimits.playbackUpdatePerSecond,
               config.rateLimits.playbackUpdateBurst,
-              currentTime
+              currentTime,
             )
           ) {
             handleRateLimitedMessage(session, message.type);
             return;
           }
 
-          const result = await roomService.updatePlaybackForSession(session, message.payload.memberToken, message.payload.playback);
+          const result = await roomService.updatePlaybackForSession(
+            session,
+            message.payload.memberToken,
+            message.payload.playback,
+          );
           if (!result.ignored && result.room) {
             await broadcastRoomState(result.room.code);
           }
           return;
         }
         case "sync:request": {
-          if (!consumeFixedWindow(session.rateLimitState.syncRequest, config.rateLimits.syncRequestPer10Seconds, WINDOW_10_SECONDS_MS, currentTime)) {
+          if (
+            !consumeFixedWindow(
+              session.rateLimitState.syncRequest,
+              config.rateLimits.syncRequestPer10Seconds,
+              WINDOW_10_SECONDS_MS,
+              currentTime,
+            )
+          ) {
             handleRateLimitedMessage(session, message.type);
             sendError(session.socket, "rate_limited", RATE_LIMITED_MESSAGE);
             return;
           }
 
-          const state = await roomService.getRoomStateForSession(session, message.payload.memberToken, message.type);
+          const state = await roomService.getRoomStateForSession(
+            session,
+            message.payload.memberToken,
+            message.type,
+          );
           send(session.socket, {
             type: "room:state",
-            payload: state
+            payload: state,
           });
           return;
         }
@@ -249,7 +347,7 @@ export function createMessageHandler(options: {
               session.rateLimitState.syncPing,
               config.rateLimits.syncPingPerSecond,
               config.rateLimits.syncPingBurst,
-              currentTime
+              currentTime,
             )
           ) {
             handleRateLimitedMessage(session, message.type);
@@ -261,8 +359,8 @@ export function createMessageHandler(options: {
             payload: {
               clientSendTime: message.payload.clientSendTime,
               serverReceiveTime: currentTime,
-              serverSendTime: now()
-            }
+              serverSendTime: now(),
+            },
           });
           return;
         }
@@ -281,7 +379,7 @@ export function createMessageHandler(options: {
             remoteAddress: session.remoteAddress,
             origin: session.origin,
             result: "error",
-            reason: error.reason
+            reason: error.reason,
           });
         }
         return;
@@ -293,6 +391,6 @@ export function createMessageHandler(options: {
 
   return {
     handleClientMessage,
-    leaveRoom
+    leaveRoom,
   };
 }

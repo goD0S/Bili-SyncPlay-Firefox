@@ -20,7 +20,7 @@ export function createAdminOverviewService(options: {
       const currentTime = now();
       const totalNonExpired = await options.roomStore.countRooms({
         keyword: undefined,
-        includeExpired: false
+        includeExpired: false,
       });
       const activeRoomCount = options.runtimeRegistry.getActiveRoomCount();
       const activeMemberCount = options.runtimeRegistry.getActiveMemberCount();
@@ -31,21 +31,24 @@ export function createAdminOverviewService(options: {
           name: options.serviceName,
           version: options.serviceVersion,
           startedAt: options.runtimeRegistry.getStartedAt(),
-          uptimeMs: currentTime - options.runtimeRegistry.getStartedAt()
+          uptimeMs: currentTime - options.runtimeRegistry.getStartedAt(),
         },
         storage: {
           provider: options.persistenceConfig.provider,
-          redisConnected: options.persistenceConfig.provider === "redis" ? await options.roomStore.isReady() : true
+          redisConnected:
+            options.persistenceConfig.provider === "redis"
+              ? await options.roomStore.isReady()
+              : true,
         },
         runtime: {
           connectionCount: options.runtimeRegistry.getConnectionCount(),
           activeRoomCount,
-          activeMemberCount
+          activeMemberCount,
         },
         rooms: {
           totalNonExpired,
           active: activeRoomCount,
-          idle: Math.max(0, totalNonExpired - activeRoomCount)
+          idle: Math.max(0, totalNonExpired - activeRoomCount),
         },
         events: {
           lastMinute: {
@@ -54,17 +57,17 @@ export function createAdminOverviewService(options: {
             rate_limited: 0,
             ws_connection_rejected: 0,
             error: 0,
-            ...options.runtimeRegistry.getRecentEventCounts(currentTime)
+            ...options.runtimeRegistry.getRecentEventCounts(currentTime),
           },
           totals: {
             room_created: 0,
             room_joined: 0,
             ws_connection_rejected: 0,
             rate_limited: 0,
-            ...options.runtimeRegistry.getLifetimeEventCounts()
-          }
-        }
+            ...options.runtimeRegistry.getLifetimeEventCounts(),
+          },
+        },
       };
-    }
+    },
   };
 }

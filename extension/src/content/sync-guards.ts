@@ -2,7 +2,7 @@ import type { PlaybackState } from "@bili-syncplay/protocol";
 import type {
   ExplicitPlaybackAction,
   RecentRemotePlayingIntent,
-  SuppressedRemotePlayback
+  SuppressedRemotePlayback,
 } from "./runtime-state";
 
 export interface HydrationAutoplayGuardInput {
@@ -61,8 +61,14 @@ export interface RemotePlayTransitionGuardInput {
   userGestureGraceMs: number;
 }
 
-export function shouldForcePauseWhileWaitingForInitialRoomState(input: HydrationAutoplayGuardInput): boolean {
-  if (!input.activeRoomCode || !input.pendingRoomStateHydration || input.videoPaused) {
+export function shouldForcePauseWhileWaitingForInitialRoomState(
+  input: HydrationAutoplayGuardInput,
+): boolean {
+  if (
+    !input.activeRoomCode ||
+    !input.pendingRoomStateHydration ||
+    input.videoPaused
+  ) {
     return false;
   }
 
@@ -76,28 +82,31 @@ export function evaluateNonSharedPageGuard(input: NonSharedPageGuardInput): {
   if (!input.activeRoomCode || !input.activeSharedUrl) {
     return {
       shouldPause: false,
-      nextExplicitNonSharedPlaybackUrl: input.explicitNonSharedPlaybackUrl
+      nextExplicitNonSharedPlaybackUrl: input.explicitNonSharedPlaybackUrl,
     };
   }
 
-  if (!input.normalizedCurrentUrl || input.normalizedCurrentUrl === input.activeSharedUrl) {
+  if (
+    !input.normalizedCurrentUrl ||
+    input.normalizedCurrentUrl === input.activeSharedUrl
+  ) {
     return {
       shouldPause: false,
-      nextExplicitNonSharedPlaybackUrl: null
+      nextExplicitNonSharedPlaybackUrl: null,
     };
   }
 
   if (input.videoPaused) {
     return {
       shouldPause: true,
-      nextExplicitNonSharedPlaybackUrl: input.explicitNonSharedPlaybackUrl
+      nextExplicitNonSharedPlaybackUrl: input.explicitNonSharedPlaybackUrl,
     };
   }
 
   if (input.explicitNonSharedPlaybackUrl === input.normalizedCurrentUrl) {
     return {
       shouldPause: false,
-      nextExplicitNonSharedPlaybackUrl: input.explicitNonSharedPlaybackUrl
+      nextExplicitNonSharedPlaybackUrl: input.explicitNonSharedPlaybackUrl,
     };
   }
 
@@ -108,24 +117,26 @@ export function evaluateNonSharedPageGuard(input: NonSharedPageGuardInput): {
   if (hasRecentExplicitPlay) {
     return {
       shouldPause: false,
-      nextExplicitNonSharedPlaybackUrl: input.normalizedCurrentUrl
+      nextExplicitNonSharedPlaybackUrl: input.normalizedCurrentUrl,
     };
   }
 
   return {
     shouldPause: true,
-    nextExplicitNonSharedPlaybackUrl: input.explicitNonSharedPlaybackUrl
+    nextExplicitNonSharedPlaybackUrl: input.explicitNonSharedPlaybackUrl,
   };
 }
 
-export function rememberRemotePlaybackForSuppression(input: RemotePlaybackMemoryInput): {
+export function rememberRemotePlaybackForSuppression(
+  input: RemotePlaybackMemoryInput,
+): {
   suppressedRemotePlayback: SuppressedRemotePlayback | null;
   recentRemotePlayingIntent: RecentRemotePlayingIntent | null;
 } {
   if (!input.normalizedUrl) {
     return {
       suppressedRemotePlayback: null,
-      recentRemotePlayingIntent: null
+      recentRemotePlayingIntent: null,
     };
   }
 
@@ -135,16 +146,16 @@ export function rememberRemotePlaybackForSuppression(input: RemotePlaybackMemory
       url: input.normalizedUrl,
       playState: input.playback.playState,
       currentTime: input.playback.currentTime,
-      playbackRate: input.playback.playbackRate
+      playbackRate: input.playback.playbackRate,
     },
     recentRemotePlayingIntent:
       input.playback.playState === "playing"
         ? {
             until: input.now + input.remotePlayTransitionGuardMs,
             url: input.normalizedUrl,
-            currentTime: input.playback.currentTime
+            currentTime: input.playback.currentTime,
           }
-        : null
+        : null,
   };
 }
 
@@ -155,78 +166,100 @@ export function shouldSuppressLocalEcho(input: LocalEchoGuardInput): {
   if (!input.suppressedRemotePlayback) {
     return {
       shouldSuppress: false,
-      nextSuppressedRemotePlayback: null
+      nextSuppressedRemotePlayback: null,
     };
   }
 
   if (input.now >= input.suppressedRemotePlayback.until) {
     return {
       shouldSuppress: false,
-      nextSuppressedRemotePlayback: null
+      nextSuppressedRemotePlayback: null,
     };
   }
 
   if (
     input.normalizedCurrentUrl !== input.suppressedRemotePlayback.url ||
     input.playState !== input.suppressedRemotePlayback.playState ||
-    Math.abs(input.playbackRate - input.suppressedRemotePlayback.playbackRate) > 0.01
+    Math.abs(input.playbackRate - input.suppressedRemotePlayback.playbackRate) >
+      0.01
   ) {
     return {
       shouldSuppress: false,
-      nextSuppressedRemotePlayback: input.suppressedRemotePlayback
+      nextSuppressedRemotePlayback: input.suppressedRemotePlayback,
     };
   }
 
-  const delta = Math.abs(input.currentTime - input.suppressedRemotePlayback.currentTime);
+  const delta = Math.abs(
+    input.currentTime - input.suppressedRemotePlayback.currentTime,
+  );
   const threshold = input.playState === "playing" ? 0.9 : 0.2;
   return {
     shouldSuppress: delta <= threshold,
-    nextSuppressedRemotePlayback: input.suppressedRemotePlayback
+    nextSuppressedRemotePlayback: input.suppressedRemotePlayback,
   };
 }
 
-export function hasRecentRemoteStopIntent(input: RecentRemoteStopIntentInput): boolean {
+export function hasRecentRemoteStopIntent(
+  input: RecentRemoteStopIntentInput,
+): boolean {
   if (input.now >= input.pauseHoldUntil || !input.normalizedCurrentUrl) {
     return false;
   }
 
-  if (input.activeSharedUrl && input.normalizedCurrentUrl !== input.activeSharedUrl) {
+  if (
+    input.activeSharedUrl &&
+    input.normalizedCurrentUrl !== input.activeSharedUrl
+  ) {
     return false;
   }
 
-  if (input.intendedPlayState === "paused" || input.intendedPlayState === "buffering") {
+  if (
+    input.intendedPlayState === "paused" ||
+    input.intendedPlayState === "buffering"
+  ) {
     return true;
   }
 
-  if (!input.suppressedRemotePlayback || input.normalizedCurrentUrl !== input.suppressedRemotePlayback.url) {
+  if (
+    !input.suppressedRemotePlayback ||
+    input.normalizedCurrentUrl !== input.suppressedRemotePlayback.url
+  ) {
     return false;
   }
 
-  return input.suppressedRemotePlayback.playState === "paused" || input.suppressedRemotePlayback.playState === "buffering";
+  return (
+    input.suppressedRemotePlayback.playState === "paused" ||
+    input.suppressedRemotePlayback.playState === "buffering"
+  );
 }
 
-export function shouldSuppressRemotePlayTransition(input: RemotePlayTransitionGuardInput): {
+export function shouldSuppressRemotePlayTransition(
+  input: RemotePlayTransitionGuardInput,
+): {
   shouldSuppress: boolean;
   nextRecentRemotePlayingIntent: RecentRemotePlayingIntent | null;
 } {
   if (!input.recentRemotePlayingIntent) {
     return {
       shouldSuppress: false,
-      nextRecentRemotePlayingIntent: null
+      nextRecentRemotePlayingIntent: null,
     };
   }
 
   if (input.now >= input.recentRemotePlayingIntent.until) {
     return {
       shouldSuppress: false,
-      nextRecentRemotePlayingIntent: null
+      nextRecentRemotePlayingIntent: null,
     };
   }
 
-  if (input.normalizedCurrentUrl !== input.recentRemotePlayingIntent.url || input.playState === "playing") {
+  if (
+    input.normalizedCurrentUrl !== input.recentRemotePlayingIntent.url ||
+    input.playState === "playing"
+  ) {
     return {
       shouldSuppress: false,
-      nextRecentRemotePlayingIntent: input.recentRemotePlayingIntent
+      nextRecentRemotePlayingIntent: input.recentRemotePlayingIntent,
     };
   }
 
@@ -238,13 +271,16 @@ export function shouldSuppressRemotePlayTransition(input: RemotePlayTransitionGu
   if (hasRecentExplicitPause) {
     return {
       shouldSuppress: false,
-      nextRecentRemotePlayingIntent: input.recentRemotePlayingIntent
+      nextRecentRemotePlayingIntent: input.recentRemotePlayingIntent,
     };
   }
 
   return {
-    shouldSuppress: Math.abs(input.currentTime - input.recentRemotePlayingIntent.currentTime) <= 1.5,
-    nextRecentRemotePlayingIntent: input.recentRemotePlayingIntent
+    shouldSuppress:
+      Math.abs(
+        input.currentTime - input.recentRemotePlayingIntent.currentTime,
+      ) <= 1.5,
+    nextRecentRemotePlayingIntent: input.recentRemotePlayingIntent,
   };
 }
 
@@ -255,9 +291,15 @@ export function shouldApplySelfPlayback(args: {
   playback: PlaybackState;
 }): boolean {
   const timeDelta = Math.abs(args.videoCurrentTime - args.playback.currentTime);
-  const rateDelta = Math.abs(args.videoPlaybackRate - args.playback.playbackRate);
+  const rateDelta = Math.abs(
+    args.videoPlaybackRate - args.playback.playbackRate,
+  );
 
-  if ((args.playback.playState === "paused" || args.playback.playState === "buffering") && !args.videoPaused) {
+  if (
+    (args.playback.playState === "paused" ||
+      args.playback.playState === "buffering") &&
+    !args.videoPaused
+  ) {
     return true;
   }
   if (args.playback.playState === "playing" && args.videoPaused) {

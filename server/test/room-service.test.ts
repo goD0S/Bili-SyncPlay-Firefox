@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { WebSocket } from "ws";
 import { createActiveRoomRegistry } from "../src/active-room-registry.js";
-import { getDefaultPersistenceConfig, getDefaultSecurityConfig } from "../src/app.js";
+import {
+  getDefaultPersistenceConfig,
+  getDefaultSecurityConfig,
+} from "../src/app.js";
 import { createSessionRateLimitState } from "../src/rate-limit.js";
 import { createInMemoryRoomStore } from "../src/room-store.js";
 import { createRoomService } from "../src/room-service.js";
@@ -21,7 +24,7 @@ function createSession(id: string): Session {
     memberToken: null,
     joinedAt: null,
     invalidMessageCount: 0,
-    rateLimitState: createSessionRateLimitState(config, 0)
+    rateLimitState: createSessionRateLimitState(config, 0),
   };
 }
 
@@ -32,7 +35,7 @@ test("room service keeps empty rooms for TTL and allows rejoin before expiry", a
     config: getDefaultSecurityConfig(),
     persistence: {
       ...getDefaultPersistenceConfig(),
-      emptyRoomTtlMs: 5_000
+      emptyRoomTtlMs: 5_000,
     },
     roomStore,
     activeRooms: createActiveRoomRegistry(),
@@ -42,11 +45,14 @@ test("room service keeps empty rooms for TTL and allows rejoin before expiry", a
     })(),
     logEvent: (() => undefined) satisfies LogEvent,
     now: () => currentTime,
-    createRoomCode: () => "ROOM01"
+    createRoomCode: () => "ROOM01",
   });
 
   const owner = createSession("owner");
-  const { room, memberToken } = await service.createRoomForSession(owner, "Alice");
+  const { room, memberToken } = await service.createRoomForSession(
+    owner,
+    "Alice",
+  );
   assert.equal(owner.memberToken, memberToken);
 
   await service.leaveRoomForSession(owner);
@@ -56,7 +62,12 @@ test("room service keeps empty rooms for TTL and allows rejoin before expiry", a
 
   currentTime = 3_000;
   const joiner = createSession("joiner");
-  const joined = await service.joinRoomForSession(joiner, room.code, room.joinToken, "Bob");
+  const joined = await service.joinRoomForSession(
+    joiner,
+    room.code,
+    room.joinToken,
+    "Bob",
+  );
   assert.equal(joined.room.expiresAt, null);
   assert.ok(joiner.memberToken);
 });
@@ -71,7 +82,7 @@ test("room service rejects expired rooms and old member tokens after restart sem
   const config = getDefaultSecurityConfig();
   const persistence = {
     ...getDefaultPersistenceConfig(),
-    emptyRoomTtlMs: 1_000
+    emptyRoomTtlMs: 1_000,
   };
 
   const firstService = createRoomService({
@@ -82,7 +93,7 @@ test("room service rejects expired rooms and old member tokens after restart sem
     generateToken: tokenFactory,
     logEvent: (() => undefined) satisfies LogEvent,
     now: () => currentTime,
-    createRoomCode: () => "ROOM02"
+    createRoomCode: () => "ROOM02",
   });
 
   const owner = createSession("owner");
@@ -101,19 +112,28 @@ test("room service rejects expired rooms and old member tokens after restart sem
     activeRooms: createActiveRoomRegistry(),
     generateToken: tokenFactory,
     logEvent: (() => undefined) satisfies LogEvent,
-    now: () => currentTime
+    now: () => currentTime,
   });
 
   await assert.rejects(
-    restartedService.getRoomStateForSession(owner, oldMemberToken, "sync:request"),
-    /Member token is invalid/
+    restartedService.getRoomStateForSession(
+      owner,
+      oldMemberToken,
+      "sync:request",
+    ),
+    /Member token is invalid/,
   );
 
   currentTime = 2_500;
   const expiredJoiner = createSession("expired");
   await assert.rejects(
-    restartedService.joinRoomForSession(expiredJoiner, created.room.code, created.room.joinToken, "Late"),
-    /Room not found/
+    restartedService.joinRoomForSession(
+      expiredJoiner,
+      created.room.code,
+      created.room.joinToken,
+      "Late",
+    ),
+    /Room not found/,
   );
 });
 
@@ -130,7 +150,7 @@ test("room service reuses member identity when reconnecting with the same member
     })(),
     logEvent: (() => undefined) satisfies LogEvent,
     now: () => 1_000,
-    createRoomCode: () => "ROOM03"
+    createRoomCode: () => "ROOM03",
   });
 
   const owner = createSession("owner");
@@ -143,14 +163,18 @@ test("room service reuses member identity when reconnecting with the same member
     created.room.code,
     created.room.joinToken,
     "Alice",
-    created.memberToken
+    created.memberToken,
   );
 
   assert.equal(joined.memberToken, created.memberToken);
   assert.equal(reconnectingOwner.memberId, originalMemberId);
 
   await service.leaveRoomForSession(owner);
-  const state = await service.getRoomStateForSession(reconnectingOwner, joined.memberToken, "sync:request");
+  const state = await service.getRoomStateForSession(
+    reconnectingOwner,
+    joined.memberToken,
+    "sync:request",
+  );
   assert.deepEqual(state.members, [{ id: originalMemberId, name: "Alice" }]);
 });
 
@@ -167,7 +191,7 @@ test("room service updates member display name after join", async () => {
     })(),
     logEvent: (() => undefined) satisfies LogEvent,
     now: () => 1_000,
-    createRoomCode: () => "ROOM04"
+    createRoomCode: () => "ROOM04",
   });
 
   const owner = createSession("owner");
@@ -175,6 +199,10 @@ test("room service updates member display name after join", async () => {
 
   await service.updateProfileForSession(owner, created.memberToken, "Alice");
 
-  const state = await service.getRoomStateForSession(owner, created.memberToken, "sync:request");
+  const state = await service.getRoomStateForSession(
+    owner,
+    created.memberToken,
+    "sync:request",
+  );
   assert.deepEqual(state.members, [{ id: owner.memberId, name: "Alice" }]);
 });

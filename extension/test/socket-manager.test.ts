@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { getReconnectDelayMs, shouldReconnect } from "../src/background/socket-manager";
+import {
+  getReconnectDelayMs,
+  shouldReconnect,
+} from "../src/background/socket-manager";
 
 test("reconnect backoff grows and caps at ten seconds", () => {
   assert.equal(getReconnectDelayMs(1), 1000);
@@ -17,9 +20,9 @@ test("reconnect scheduling requires an active room or pending create and stops a
       roomCode: "ROOM01",
       pendingCreateRoom: false,
       reconnectAttempt: 2,
-      maxReconnectAttempts: 5
+      maxReconnectAttempts: 5,
     }),
-    true
+    true,
   );
 
   assert.equal(
@@ -29,9 +32,9 @@ test("reconnect scheduling requires an active room or pending create and stops a
       roomCode: null,
       pendingCreateRoom: false,
       reconnectAttempt: 2,
-      maxReconnectAttempts: 5
+      maxReconnectAttempts: 5,
     }),
-    false
+    false,
   );
 
   assert.equal(
@@ -41,8 +44,8 @@ test("reconnect scheduling requires an active room or pending create and stops a
       roomCode: "ROOM01",
       pendingCreateRoom: false,
       reconnectAttempt: 5,
-      maxReconnectAttempts: 5
+      maxReconnectAttempts: 5,
     }),
-    false
+    false,
   );
 });

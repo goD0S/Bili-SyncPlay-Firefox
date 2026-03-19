@@ -4,7 +4,7 @@ import {
   createServerUrlDraftState,
   getRenderedServerUrlValue,
   syncServerUrlDraft,
-  updateServerUrlDraft
+  updateServerUrlDraft,
 } from "../src/popup/server-url-draft";
 
 test("render keeps dirty server URL draft after input loses focus", () => {
@@ -12,7 +12,11 @@ test("render keeps dirty server URL draft after input loses focus", () => {
   syncServerUrlDraft(state, "ws://localhost:8787");
   updateServerUrlDraft(state, "ws://example.com/socket", "ws://localhost:8787");
 
-  const rendered = getRenderedServerUrlValue(state, "ws://localhost:8787", false);
+  const rendered = getRenderedServerUrlValue(
+    state,
+    "ws://localhost:8787",
+    false,
+  );
 
   assert.equal(rendered, "ws://example.com/socket");
   assert.equal(state.dirty, true);
@@ -21,7 +25,11 @@ test("render keeps dirty server URL draft after input loses focus", () => {
 test("render syncs clean draft from persisted server URL", () => {
   const state = createServerUrlDraftState();
 
-  const rendered = getRenderedServerUrlValue(state, "ws://localhost:8787", false);
+  const rendered = getRenderedServerUrlValue(
+    state,
+    "ws://localhost:8787",
+    false,
+  );
 
   assert.equal(rendered, "ws://localhost:8787");
   assert.equal(state.dirty, false);

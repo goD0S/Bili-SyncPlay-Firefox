@@ -8,11 +8,28 @@ type KickedMemberBlock = {
 export type ActiveRoomRegistry = {
   getRoom: (code: string) => ActiveRoom | null;
   getOrCreateRoom: (code: string) => ActiveRoom;
-  addMember: (code: string, memberId: string, session: Session, memberToken: string) => ActiveRoom;
+  addMember: (
+    code: string,
+    memberId: string,
+    session: Session,
+    memberToken: string,
+  ) => ActiveRoom;
   findMemberIdByToken: (code: string, memberToken: string) => string | null;
-  blockMemberToken: (code: string, memberToken: string, expiresAt: number) => void;
-  isMemberTokenBlocked: (code: string, memberToken: string, currentTime?: number) => boolean;
-  removeMember: (code: string, memberId: string, session?: Session) => { room: ActiveRoom | null; roomEmpty: boolean };
+  blockMemberToken: (
+    code: string,
+    memberToken: string,
+    expiresAt: number,
+  ) => void;
+  isMemberTokenBlocked: (
+    code: string,
+    memberToken: string,
+    currentTime?: number,
+  ) => boolean;
+  removeMember: (
+    code: string,
+    memberId: string,
+    session?: Session,
+  ) => { room: ActiveRoom | null; roomEmpty: boolean };
   deleteRoom: (code: string) => void;
 };
 
@@ -20,9 +37,14 @@ export function createActiveRoomRegistry(): ActiveRoomRegistry {
   const rooms = new Map<string, ActiveRoom>();
   const blockedMemberTokensByRoom = new Map<string, KickedMemberBlock[]>();
 
-  function pruneBlockedMemberTokens(code: string, currentTime: number): KickedMemberBlock[] {
+  function pruneBlockedMemberTokens(
+    code: string,
+    currentTime: number,
+  ): KickedMemberBlock[] {
     const entries = blockedMemberTokensByRoom.get(code) ?? [];
-    const activeEntries = entries.filter((entry) => entry.expiresAt > currentTime);
+    const activeEntries = entries.filter(
+      (entry) => entry.expiresAt > currentTime,
+    );
     if (activeEntries.length === 0) {
       blockedMemberTokensByRoom.delete(code);
       return [];
@@ -42,7 +64,7 @@ export function createActiveRoomRegistry(): ActiveRoomRegistry {
     const room: ActiveRoom = {
       code,
       members: new Map(),
-      memberTokens: new Map()
+      memberTokens: new Map(),
     };
     rooms.set(code, room);
     return room;
@@ -105,6 +127,6 @@ export function createActiveRoomRegistry(): ActiveRoomRegistry {
     deleteRoom(code) {
       rooms.delete(code);
       blockedMemberTokensByRoom.delete(code);
-    }
+    },
   };
 }

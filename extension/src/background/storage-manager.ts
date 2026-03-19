@@ -21,11 +21,13 @@ export async function loadPersistedBackgroundSnapshot(): Promise<PersistedBackgr
     memberId: persisted.memberId,
     displayName: persisted.displayName,
     roomState: persisted.roomState,
-    serverUrl: persisted.serverUrl ?? null
+    serverUrl: persisted.serverUrl ?? null,
   };
 }
 
-export async function persistBackgroundState(state: BackgroundRuntimeState): Promise<void> {
+export async function persistBackgroundState(
+  state: BackgroundRuntimeState,
+): Promise<void> {
   await saveState({
     roomCode: state.room.roomCode,
     joinToken: state.room.joinToken,
@@ -33,6 +35,6 @@ export async function persistBackgroundState(state: BackgroundRuntimeState): Pro
     memberId: state.room.memberId,
     displayName: state.room.displayName,
     roomState: state.room.roomState,
-    serverUrl: state.connection.serverUrl
+    serverUrl: state.connection.serverUrl,
   });
 }

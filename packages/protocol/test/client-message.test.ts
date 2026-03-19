@@ -9,10 +9,10 @@ test("accepts a valid room:create message", () => {
     isClientMessage({
       type: "room:create",
       payload: {
-        displayName: "Alice"
-      }
+        displayName: "Alice",
+      },
     }),
-    true
+    true,
   );
 });
 
@@ -21,10 +21,10 @@ test("rejects room:create when payload displayName has an invalid type", () => {
     isClientMessage({
       type: "room:create",
       payload: {
-        displayName: 123
-      }
+        displayName: 123,
+      },
     }),
-    false
+    false,
   );
 });
 
@@ -33,19 +33,19 @@ test("rejects room:create when displayName is too long", () => {
     isClientMessage({
       type: "room:create",
       payload: {
-        displayName: "a".repeat(33)
-      }
+        displayName: "a".repeat(33),
+      },
     }),
-    false
+    false,
   );
 });
 
 test("rejects room:join without payload", () => {
   assert.equal(
     isClientMessage({
-      type: "room:join"
+      type: "room:join",
     }),
-    false
+    false,
   );
 });
 
@@ -55,10 +55,10 @@ test("rejects room:join without joinToken", () => {
       type: "room:join",
       payload: {
         roomCode: "ABC123",
-        displayName: "Alice"
-      }
+        displayName: "Alice",
+      },
     }),
-    false
+    false,
   );
 });
 
@@ -69,10 +69,10 @@ test("rejects room:join when roomCode has an invalid format", () => {
       payload: {
         roomCode: "abc123",
         joinToken: VALID_TOKEN,
-        displayName: "Alice"
-      }
+        displayName: "Alice",
+      },
     }),
-    false
+    false,
   );
 });
 
@@ -83,10 +83,10 @@ test("rejects room:join when joinToken is too short", () => {
       payload: {
         roomCode: "ABC123",
         joinToken: "short-token",
-        displayName: "Alice"
-      }
+        displayName: "Alice",
+      },
     }),
-    false
+    false,
   );
 });
 
@@ -98,10 +98,10 @@ test("accepts room:join with an optional memberToken for reconnect", () => {
         roomCode: "ABC123",
         joinToken: VALID_TOKEN,
         memberToken: VALID_TOKEN,
-        displayName: "Alice"
-      }
+        displayName: "Alice",
+      },
     }),
-    true
+    true,
   );
 });
 
@@ -111,10 +111,10 @@ test("accepts a valid profile:update message", () => {
       type: "profile:update",
       payload: {
         memberToken: VALID_TOKEN,
-        displayName: "Alice"
-      }
+        displayName: "Alice",
+      },
     }),
-    true
+    true,
   );
 });
 
@@ -124,10 +124,10 @@ test("rejects profile:update when displayName is too long", () => {
       type: "profile:update",
       payload: {
         memberToken: VALID_TOKEN,
-        displayName: "a".repeat(33)
-      }
+        displayName: "a".repeat(33),
+      },
     }),
-    false
+    false,
   );
 });
 
@@ -139,11 +139,11 @@ test("rejects video:share when required fields are missing", () => {
         memberToken: VALID_TOKEN,
         video: {
           url: "https://www.bilibili.com/video/BV1xx411c7mD",
-          title: "Video"
-        }
-      }
+          title: "Video",
+        },
+      },
     }),
-    false
+    false,
   );
 });
 
@@ -155,11 +155,11 @@ test("rejects video:share without memberToken", () => {
         video: {
           videoId: "BV1xx411c7mD",
           url: "https://www.bilibili.com/video/BV1xx411c7mD",
-          title: "Video"
-        }
-      }
+          title: "Video",
+        },
+      },
     }),
-    false
+    false,
   );
 });
 
@@ -172,11 +172,11 @@ test("rejects video:share when title is too long", () => {
         video: {
           videoId: "BV1xx411c7mD",
           url: "https://www.bilibili.com/video/BV1xx411c7mD",
-          title: "x".repeat(129)
-        }
-      }
+          title: "x".repeat(129),
+        },
+      },
     }),
-    false
+    false,
   );
 });
 
@@ -189,7 +189,7 @@ test("accepts video:share with an initial playback state", () => {
         video: {
           videoId: "BV1xx411c7mD",
           url: "https://www.bilibili.com/video/BV1xx411c7mD?p=2",
-          title: "Video"
+          title: "Video",
         },
         playback: {
           url: "https://www.bilibili.com/video/BV1xx411c7mD?p=2",
@@ -199,11 +199,11 @@ test("accepts video:share with an initial playback state", () => {
           updatedAt: 1,
           serverTime: 0,
           actorId: "member-1",
-          seq: 1
-        }
-      }
+          seq: 1,
+        },
+      },
     }),
-    true
+    true,
   );
 });
 
@@ -221,11 +221,11 @@ test("rejects playback:update with an invalid play state", () => {
           updatedAt: 1,
           serverTime: 1,
           actorId: "member-1",
-          seq: 1
-        }
-      }
+          seq: 1,
+        },
+      },
     }),
-    false
+    false,
   );
 });
 
@@ -243,11 +243,11 @@ test("rejects playback:update with non-finite numeric fields", () => {
           updatedAt: 1,
           serverTime: 1,
           actorId: "member-1",
-          seq: 1
-        }
-      }
+          seq: 1,
+        },
+      },
     }),
-    false
+    false,
   );
 });
 
@@ -255,9 +255,9 @@ test("rejects sync:request without memberToken", () => {
   assert.equal(
     isClientMessage({
       type: "sync:request",
-      payload: {}
+      payload: {},
     }),
-    false
+    false,
   );
 });
 
@@ -265,9 +265,9 @@ test("rejects sync:ping without clientSendTime", () => {
   assert.equal(
     isClientMessage({
       type: "sync:ping",
-      payload: {}
+      payload: {},
     }),
-    false
+    false,
   );
 });
 
@@ -285,11 +285,11 @@ test("accepts a valid playback:update message", () => {
           updatedAt: 1,
           serverTime: 1,
           actorId: "member-1",
-          seq: 1
-        }
-      }
+          seq: 1,
+        },
+      },
     }),
-    true
+    true,
   );
 });
 
@@ -300,9 +300,9 @@ test("accepts a valid room:join message", () => {
       payload: {
         roomCode: "ABC123",
         joinToken: VALID_TOKEN,
-        displayName: "Alice"
-      }
+        displayName: "Alice",
+      },
     }),
-    true
+    true,
   );
 });

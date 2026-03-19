@@ -9,7 +9,11 @@ export function getConnectionErrorMessage(args: {
     return t("connectionServerUnreachable");
   }
 
-  if (args.reason && args.reason !== "origin_not_allowed" && args.reason !== "origin_missing") {
+  if (
+    args.reason &&
+    args.reason !== "origin_not_allowed" &&
+    args.reason !== "origin_missing"
+  ) {
     return t("connectionHandshakeRejected");
   }
 

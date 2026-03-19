@@ -1,7 +1,7 @@
 import {
   parseBilibiliVideoRef,
   type PlaybackState,
-  type SharedVideo
+  type SharedVideo,
 } from "@bili-syncplay/protocol";
 
 export interface PageVideoSource {
@@ -23,12 +23,14 @@ export interface VideoPlaybackSnapshot {
   playState: PlaybackState["playState"];
 }
 
-export function resolvePageSharedVideo(source: PageVideoSource): SharedVideo | null {
+export function resolvePageSharedVideo(
+  source: PageVideoSource,
+): SharedVideo | null {
   if (source.pathname.startsWith("/festival/") && source.festivalSnapshot) {
     return {
       videoId: source.festivalSnapshot.videoId,
       url: source.festivalSnapshot.url,
-      title: source.festivalSnapshot.title
+      title: source.festivalSnapshot.title,
     };
   }
 
@@ -40,11 +42,16 @@ export function resolvePageSharedVideo(source: PageVideoSource): SharedVideo | n
   return {
     videoId: fallbackVideoRef.videoId,
     url: source.pageUrl,
-    title: resolveSharedVideoTitle(source)
+    title: resolveSharedVideoTitle(source),
   };
 }
 
-export function resolveSharedVideoTitle(source: Pick<PageVideoSource, "documentTitle" | "headingTitle" | "currentPartTitle">): string {
+export function resolveSharedVideoTitle(
+  source: Pick<
+    PageVideoSource,
+    "documentTitle" | "headingTitle" | "currentPartTitle"
+  >,
+): string {
   return (
     source.currentPartTitle ||
     source.headingTitle ||
@@ -63,7 +70,7 @@ export function createSharePayload(args: {
   if (!args.playback) {
     return {
       video: args.sharedVideo,
-      playback: null
+      playback: null,
     };
   }
 
@@ -77,12 +84,16 @@ export function createSharePayload(args: {
       updatedAt: args.now,
       serverTime: 0,
       actorId: args.actorId,
-      seq: args.seq
-    }
+      seq: args.seq,
+    },
   };
 }
 
-export function buildFestivalShareUrl(pageUrl: string, bvid: string, cid: string): string {
+export function buildFestivalShareUrl(
+  pageUrl: string,
+  bvid: string,
+  cid: string,
+): string {
   const parsed = new URL(pageUrl);
   parsed.searchParams.set("bvid", bvid);
   parsed.searchParams.set("cid", cid);

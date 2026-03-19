@@ -1,5 +1,12 @@
-import type { PlaybackState, RoomState, SharedVideo } from "@bili-syncplay/protocol";
-import type { DebugLogEntry, SharedVideoToastPayload } from "../shared/messages";
+import type {
+  PlaybackState,
+  RoomState,
+  SharedVideo,
+} from "@bili-syncplay/protocol";
+import type {
+  DebugLogEntry,
+  SharedVideoToastPayload,
+} from "../shared/messages";
 
 declare const __BILI_SYNCPLAY_DEFAULT_SERVER_URL__: string | undefined;
 
@@ -16,7 +23,7 @@ export const BILIBILI_VIDEO_URL_PATTERNS = [
   "https://www.bilibili.com/bangumi/play/*",
   "https://www.bilibili.com/festival/*",
   "https://www.bilibili.com/list/watchlater*",
-  "https://www.bilibili.com/medialist/play/watchlater*"
+  "https://www.bilibili.com/medialist/play/watchlater*",
 ];
 
 export interface ConnectionState {
@@ -51,7 +58,9 @@ export interface ShareState {
   pendingLocalShareUrl: string | null;
   pendingLocalShareExpiresAt: number | null;
   pendingLocalShareTimer: number | null;
-  pendingShareToast: (SharedVideoToastPayload & { expiresAt: number; roomCode: string }) | null;
+  pendingShareToast:
+    | (SharedVideoToastPayload & { expiresAt: number; roomCode: string })
+    | null;
 }
 
 export interface ClockState {
@@ -83,7 +92,7 @@ export function createBackgroundRuntimeState(): BackgroundRuntimeState {
       connectProbe: null,
       reconnectTimer: null,
       reconnectAttempt: 0,
-      reconnectDeadlineMs: null
+      reconnectDeadlineMs: null,
     },
     room: {
       roomCode: null,
@@ -96,7 +105,7 @@ export function createBackgroundRuntimeState(): BackgroundRuntimeState {
       pendingJoinRoomCode: null,
       pendingJoinToken: null,
       pendingSharedVideo: null,
-      pendingSharedPlayback: null
+      pendingSharedPlayback: null,
     },
     share: {
       sharedTabId: null,
@@ -105,16 +114,16 @@ export function createBackgroundRuntimeState(): BackgroundRuntimeState {
       pendingLocalShareUrl: null,
       pendingLocalShareExpiresAt: null,
       pendingLocalShareTimer: null,
-      pendingShareToast: null
+      pendingShareToast: null,
     },
     clock: {
       clockOffsetMs: null,
       rttMs: null,
-      clockSyncTimer: null
+      clockSyncTimer: null,
     },
     diagnostics: {
       logs: [],
-      lastPopupStateLogKey: null
-    }
+      lastPopupStateLogKey: null,
+    },
   };
 }

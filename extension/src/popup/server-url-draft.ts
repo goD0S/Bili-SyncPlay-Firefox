@@ -6,11 +6,14 @@ export interface ServerUrlDraftState {
 export function createServerUrlDraftState(): ServerUrlDraftState {
   return {
     value: "",
-    dirty: false
+    dirty: false,
   };
 }
 
-export function syncServerUrlDraft(state: ServerUrlDraftState, serverUrl: string): void {
+export function syncServerUrlDraft(
+  state: ServerUrlDraftState,
+  serverUrl: string,
+): void {
   state.value = serverUrl;
   state.dirty = false;
 }
@@ -18,7 +21,7 @@ export function syncServerUrlDraft(state: ServerUrlDraftState, serverUrl: string
 export function updateServerUrlDraft(
   state: ServerUrlDraftState,
   value: string,
-  persistedServerUrl: string
+  persistedServerUrl: string,
 ): void {
   state.value = value;
   state.dirty = value !== persistedServerUrl;
@@ -27,7 +30,7 @@ export function updateServerUrlDraft(
 export function getRenderedServerUrlValue(
   state: ServerUrlDraftState,
   persistedServerUrl: string,
-  focused: boolean
+  focused: boolean,
 ): string {
   if (!focused && !state.dirty) {
     syncServerUrlDraft(state, persistedServerUrl);

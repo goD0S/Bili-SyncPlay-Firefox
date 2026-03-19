@@ -1,6 +1,9 @@
 import type { BackgroundToContentMessage } from "../shared/messages";
 
-export async function notifyContentTabs(message: BackgroundToContentMessage, urlPatterns: string[]): Promise<void> {
+export async function notifyContentTabs(
+  message: BackgroundToContentMessage,
+  urlPatterns: string[],
+): Promise<void> {
   const tabs = await chrome.tabs.query({ url: urlPatterns });
   await Promise.all(
     tabs
@@ -11,6 +14,6 @@ export async function notifyContentTabs(message: BackgroundToContentMessage, url
         } catch {
           // Ignore tabs without a ready content script.
         }
-      })
+      }),
   );
 }

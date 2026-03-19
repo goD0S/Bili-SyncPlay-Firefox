@@ -26,7 +26,10 @@ export type IncomingRoomStateDecision =
       confirmedPendingLocalShare: boolean;
     };
 
-export function createPendingLocalShareExpiry(now: number, timeoutMs = PENDING_LOCAL_SHARE_TIMEOUT_MS): number {
+export function createPendingLocalShareExpiry(
+  now: number,
+  timeoutMs = PENDING_LOCAL_SHARE_TIMEOUT_MS,
+): number {
   return now + timeoutMs;
 }
 
@@ -55,21 +58,25 @@ export function clearPendingLocalShareState(): PendingLocalShareState {
   return {
     pendingLocalShareUrl: null,
     pendingLocalShareExpiresAt: null,
-    pendingLocalShareTimer: null
+    pendingLocalShareTimer: null,
   };
 }
 
-export function preparePendingLocalShareCleanup(state: PendingLocalShareState): PendingLocalShareCleanupPlan {
+export function preparePendingLocalShareCleanup(
+  state: PendingLocalShareState,
+): PendingLocalShareCleanupPlan {
   return {
     nextState: clearPendingLocalShareState(),
-    hadPendingLocalShare: Boolean(state.pendingLocalShareUrl) || state.pendingLocalShareExpiresAt !== null,
-    shouldCancelTimer: state.pendingLocalShareTimer !== null
+    hadPendingLocalShare:
+      Boolean(state.pendingLocalShareUrl) ||
+      state.pendingLocalShareExpiresAt !== null,
+    shouldCancelTimer: state.pendingLocalShareTimer !== null,
   };
 }
 
 export function preparePendingLocalShareCleanupForRoomLifecycle(
   _action: RoomLifecycleAction,
-  state: PendingLocalShareState
+  state: PendingLocalShareState,
 ): PendingLocalShareCleanupPlan {
   return preparePendingLocalShareCleanup(state);
 }
@@ -82,10 +89,13 @@ export function decideIncomingRoomState(args: {
   const {
     currentRoomState,
     normalizedPendingLocalShareUrl,
-    normalizedIncomingSharedUrl
+    normalizedIncomingSharedUrl,
   } = args;
 
-  if (normalizedPendingLocalShareUrl && normalizedIncomingSharedUrl !== normalizedPendingLocalShareUrl) {
+  if (
+    normalizedPendingLocalShareUrl &&
+    normalizedIncomingSharedUrl !== normalizedPendingLocalShareUrl
+  ) {
     return { kind: "ignore-stale" };
   }
 
@@ -93,10 +103,14 @@ export function decideIncomingRoomState(args: {
     kind: "apply",
     previousSharedUrl: currentRoomState?.sharedVideo?.url ?? null,
     confirmedPendingLocalShare:
-      normalizedPendingLocalShareUrl !== null && normalizedIncomingSharedUrl === normalizedPendingLocalShareUrl
+      normalizedPendingLocalShareUrl !== null &&
+      normalizedIncomingSharedUrl === normalizedPendingLocalShareUrl,
   };
 }
 
-export function isSharedVideoChange(previousSharedUrl: string | null, nextState: RoomState): boolean {
+export function isSharedVideoChange(
+  previousSharedUrl: string | null,
+  nextState: RoomState,
+): boolean {
   return previousSharedUrl !== (nextState.sharedVideo?.url ?? null);
 }

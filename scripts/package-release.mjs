@@ -10,7 +10,10 @@ const extensionDir = path.join(rootDir, "extension");
 const distDir = path.join(extensionDir, "dist");
 const releaseDir = path.join(rootDir, "release");
 
-const extensionPackageRaw = await readFile(path.join(extensionDir, "package.json"), "utf8");
+const extensionPackageRaw = await readFile(
+  path.join(extensionDir, "package.json"),
+  "utf8",
+);
 const extensionPackage = JSON.parse(extensionPackageRaw);
 const version = extensionPackage.version;
 const zipName = `bili-syncplay-extension-v${version}.zip`;
@@ -28,9 +31,9 @@ if (process.platform === "win32") {
       "-ExecutionPolicy",
       "Bypass",
       "-Command",
-      `Compress-Archive -Path '${distDir}\\*' -DestinationPath '${zipPath}' -Force`
+      `Compress-Archive -Path '${distDir}\\*' -DestinationPath '${zipPath}' -Force`,
     ],
-    rootDir
+    rootDir,
   );
 } else {
   await run("zip", ["-rq", zipPath, "."], distDir);
@@ -43,7 +46,7 @@ function run(command, args, cwd) {
     const child = spawn(command, args, {
       cwd,
       stdio: "inherit",
-      shell: false
+      shell: false,
     });
 
     child.on("error", reject);

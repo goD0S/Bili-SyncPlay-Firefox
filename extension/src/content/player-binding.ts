@@ -8,7 +8,10 @@ export function pauseVideo(video: HTMLVideoElement): void {
   video.pause();
 }
 
-export function getPlayState(video: HTMLVideoElement, intendedPlayState: PlaybackState["playState"]): PlaybackState["playState"] {
+export function getPlayState(
+  video: HTMLVideoElement,
+  intendedPlayState: PlaybackState["playState"],
+): PlaybackState["playState"] {
   if (!video.paused && video.readyState < 3) {
     return "buffering";
   }
@@ -26,7 +29,7 @@ export function syncPlaybackPosition(
   video: HTMLVideoElement,
   targetTime: number,
   playState: PlaybackState["playState"],
-  playbackRate: number
+  playbackRate: number,
 ): void {
   const delta = Math.abs(targetTime - video.currentTime);
 
@@ -54,17 +57,27 @@ export function applyPendingPlaybackApplication(args: {
   clearPendingPlaybackApplication: () => void;
   debugLog: (message: string) => void;
 }): boolean {
-  if (!args.pendingPlaybackApplication || !canApplyPlaybackImmediately(args.video)) {
+  if (
+    !args.pendingPlaybackApplication ||
+    !canApplyPlaybackImmediately(args.video)
+  ) {
     return false;
   }
 
   const playback = args.pendingPlaybackApplication;
   args.clearPendingPlaybackApplication();
 
-  syncPlaybackPosition(args.video, playback.currentTime, playback.playState, playback.playbackRate);
+  syncPlaybackPosition(
+    args.video,
+    playback.currentTime,
+    playback.playState,
+    playback.playbackRate,
+  );
   if (playback.playState === "playing") {
     void args.video.play().catch(() => {
-      args.debugLog(`Skipped delayed play() after seek ${playback.url} t=${playback.currentTime.toFixed(2)} seq=${playback.seq}`);
+      args.debugLog(
+        `Skipped delayed play() after seek ${playback.url} t=${playback.currentTime.toFixed(2)} seq=${playback.seq}`,
+      );
     });
     return true;
   }
@@ -89,7 +102,9 @@ export function bindVideoElement(args: {
   onRateChange: () => void;
   onTimeUpdate: () => void;
 }): boolean {
-  const boundVideo = args.video as HTMLVideoElement & { __biliSyncBound?: boolean };
+  const boundVideo = args.video as HTMLVideoElement & {
+    __biliSyncBound?: boolean;
+  };
   if (boundVideo.__biliSyncBound) {
     return false;
   }

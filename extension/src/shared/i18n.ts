@@ -36,14 +36,19 @@ const MESSAGES: Record<"zh" | "en", MessageCatalog> = {
     retrySeconds: "{seconds} 秒",
     clockStatus: "偏移 {offset}ms / RTT {rtt}ms",
     stateNoMembers: "暂无成员",
-    confirmCreateRoomBeforeShare: "当前未加入房间。是否创建房间并同步当前页视频？",
-    confirmReplaceSharedVideo: "当前房间正在同步《{currentTitle}》。\n是否替换为《{nextTitle}》？",
+    confirmCreateRoomBeforeShare:
+      "当前未加入房间。是否创建房间并同步当前页视频？",
+    confirmReplaceSharedVideo:
+      "当前房间正在同步《{currentTitle}》。\n是否替换为《{nextTitle}》？",
     errorInvalidInviteFormat: "邀请格式无效，请输入“房间码:加入码”。",
     invalidServerUrl: "服务端地址必须以 ws:// 或 wss:// 开头。",
     connectionServerUnreachable: "无法连接到同步服务器。",
-    connectionHandshakeRejected: "服务器可达，但 WebSocket 握手被拒绝。请检查服务端状态，以及反向代理是否已正确转发 WebSocket。",
-    connectionOriginRejected: "服务器可达，但 WebSocket 握手被拒绝。请检查服务端 ALLOWED_ORIGINS 是否包含 {extensionOrigin}，以及反向代理是否已正确转发 WebSocket。",
-    connectionAllowedOriginsRejected: "服务器可达，但 WebSocket 握手被拒绝。请检查服务端 ALLOWED_ORIGINS，以及反向代理是否已正确转发 WebSocket。",
+    connectionHandshakeRejected:
+      "服务器可达，但 WebSocket 握手被拒绝。请检查服务端状态，以及反向代理是否已正确转发 WebSocket。",
+    connectionOriginRejected:
+      "服务器可达，但 WebSocket 握手被拒绝。请检查服务端 ALLOWED_ORIGINS 是否包含 {extensionOrigin}，以及反向代理是否已正确转发 WebSocket。",
+    connectionAllowedOriginsRejected:
+      "服务器可达，但 WebSocket 握手被拒绝。请检查服务端 ALLOWED_ORIGINS，以及反向代理是否已正确转发 WebSocket。",
     adminRemovedFromRoom: "你已被管理员移出房间。",
     adminDisconnectedSession: "你的连接已被管理员断开。",
     adminClosedRoom: "当前房间已被管理员关闭。",
@@ -69,7 +74,7 @@ const MESSAGES: Record<"zh" | "en", MessageCatalog> = {
     toastPausedVideo: "{name} 暂停了视频",
     toastSwitchedRate: "{name} 切换到 {rate}",
     toastSeekedTo: "{name} 跳转到 {time}",
-    toastSharedNewVideo: "{name} 共享了新视频：{title}"
+    toastSharedNewVideo: "{name} 共享了新视频：{title}",
   },
   en: {
     popupTitle: "Bili SyncPlay",
@@ -102,28 +107,37 @@ const MESSAGES: Record<"zh" | "en", MessageCatalog> = {
     retrySeconds: "{seconds}s",
     clockStatus: "Offset {offset}ms / RTT {rtt}ms",
     stateNoMembers: "No members yet",
-    confirmCreateRoomBeforeShare: "You're not in a room yet. Create one and sync the current page video?",
-    confirmReplaceSharedVideo: "The room is currently syncing \"{currentTitle}\".\nReplace it with \"{nextTitle}\"?",
-    errorInvalidInviteFormat: "Invalid invite format. Enter \"ROOMCODE:JOINTOKEN\".",
+    confirmCreateRoomBeforeShare:
+      "You're not in a room yet. Create one and sync the current page video?",
+    confirmReplaceSharedVideo:
+      'The room is currently syncing "{currentTitle}".\nReplace it with "{nextTitle}"?',
+    errorInvalidInviteFormat:
+      'Invalid invite format. Enter "ROOMCODE:JOINTOKEN".',
     invalidServerUrl: "Server URL must start with ws:// or wss://.",
     connectionServerUnreachable: "Unable to connect to the sync server.",
-    connectionHandshakeRejected: "The server is reachable, but the WebSocket handshake was rejected. Check the server status and make sure the reverse proxy forwards WebSocket correctly.",
-    connectionOriginRejected: "The server is reachable, but the WebSocket handshake was rejected. Check whether ALLOWED_ORIGINS includes {extensionOrigin}, and make sure the reverse proxy forwards WebSocket correctly.",
-    connectionAllowedOriginsRejected: "The server is reachable, but the WebSocket handshake was rejected. Check ALLOWED_ORIGINS and make sure the reverse proxy forwards WebSocket correctly.",
+    connectionHandshakeRejected:
+      "The server is reachable, but the WebSocket handshake was rejected. Check the server status and make sure the reverse proxy forwards WebSocket correctly.",
+    connectionOriginRejected:
+      "The server is reachable, but the WebSocket handshake was rejected. Check whether ALLOWED_ORIGINS includes {extensionOrigin}, and make sure the reverse proxy forwards WebSocket correctly.",
+    connectionAllowedOriginsRejected:
+      "The server is reachable, but the WebSocket handshake was rejected. Check ALLOWED_ORIGINS and make sure the reverse proxy forwards WebSocket correctly.",
     adminRemovedFromRoom: "You were removed from the room by an admin.",
     adminDisconnectedSession: "Your connection was terminated by an admin.",
     adminClosedRoom: "This room was closed by an admin.",
     leftRoomWithReason: "You left the room: {reason}",
     popupErrorNoActiveTab: "No active tab.",
     popupErrorOpenBilibiliVideo: "Open a Bilibili video page first.",
-    popupErrorNoPlayableVideo: "No playable video was found on the current page.",
+    popupErrorNoPlayableVideo:
+      "No playable video was found on the current page.",
     popupErrorCannotAccessPage: "Cannot access the current page.",
     popupErrorMemberTokenMissing: "Member token is missing. Rejoin the room.",
-    popupErrorReconnectFailed: "Still unable to connect to the sync server after {attempts} attempts.",
+    popupErrorReconnectFailed:
+      "Still unable to connect to the sync server after {attempts} attempts.",
     popupErrorCannotReadCurrentVideo: "Unable to read the current video.",
     serverErrorRoomNotFound: "The room was not found.",
     serverErrorJoinTokenInvalid: "The join token is invalid.",
-    serverErrorMemberTokenInvalid: "The member token is invalid. Rejoin the room.",
+    serverErrorMemberTokenInvalid:
+      "The member token is invalid. Rejoin the room.",
     serverErrorNotInRoom: "Join a room first.",
     serverErrorRateLimited: "Too many requests. Try again later.",
     serverErrorRoomFull: "Room is full.",
@@ -135,8 +149,8 @@ const MESSAGES: Record<"zh" | "en", MessageCatalog> = {
     toastPausedVideo: "{name} paused the video",
     toastSwitchedRate: "{name} switched to {rate}",
     toastSeekedTo: "{name} jumped to {time}",
-    toastSharedNewVideo: "{name} shared a new video: {title}"
-  }
+    toastSharedNewVideo: "{name} shared a new video: {title}",
+  },
 };
 
 let localeOverride: string | null = null;
@@ -151,7 +165,9 @@ function getCatalog(): MessageCatalog {
 }
 
 function interpolate(template: string, params: MessageParams = {}): string {
-  return template.replace(/\{(\w+)\}/g, (_match, key) => String(params[key] ?? ""));
+  return template.replace(/\{(\w+)\}/g, (_match, key) =>
+    String(params[key] ?? ""),
+  );
 }
 
 export function getUiLanguage(): string {
@@ -172,11 +188,17 @@ export function getDocumentLanguage(): string {
   return resolveLocale() === "en" ? "en" : "zh-CN";
 }
 
-export function t(key: keyof typeof MESSAGES.zh, params?: MessageParams): string {
+export function t(
+  key: keyof typeof MESSAGES.zh,
+  params?: MessageParams,
+): string {
   return interpolate(getCatalog()[key], params);
 }
 
-export function localizeServerError(code: ErrorCode, fallbackMessage: string): string {
+export function localizeServerError(
+  code: ErrorCode,
+  fallbackMessage: string,
+): string {
   if (resolveLocale() !== "en") {
     return fallbackMessage;
   }

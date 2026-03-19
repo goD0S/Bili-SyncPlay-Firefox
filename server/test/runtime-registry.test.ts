@@ -11,7 +11,7 @@ function createSession(id: string): Session {
       OPEN: 1,
       send() {},
       close() {},
-      terminate() {}
+      terminate() {},
     } as Session["socket"],
     remoteAddress: null,
     origin: null,
@@ -27,8 +27,8 @@ function createSession(id: string): Session {
       videoShare: { windowStart: 0, count: 0 },
       playbackUpdate: { tokens: 0, lastRefillAt: 0 },
       syncRequest: { windowStart: 0, count: 0 },
-      syncPing: { tokens: 0, lastRefillAt: 0 }
-    }
+      syncPing: { tokens: 0, lastRefillAt: 0 },
+    },
   };
 }
 

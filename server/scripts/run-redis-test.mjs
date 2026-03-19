@@ -3,7 +3,9 @@ import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
 if (!process.env.REDIS_URL) {
-  console.error("REDIS_URL must be configured for npm run test:redis -w @bili-syncplay/server");
+  console.error(
+    "REDIS_URL must be configured for npm run test:redis -w @bili-syncplay/server",
+  );
   process.exit(1);
 }
 
@@ -16,8 +18,8 @@ const child = spawn(
   {
     cwd: serverDir,
     stdio: "inherit",
-    env: process.env
-  }
+    env: process.env,
+  },
 );
 
 child.on("exit", (code, signal) => {

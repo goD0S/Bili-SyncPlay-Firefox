@@ -22,7 +22,7 @@ test("popup snapshot includes connection, room, retry, clock, and logs state", (
   const snapshot = createPopupStateSnapshot({
     state,
     retryInMs: 3000,
-    retryAttemptMax: 5
+    retryAttemptMax: 5,
   });
 
   assert.equal(snapshot.type, "background:state");
@@ -35,5 +35,7 @@ test("popup snapshot includes connection, room, retry, clock, and logs state", (
   assert.equal(snapshot.payload.retryAttemptMax, 5);
   assert.equal(snapshot.payload.clockOffsetMs, 120);
   assert.equal(snapshot.payload.rttMs, 45);
-  assert.deepEqual(snapshot.payload.logs, [{ at: 1, scope: "background", message: "hello" }]);
+  assert.deepEqual(snapshot.payload.logs, [
+    { at: 1, scope: "background", message: "hello" },
+  ]);
 });

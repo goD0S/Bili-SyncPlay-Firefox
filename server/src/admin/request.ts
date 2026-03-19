@@ -49,7 +49,10 @@ export async function readJsonBody<T>(request: IncomingMessage): Promise<T> {
   }
 }
 
-export function parsePositiveInt(value: string | null, fallback: number): number {
+export function parsePositiveInt(
+  value: string | null,
+  fallback: number,
+): number {
   if (!value) {
     return fallback;
   }

@@ -16,7 +16,7 @@ const PROFILE_KEY = "bili-syncplay-profile";
 export async function loadState(): Promise<PersistedState> {
   const [sessionResult, profileResult] = await Promise.all([
     chrome.storage.session.get(SESSION_KEY),
-    chrome.storage.local.get(PROFILE_KEY)
+    chrome.storage.local.get(PROFILE_KEY),
   ]);
 
   return {
@@ -26,7 +26,7 @@ export async function loadState(): Promise<PersistedState> {
     memberId: sessionResult[SESSION_KEY]?.memberId ?? null,
     roomState: sessionResult[SESSION_KEY]?.roomState ?? null,
     displayName: profileResult[PROFILE_KEY]?.displayName ?? null,
-    serverUrl: profileResult[PROFILE_KEY]?.serverUrl ?? null
+    serverUrl: profileResult[PROFILE_KEY]?.serverUrl ?? null,
   };
 }
 
@@ -38,14 +38,14 @@ export async function saveState(value: PersistedState): Promise<void> {
         joinToken: value.joinToken,
         memberToken: value.memberToken,
         memberId: value.memberId,
-        roomState: value.roomState
-      }
+        roomState: value.roomState,
+      },
     }),
     chrome.storage.local.set({
       [PROFILE_KEY]: {
         displayName: value.displayName,
-        serverUrl: value.serverUrl
-      }
-    })
+        serverUrl: value.serverUrl,
+      },
+    }),
   ]);
 }

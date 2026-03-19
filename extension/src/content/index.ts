@@ -2,9 +2,12 @@ import {
   normalizeBilibiliUrl,
   type PlaybackState,
   type RoomState,
-  type SharedVideo
+  type SharedVideo,
 } from "@bili-syncplay/protocol";
-import type { BackgroundToContentMessage, SharedVideoToastPayload } from "../shared/messages";
+import type {
+  BackgroundToContentMessage,
+  SharedVideoToastPayload,
+} from "../shared/messages";
 import { createFestivalBridgeController } from "./festival-bridge";
 import {
   applyPendingPlaybackApplication as applyPendingPlaybackApplicationWithBinding,
@@ -12,14 +15,17 @@ import {
   canApplyPlaybackImmediately,
   getPlayState,
   getVideoElement,
-  pauseVideo
+  pauseVideo,
 } from "./player-binding";
-import { createSharePayload as createPageSharePayload, resolvePageSharedVideo } from "./page-video";
+import {
+  createSharePayload as createPageSharePayload,
+  resolvePageSharedVideo,
+} from "./page-video";
 import { decidePlaybackApplication } from "./playback-apply";
 import {
   createPlaybackBroadcastPayload,
   shouldPauseForNonSharedBroadcast,
-  shouldSkipBroadcastWhileHydrating
+  shouldSkipBroadcastWhileHydrating,
 } from "./playback-broadcast";
 import {
   evaluateNonSharedPageGuard,
@@ -28,14 +34,14 @@ import {
   shouldApplySelfPlayback as shouldApplySelfPlaybackGuard,
   shouldForcePauseWhileWaitingForInitialRoomState,
   shouldSuppressLocalEcho as shouldSuppressLocalEchoGuard,
-  shouldSuppressRemotePlayTransition as shouldSuppressRemotePlayTransitionGuard
+  shouldSuppressRemotePlayTransition as shouldSuppressRemotePlayTransitionGuard,
 } from "./sync-guards";
 import { createContentRuntimeState } from "./runtime-state";
 import {
   createToastCoordinatorState,
   createToastPresenter,
   getRoomStateToastMessages,
-  getSharedVideoToastMessage
+  getSharedVideoToastMessage,
 } from "./toast";
 
 let seq = 0;
@@ -43,7 +49,10 @@ let lastBroadcastAt = 0;
 let hydrateRetryTimer: number | null = null;
 let videoBindingTimer: number | null = null;
 let navigationWatchTimer: number | null = null;
-let lastAppliedVersionByActor = new Map<string, { serverTime: number; seq: number }>();
+const lastAppliedVersionByActor = new Map<
+  string,
+  { serverTime: number; seq: number }
+>();
 const runtimeState = createContentRuntimeState();
 const toastState = createToastCoordinatorState();
 const toastPresenter = createToastPresenter();
@@ -68,11 +77,15 @@ void init();
 function debugLog(message: string): void {
   void runtimeSendMessage({
     type: "content:debug-log",
-    payload: { message }
+    payload: { message },
   }).catch(() => undefined);
 }
 
-function shouldLogHeartbeat(state: { key: string | null; at: number }, key: string, now = Date.now()): boolean {
+function shouldLogHeartbeat(
+  state: { key: string | null; at: number },
+  key: string,
+  now = Date.now(),
+): boolean {
   if (state.key === key && now - state.at < HEARTBEAT_LOG_INTERVAL_MS) {
     return false;
   }
@@ -85,7 +98,10 @@ async function runtimeSendMessage<T>(message: unknown): Promise<T | null> {
   try {
     return await chrome.runtime.sendMessage(message);
   } catch (error) {
-    if (error instanceof Error && error.message.includes("Extension context invalidated")) {
+    if (
+      error instanceof Error &&
+      error.message.includes("Extension context invalidated")
+    ) {
       return null;
     }
     throw error;
@@ -117,7 +133,7 @@ function notifyRoomStateToasts(state: RoomState): void {
     pendingRoomStateHydration: runtimeState.pendingRoomStateHydration,
     isCurrentPageShowingSharedVideo: isCurrentPageShowingSharedVideo(state),
     now: Date.now(),
-    lastSeekToastByActor: toastState.lastSeekToastByActor
+    lastSeekToastByActor: toastState.lastSeekToastByActor,
   });
   toastState.lastRoomState = state;
   toastState.lastSeekToastByActor = plan.nextSeekToastByActor;
@@ -126,14 +142,17 @@ function notifyRoomStateToasts(state: RoomState): void {
   }
 }
 
-function maybeShowSharedVideoToast(toast: SharedVideoToastPayload | null | undefined, state: RoomState): void {
+function maybeShowSharedVideoToast(
+  toast: SharedVideoToastPayload | null | undefined,
+  state: RoomState,
+): void {
   const plan = getSharedVideoToastMessage({
     toast,
     state,
     localMemberId: runtimeState.localMemberId,
     lastSharedVideoToastKey: toastState.lastSharedVideoToastKey,
     normalizedToastUrl: normalizeUrl(toast?.videoUrl),
-    normalizedSharedUrl: normalizeUrl(state.sharedVideo?.url)
+    normalizedSharedUrl: normalizeUrl(state.sharedVideo?.url),
   });
   toastState.lastSharedVideoToastKey = plan.nextSharedVideoToastKey;
   if (plan.message) {
@@ -149,57 +168,68 @@ async function init(): Promise<void> {
   });
   void reportCurrentUser();
 
-  chrome.runtime.onMessage.addListener((message: BackgroundToContentMessage, _sender, sendResponse) => {
-    if (message.type === "background:apply-room-state") {
-      void applyRoomState(message.payload, message.shareToast ?? null);
-      return false;
-    }
-
-    if (message.type === "background:sync-status") {
-      const previousRoomCode = runtimeState.activeRoomCode;
-      runtimeState.activeRoomCode = message.payload.roomCode;
-      runtimeState.localMemberId = message.payload.memberId;
-      const roomChanged = Boolean(
-        previousRoomCode && message.payload.roomCode && previousRoomCode !== message.payload.roomCode
-      );
-
-      if (roomChanged) {
-        resetPlaybackSyncState(`room changed ${previousRoomCode} -> ${message.payload.roomCode}`);
-        toastState.lastRoomState = null;
-        runtimeState.hasReceivedInitialRoomState = false;
-        runtimeState.pendingRoomStateHydration = true;
+  chrome.runtime.onMessage.addListener(
+    (message: BackgroundToContentMessage, _sender, sendResponse) => {
+      if (message.type === "background:apply-room-state") {
+        void applyRoomState(message.payload, message.shareToast ?? null);
+        return false;
       }
 
-      if (message.payload.roomCode && !runtimeState.hasReceivedInitialRoomState) {
-        runtimeState.pendingRoomStateHydration = true;
-        debugLog(`Waiting for initial room state of ${message.payload.roomCode}`);
-        scheduleHydrationRetry(150);
-      }
+      if (message.type === "background:sync-status") {
+        const previousRoomCode = runtimeState.activeRoomCode;
+        runtimeState.activeRoomCode = message.payload.roomCode;
+        runtimeState.localMemberId = message.payload.memberId;
+        const roomChanged = Boolean(
+          previousRoomCode &&
+          message.payload.roomCode &&
+          previousRoomCode !== message.payload.roomCode,
+        );
 
-      if (!message.payload.roomCode) {
-        if (previousRoomCode) {
-          resetPlaybackSyncState(`room cleared from ${previousRoomCode}`);
+        if (roomChanged) {
+          resetPlaybackSyncState(
+            `room changed ${previousRoomCode} -> ${message.payload.roomCode}`,
+          );
+          toastState.lastRoomState = null;
+          runtimeState.hasReceivedInitialRoomState = false;
+          runtimeState.pendingRoomStateHydration = true;
         }
-        runtimeState.activeSharedUrl = null;
-        toastState.lastRoomState = null;
-        runtimeState.pendingRoomStateHydration = false;
-        runtimeState.hasReceivedInitialRoomState = false;
+
+        if (
+          message.payload.roomCode &&
+          !runtimeState.hasReceivedInitialRoomState
+        ) {
+          runtimeState.pendingRoomStateHydration = true;
+          debugLog(
+            `Waiting for initial room state of ${message.payload.roomCode}`,
+          );
+          scheduleHydrationRetry(150);
+        }
+
+        if (!message.payload.roomCode) {
+          if (previousRoomCode) {
+            resetPlaybackSyncState(`room cleared from ${previousRoomCode}`);
+          }
+          runtimeState.activeSharedUrl = null;
+          toastState.lastRoomState = null;
+          runtimeState.pendingRoomStateHydration = false;
+          runtimeState.hasReceivedInitialRoomState = false;
+        }
+        return false;
       }
+
+      if (message.type === "background:get-current-video") {
+        void (async () => {
+          sendResponse({
+            ok: true,
+            payload: await resolveCurrentSharePayload(),
+          });
+        })();
+        return true;
+      }
+
       return false;
-    }
-
-    if (message.type === "background:get-current-video") {
-      void (async () => {
-        sendResponse({
-          ok: true,
-          payload: await resolveCurrentSharePayload()
-        });
-      })();
-      return true;
-    }
-
-    return false;
-  });
+    },
+  );
 
   await hydrateRoomState();
 }
@@ -216,7 +246,10 @@ function startUserGestureTracking(): void {
 function startPlaybackBinding(): void {
   attachPlaybackListeners();
   if (videoBindingTimer === null) {
-    videoBindingTimer = window.setInterval(attachPlaybackListeners, VIDEO_BIND_INTERVAL_MS);
+    videoBindingTimer = window.setInterval(
+      attachPlaybackListeners,
+      VIDEO_BIND_INTERVAL_MS,
+    );
   }
 }
 
@@ -239,7 +272,7 @@ function attachPlaybackListeners(): void {
     if (Date.now() - runtimeState.lastUserGestureAt < USER_GESTURE_GRACE_MS) {
       runtimeState.lastExplicitPlaybackAction = {
         playState,
-        at: Date.now()
+        at: Date.now(),
       };
     }
   };
@@ -253,7 +286,9 @@ function attachPlaybackListeners(): void {
       runtimeState.intendedPlayState !== "playing" &&
       Date.now() - runtimeState.lastUserGestureAt >= USER_GESTURE_GRACE_MS
     ) {
-      debugLog(`Forced pause hold reapplied after unexpected resume intended=${runtimeState.intendedPlayState}`);
+      debugLog(
+        `Forced pause hold reapplied after unexpected resume intended=${runtimeState.intendedPlayState}`,
+      );
       window.setTimeout(() => {
         pauseVideo(video);
       }, 0);
@@ -279,7 +314,11 @@ function attachPlaybackListeners(): void {
     onPause: () => {
       const currentVideo = getSharedVideo();
       rememberExplicitPlaybackAction("paused");
-      if (currentVideo && normalizeUrl(currentVideo.url) === runtimeState.explicitNonSharedPlaybackUrl) {
+      if (
+        currentVideo &&
+        normalizeUrl(currentVideo.url) ===
+          runtimeState.explicitNonSharedPlaybackUrl
+      ) {
         runtimeState.explicitNonSharedPlaybackUrl = null;
       }
       scheduleBroadcast(120);
@@ -310,7 +349,7 @@ function attachPlaybackListeners(): void {
       if (Date.now() - lastBroadcastAt > 2000 && !video.paused) {
         void broadcastPlayback(video);
       }
-    }
+    },
   });
 }
 
@@ -334,11 +373,19 @@ function startNavigationWatch(): void {
     runtimeState.pendingRoomStateHydration = true;
     runtimeState.intendedPlayState = "paused";
     activatePauseHold(INITIAL_ROOM_STATE_PAUSE_HOLD_MS);
-    debugLog(`Detected in-room navigation to ${nextPageUrl}, waiting for room state`);
+    debugLog(
+      `Detected in-room navigation to ${nextPageUrl}, waiting for room state`,
+    );
     attachPlaybackListeners();
     const video = getVideoElement();
-    if (video && !video.paused && Date.now() - runtimeState.lastUserGestureAt >= USER_GESTURE_GRACE_MS) {
-      debugLog(`Suppressed autoplay immediately after in-room navigation to ${nextPageUrl}`);
+    if (
+      video &&
+      !video.paused &&
+      Date.now() - runtimeState.lastUserGestureAt >= USER_GESTURE_GRACE_MS
+    ) {
+      debugLog(
+        `Suppressed autoplay immediately after in-room navigation to ${nextPageUrl}`,
+      );
       pauseVideo(video);
     }
     void hydrateRoomState();
@@ -346,11 +393,16 @@ function startNavigationWatch(): void {
 
   handlePotentialNavigation();
   if (navigationWatchTimer === null) {
-    navigationWatchTimer = window.setInterval(handlePotentialNavigation, NAVIGATION_WATCH_INTERVAL_MS);
+    navigationWatchTimer = window.setInterval(
+      handlePotentialNavigation,
+      NAVIGATION_WATCH_INTERVAL_MS,
+    );
   }
 }
 
-function forcePauseWhileWaitingForInitialRoomState(video: HTMLVideoElement): boolean {
+function forcePauseWhileWaitingForInitialRoomState(
+  video: HTMLVideoElement,
+): boolean {
   if (
     !shouldForcePauseWhileWaitingForInitialRoomState({
       activeRoomCode: runtimeState.activeRoomCode,
@@ -358,7 +410,7 @@ function forcePauseWhileWaitingForInitialRoomState(video: HTMLVideoElement): boo
       videoPaused: video.paused,
       now: Date.now(),
       lastUserGestureAt: runtimeState.lastUserGestureAt,
-      userGestureGraceMs: USER_GESTURE_GRACE_MS
+      userGestureGraceMs: USER_GESTURE_GRACE_MS,
     })
   ) {
     if (
@@ -367,17 +419,23 @@ function forcePauseWhileWaitingForInitialRoomState(video: HTMLVideoElement): boo
       !video.paused &&
       Date.now() - runtimeState.lastUserGestureAt < USER_GESTURE_GRACE_MS
     ) {
-      debugLog(`Allowed user-initiated playback while waiting for initial room state of ${runtimeState.activeRoomCode}`);
+      debugLog(
+        `Allowed user-initiated playback while waiting for initial room state of ${runtimeState.activeRoomCode}`,
+      );
     }
     return false;
   }
 
   if (Date.now() - runtimeState.lastUserGestureAt < USER_GESTURE_GRACE_MS) {
-    debugLog(`Allowed user-initiated playback while waiting for initial room state of ${runtimeState.activeRoomCode}`);
+    debugLog(
+      `Allowed user-initiated playback while waiting for initial room state of ${runtimeState.activeRoomCode}`,
+    );
     return false;
   }
 
-  debugLog(`Suppressed page autoplay while waiting for initial room state of ${runtimeState.activeRoomCode}`);
+  debugLog(
+    `Suppressed page autoplay while waiting for initial room state of ${runtimeState.activeRoomCode}`,
+  );
   runtimeState.intendedPlayState = "paused";
   window.setTimeout(() => {
     if (!video.paused) {
@@ -407,15 +465,19 @@ function forcePauseOnNonSharedPage(video: HTMLVideoElement): boolean {
     explicitNonSharedPlaybackUrl: runtimeState.explicitNonSharedPlaybackUrl,
     lastExplicitPlaybackAction: runtimeState.lastExplicitPlaybackAction,
     now: Date.now(),
-    userGestureGraceMs: USER_GESTURE_GRACE_MS
+    userGestureGraceMs: USER_GESTURE_GRACE_MS,
   });
 
-  if (!normalizedCurrentUrl || normalizedCurrentUrl === runtimeState.activeSharedUrl) {
+  if (
+    !normalizedCurrentUrl ||
+    normalizedCurrentUrl === runtimeState.activeSharedUrl
+  ) {
     runtimeState.explicitNonSharedPlaybackUrl = null;
     return false;
   }
 
-  runtimeState.explicitNonSharedPlaybackUrl = decision.nextExplicitNonSharedPlaybackUrl;
+  runtimeState.explicitNonSharedPlaybackUrl =
+    decision.nextExplicitNonSharedPlaybackUrl;
   if (!decision.shouldPause) {
     return false;
   }
@@ -458,7 +520,7 @@ function applyPendingPlaybackApplication(video: HTMLVideoElement): void {
     clearPendingPlaybackApplication: () => {
       runtimeState.pendingPlaybackApplication = null;
     },
-    debugLog
+    debugLog,
   });
 }
 
@@ -469,7 +531,7 @@ function hasRecentRemoteStopIntent(currentVideoUrl: string): boolean {
     normalizedCurrentUrl: normalizeUrl(currentVideoUrl),
     activeSharedUrl: runtimeState.activeSharedUrl,
     intendedPlayState: runtimeState.intendedPlayState,
-    suppressedRemotePlayback: runtimeState.suppressedRemotePlayback
+    suppressedRemotePlayback: runtimeState.suppressedRemotePlayback,
   });
 }
 
@@ -480,7 +542,7 @@ function rememberRemotePlaybackForSuppression(playback: PlaybackState): void {
     normalizedUrl: url,
     now: Date.now(),
     remoteEchoSuppressionMs: REMOTE_ECHO_SUPPRESSION_MS,
-    remotePlayTransitionGuardMs: REMOTE_PLAY_TRANSITION_GUARD_MS
+    remotePlayTransitionGuardMs: REMOTE_PLAY_TRANSITION_GUARD_MS,
   });
   runtimeState.suppressedRemotePlayback = remembered.suppressedRemotePlayback;
   runtimeState.recentRemotePlayingIntent = remembered.recentRemotePlayingIntent;
@@ -488,14 +550,14 @@ function rememberRemotePlaybackForSuppression(playback: PlaybackState): void {
     return;
   }
   debugLog(
-    `Remember remote echo ${playback.playState} ${url} t=${playback.currentTime.toFixed(2)} rate=${playback.playbackRate.toFixed(2)}`
+    `Remember remote echo ${playback.playState} ${url} t=${playback.currentTime.toFixed(2)} rate=${playback.playbackRate.toFixed(2)}`,
   );
 }
 
 function shouldSuppressLocalEcho(
   video: HTMLVideoElement,
   currentVideo: SharedVideo,
-  playState: PlaybackState["playState"]
+  playState: PlaybackState["playState"],
 ): boolean {
   const decision = shouldSuppressLocalEchoGuard({
     suppressedRemotePlayback: runtimeState.suppressedRemotePlayback,
@@ -503,16 +565,20 @@ function shouldSuppressLocalEcho(
     playState,
     currentTime: video.currentTime,
     playbackRate: video.playbackRate,
-    now: Date.now()
+    now: Date.now(),
   });
 
-  if (runtimeState.suppressedRemotePlayback && !decision.nextSuppressedRemotePlayback) {
+  if (
+    runtimeState.suppressedRemotePlayback &&
+    !decision.nextSuppressedRemotePlayback
+  ) {
     if (runtimeState.suppressedRemotePlayback) {
       debugLog(
-        `Remote echo window expired for ${runtimeState.suppressedRemotePlayback.playState} ${runtimeState.suppressedRemotePlayback.url}`
+        `Remote echo window expired for ${runtimeState.suppressedRemotePlayback.playState} ${runtimeState.suppressedRemotePlayback.url}`,
       );
     }
-    runtimeState.suppressedRemotePlayback = decision.nextSuppressedRemotePlayback;
+    runtimeState.suppressedRemotePlayback =
+      decision.nextSuppressedRemotePlayback;
   }
 
   if (
@@ -520,29 +586,37 @@ function shouldSuppressLocalEcho(
     decision.nextSuppressedRemotePlayback &&
     normalizeUrl(currentVideo.url) !== runtimeState.suppressedRemotePlayback.url
   ) {
-    debugLog(`Remote echo skipped by url ${currentVideo.url} != ${runtimeState.suppressedRemotePlayback.url}`);
+    debugLog(
+      `Remote echo skipped by url ${currentVideo.url} != ${runtimeState.suppressedRemotePlayback.url}`,
+    );
   } else if (
     runtimeState.suppressedRemotePlayback &&
     decision.nextSuppressedRemotePlayback &&
     playState !== runtimeState.suppressedRemotePlayback.playState
   ) {
-    debugLog(`Remote echo skipped by playState ${playState} != ${runtimeState.suppressedRemotePlayback.playState}`);
+    debugLog(
+      `Remote echo skipped by playState ${playState} != ${runtimeState.suppressedRemotePlayback.playState}`,
+    );
   } else if (
     runtimeState.suppressedRemotePlayback &&
     decision.nextSuppressedRemotePlayback &&
-    Math.abs(video.playbackRate - runtimeState.suppressedRemotePlayback.playbackRate) > 0.01
+    Math.abs(
+      video.playbackRate - runtimeState.suppressedRemotePlayback.playbackRate,
+    ) > 0.01
   ) {
     debugLog(
-      `Remote echo skipped by rate ${video.playbackRate.toFixed(2)} != ${runtimeState.suppressedRemotePlayback.playbackRate.toFixed(2)}`
+      `Remote echo skipped by rate ${video.playbackRate.toFixed(2)} != ${runtimeState.suppressedRemotePlayback.playbackRate.toFixed(2)}`,
     );
   }
 
   const threshold = playState === "playing" ? 0.9 : 0.2;
   const delta = runtimeState.suppressedRemotePlayback
-    ? Math.abs(video.currentTime - runtimeState.suppressedRemotePlayback.currentTime)
+    ? Math.abs(
+        video.currentTime - runtimeState.suppressedRemotePlayback.currentTime,
+      )
     : Infinity;
   debugLog(
-    `${decision.shouldSuppress ? "Suppressed" : "Allowed"} local echo ${playState} ${currentVideo.url} delta=${delta.toFixed(2)} threshold=${threshold.toFixed(2)}`
+    `${decision.shouldSuppress ? "Suppressed" : "Allowed"} local echo ${playState} ${currentVideo.url} delta=${delta.toFixed(2)} threshold=${threshold.toFixed(2)}`,
   );
   return decision.shouldSuppress;
 }
@@ -550,7 +624,7 @@ function shouldSuppressLocalEcho(
 function shouldSuppressRemotePlayTransition(
   currentVideo: SharedVideo,
   playState: PlaybackState["playState"],
-  currentTime: number
+  currentTime: number,
 ): boolean {
   const decision = shouldSuppressRemotePlayTransitionGuard({
     recentRemotePlayingIntent: runtimeState.recentRemotePlayingIntent,
@@ -559,26 +633,32 @@ function shouldSuppressRemotePlayTransition(
     currentTime,
     lastExplicitPlaybackAction: runtimeState.lastExplicitPlaybackAction,
     now: Date.now(),
-    userGestureGraceMs: USER_GESTURE_GRACE_MS
+    userGestureGraceMs: USER_GESTURE_GRACE_MS,
   });
 
   if (
     runtimeState.recentRemotePlayingIntent &&
     decision.nextRecentRemotePlayingIntent &&
     runtimeState.lastExplicitPlaybackAction &&
-    Date.now() - runtimeState.lastExplicitPlaybackAction.at < USER_GESTURE_GRACE_MS &&
+    Date.now() - runtimeState.lastExplicitPlaybackAction.at <
+      USER_GESTURE_GRACE_MS &&
     runtimeState.lastExplicitPlaybackAction.playState === "paused" &&
     playState === "paused"
   ) {
-    debugLog(`Allowed remote play transition echo by explicit action ${playState} ${currentVideo.url}`);
+    debugLog(
+      `Allowed remote play transition echo by explicit action ${playState} ${currentVideo.url}`,
+    );
   }
-  runtimeState.recentRemotePlayingIntent = decision.nextRecentRemotePlayingIntent;
+  runtimeState.recentRemotePlayingIntent =
+    decision.nextRecentRemotePlayingIntent;
 
   const delta = runtimeState.recentRemotePlayingIntent
     ? Math.abs(currentTime - runtimeState.recentRemotePlayingIntent.currentTime)
     : Infinity;
   if (decision.shouldSuppress) {
-    debugLog(`Suppressed remote play transition echo ${playState} ${currentVideo.url} delta=${delta.toFixed(2)}`);
+    debugLog(
+      `Suppressed remote play transition echo ${playState} ${currentVideo.url} delta=${delta.toFixed(2)}`,
+    );
   }
   return decision.shouldSuppress;
 }
@@ -595,9 +675,9 @@ function getSharedVideo(): SharedVideo | null {
       ? {
           videoId: festivalSnapshot.videoId,
           url: festivalSnapshot.url,
-          title: festivalSnapshot.title
+          title: festivalSnapshot.title,
         }
-      : null
+      : null,
   });
 }
 
@@ -614,13 +694,22 @@ async function getCurrentPlaybackVideo(): Promise<SharedVideo | null> {
 
 function getCurrentPartTitle(): string | null {
   return (
-    document.querySelector("li.bpx-state-multi-active-item")?.textContent?.trim() ||
-    document.querySelector(".video-section-list li.on, .video-section-list li.active, [data-cid].bpx-state-multi-active-item")?.textContent?.trim() ||
+    document
+      .querySelector("li.bpx-state-multi-active-item")
+      ?.textContent?.trim() ||
+    document
+      .querySelector(
+        ".video-section-list li.on, .video-section-list li.active, [data-cid].bpx-state-multi-active-item",
+      )
+      ?.textContent?.trim() ||
     null
   );
 }
 
-function createSharePayload(sharedVideo: SharedVideo): { video: SharedVideo; playback: PlaybackState | null } {
+function createSharePayload(sharedVideo: SharedVideo): {
+  video: SharedVideo;
+  playback: PlaybackState | null;
+} {
   const video = getVideoElement();
   return createPageSharePayload({
     sharedVideo,
@@ -628,29 +717,41 @@ function createSharePayload(sharedVideo: SharedVideo): { video: SharedVideo; pla
       ? {
           currentTime: video.currentTime,
           playbackRate: video.playbackRate,
-          playState: getPlayState(video, runtimeState.intendedPlayState)
+          playState: getPlayState(video, runtimeState.intendedPlayState),
         }
       : null,
     actorId: runtimeState.localMemberId ?? "local",
     seq: seq++,
-    now: Date.now()
+    now: Date.now(),
   });
 }
 
-function getCurrentSharePayload(): { video: SharedVideo; playback: PlaybackState | null } | null {
+function getCurrentSharePayload(): {
+  video: SharedVideo;
+  playback: PlaybackState | null;
+} | null {
   const currentVideo = getSharedVideo();
   if (currentVideo && window.location.pathname.startsWith("/festival/")) {
-    debugLog(`Festival video detected id=${currentVideo.videoId} title=${currentVideo.title} url=${currentVideo.url}`);
+    debugLog(
+      `Festival video detected id=${currentVideo.videoId} title=${currentVideo.title} url=${currentVideo.url}`,
+    );
   }
   return currentVideo ? createSharePayload(currentVideo) : null;
 }
 
-async function resolveCurrentSharePayload(): Promise<{ video: SharedVideo; playback: PlaybackState | null } | null> {
+async function resolveCurrentSharePayload(): Promise<{
+  video: SharedVideo;
+  playback: PlaybackState | null;
+} | null> {
   if (window.location.pathname.startsWith("/festival/")) {
     for (let attempt = 1; attempt <= 8; attempt += 1) {
-      const refreshed = await refreshFestivalSnapshot(attempt === 1 ? 0 : FESTIVAL_SNAPSHOT_TTL_MS);
+      const refreshed = await refreshFestivalSnapshot(
+        attempt === 1 ? 0 : FESTIVAL_SNAPSHOT_TTL_MS,
+      );
       if (refreshed) {
-        debugLog(`Festival payload stabilized after retry ${attempt}: ${refreshed.videoId}`);
+        debugLog(
+          `Festival payload stabilized after retry ${attempt}: ${refreshed.videoId}`,
+        );
         return createSharePayload(refreshed);
       }
       await new Promise((resolve) => window.setTimeout(resolve, 150));
@@ -663,16 +764,20 @@ async function resolveCurrentSharePayload(): Promise<{ video: SharedVideo; playb
   return initialPayload;
 }
 
-async function refreshFestivalSnapshot(maxAgeMs = FESTIVAL_SNAPSHOT_TTL_MS): Promise<SharedVideo | null> {
+async function refreshFestivalSnapshot(
+  maxAgeMs = FESTIVAL_SNAPSHOT_TTL_MS,
+): Promise<SharedVideo | null> {
   const nextSnapshot = await festivalBridge.refreshSnapshot({
     pathname: window.location.pathname,
     pageUrl: window.location.href.split("#")[0],
-    maxAgeMs
+    maxAgeMs,
   });
   if (!nextSnapshot) {
     return null;
   }
-  debugLog(`Festival video detected id=${nextSnapshot.videoId} title=${nextSnapshot.title} url=${nextSnapshot.url}`);
+  debugLog(
+    `Festival video detected id=${nextSnapshot.videoId} title=${nextSnapshot.title} url=${nextSnapshot.url}`,
+  );
   return nextSnapshot;
 }
 
@@ -680,12 +785,15 @@ function normalizeUrl(url: string | undefined | null): string | null {
   return normalizeBilibiliUrl(url);
 }
 
-function shouldApplySelfPlayback(video: HTMLVideoElement, playback: PlaybackState): boolean {
+function shouldApplySelfPlayback(
+  video: HTMLVideoElement,
+  playback: PlaybackState,
+): boolean {
   return shouldApplySelfPlaybackGuard({
     videoPaused: video.paused,
     videoCurrentTime: video.currentTime,
     videoPlaybackRate: video.playbackRate,
-    playback
+    playback,
   });
 }
 
@@ -696,17 +804,21 @@ async function broadcastPlayback(video: HTMLVideoElement): Promise<void> {
   }
   const now = Date.now();
   if (runtimeState.pendingRoomStateHydration) {
-    if (!shouldSkipBroadcastWhileHydrating({
-      pendingRoomStateHydration: runtimeState.pendingRoomStateHydration,
-      now,
-      lastUserGestureAt: runtimeState.lastUserGestureAt,
-      userGestureGraceMs: USER_GESTURE_GRACE_MS
-    })) {
+    if (
+      !shouldSkipBroadcastWhileHydrating({
+        pendingRoomStateHydration: runtimeState.pendingRoomStateHydration,
+        now,
+        lastUserGestureAt: runtimeState.lastUserGestureAt,
+        userGestureGraceMs: USER_GESTURE_GRACE_MS,
+      })
+    ) {
       debugLog(
-        `Allowed user-initiated broadcast while waiting for initial room state of ${runtimeState.activeRoomCode ?? "unknown-room"}`
+        `Allowed user-initiated broadcast while waiting for initial room state of ${runtimeState.activeRoomCode ?? "unknown-room"}`,
       );
     } else {
-      debugLog(`Skip broadcast while waiting for initial room state of ${runtimeState.activeRoomCode ?? "unknown-room"}`);
+      debugLog(
+        `Skip broadcast while waiting for initial room state of ${runtimeState.activeRoomCode ?? "unknown-room"}`,
+      );
       return;
     }
   }
@@ -730,7 +842,7 @@ async function broadcastPlayback(video: HTMLVideoElement): Promise<void> {
         playState: getPlayState(video, runtimeState.intendedPlayState),
         lastExplicitPlaybackAction: runtimeState.lastExplicitPlaybackAction,
         now,
-        userGestureGraceMs: USER_GESTURE_GRACE_MS
+        userGestureGraceMs: USER_GESTURE_GRACE_MS,
       })
     ) {
       runtimeState.intendedPlayState = "paused";
@@ -751,7 +863,9 @@ async function broadcastPlayback(video: HTMLVideoElement): Promise<void> {
     hasRecentRemoteStopIntent(currentVideo.url) &&
     Date.now() - runtimeState.lastUserGestureAt >= USER_GESTURE_GRACE_MS
   ) {
-    debugLog(`Skip playing broadcast during remote stop hold ${currentVideo.url}`);
+    debugLog(
+      `Skip playing broadcast during remote stop hold ${currentVideo.url}`,
+    );
     runtimeState.intendedPlayState = "paused";
     window.setTimeout(() => {
       if (!video.paused) {
@@ -763,7 +877,13 @@ async function broadcastPlayback(video: HTMLVideoElement): Promise<void> {
   if (shouldSuppressLocalEcho(video, currentVideo, playState)) {
     return;
   }
-  if (shouldSuppressRemotePlayTransition(currentVideo, playState, video.currentTime)) {
+  if (
+    shouldSuppressRemotePlayTransition(
+      currentVideo,
+      playState,
+      video.currentTime,
+    )
+  ) {
     return;
   }
 
@@ -778,22 +898,33 @@ async function broadcastPlayback(video: HTMLVideoElement): Promise<void> {
     playbackRate: video.playbackRate,
     actorId: runtimeState.localMemberId ?? "local",
     seq: seq++,
-    now
+    now,
   });
 
   const response = await runtimeSendMessage({
     type: "content:playback-update",
-    payload
+    payload,
   });
   if (response === null) {
     return;
   }
-  if (shouldLogHeartbeat(broadcastLogState, `${playState}|${normalizeUrl(currentVideo.url) ?? currentVideo.url}`, now)) {
-    debugLog(`Broadcast playback ${playState} ${currentVideo.url} t=${payload.currentTime.toFixed(2)} seq=${payload.seq}`);
+  if (
+    shouldLogHeartbeat(
+      broadcastLogState,
+      `${playState}|${normalizeUrl(currentVideo.url) ?? currentVideo.url}`,
+      now,
+    )
+  ) {
+    debugLog(
+      `Broadcast playback ${playState} ${currentVideo.url} t=${payload.currentTime.toFixed(2)} seq=${payload.seq}`,
+    );
   }
 }
 
-async function applyRoomState(state: RoomState, shareToast: SharedVideoToastPayload | null = null): Promise<void> {
+async function applyRoomState(
+  state: RoomState,
+  shareToast: SharedVideoToastPayload | null = null,
+): Promise<void> {
   notifyRoomStateToasts(state);
   maybeShowSharedVideoToast(shareToast, state);
 
@@ -814,8 +945,10 @@ async function applyRoomState(state: RoomState, shareToast: SharedVideoToastPayl
     lastLocalIntentAt: runtimeState.lastLocalIntentAt,
     lastLocalIntentPlayState: runtimeState.lastLocalIntentPlayState,
     localIntentGuardMs: LOCAL_INTENT_GUARD_MS,
-    lastAppliedVersion: state.playback ? lastAppliedVersionByActor.get(state.playback.actorId) ?? null : null,
-    localMemberId: runtimeState.localMemberId
+    lastAppliedVersion: state.playback
+      ? (lastAppliedVersionByActor.get(state.playback.actorId) ?? null)
+      : null,
+    localMemberId: runtimeState.localMemberId,
   });
 
   if (decision.kind === "empty-room") {
@@ -834,13 +967,19 @@ async function applyRoomState(state: RoomState, shareToast: SharedVideoToastPayl
 
   if (runtimeState.activeSharedUrl !== normalizedSharedUrl) {
     runtimeState.activeSharedUrl = normalizedSharedUrl ?? null;
-    resetPlaybackSyncState(`shared url changed to ${state.sharedVideo?.url ?? "none"}`);
+    resetPlaybackSyncState(
+      `shared url changed to ${state.sharedVideo?.url ?? "none"}`,
+    );
     runtimeState.intendedPlayState = "paused";
-    debugLog(`Reset local sync state for shared url ${state.sharedVideo?.url ?? "none"}`);
+    debugLog(
+      `Reset local sync state for shared url ${state.sharedVideo?.url ?? "none"}`,
+    );
   }
 
   if (decision.kind === "ignore-non-shared") {
-    debugLog(`Ignored room state for ${state.sharedVideo?.url ?? "none"} on current page ${currentVideo?.url ?? "none"}`);
+    debugLog(
+      `Ignored room state for ${state.sharedVideo?.url ?? "none"} on current page ${currentVideo?.url ?? "none"}`,
+    );
     if (decision.acceptedHydration) {
       runtimeState.hasReceivedInitialRoomState = true;
       runtimeState.pendingRoomStateHydration = false;
@@ -856,62 +995,72 @@ async function applyRoomState(state: RoomState, shareToast: SharedVideoToastPayl
 
   const video = getVideoElement();
   if (!video) {
-    debugLog(`Deferred room state because video element is not ready for ${state.sharedVideo.url}`);
+    debugLog(
+      `Deferred room state because video element is not ready for ${state.sharedVideo.url}`,
+    );
     scheduleHydrationRetry();
     return;
   }
 
   if (decision.kind === "ignore-local-guard") {
     debugLog(
-      `Ignored conflicting remote playback ${state.playback.playState} during local ${runtimeState.lastLocalIntentPlayState} guard actor=${state.playback.actorId} seq=${state.playback.seq}`
+      `Ignored conflicting remote playback ${state.playback.playState} during local ${runtimeState.lastLocalIntentPlayState} guard actor=${state.playback.actorId} seq=${state.playback.seq}`,
     );
     return;
   }
 
   if (decision.kind === "ignore-stale-playback") {
-    debugLog(`Ignored stale playback actor=${state.playback.actorId} seq=${state.playback.seq}`);
+    debugLog(
+      `Ignored stale playback actor=${state.playback.actorId} seq=${state.playback.seq}`,
+    );
     return;
   }
 
   const isSelfPlayback = decision.isSelfPlayback;
   lastAppliedVersionByActor.set(state.playback.actorId, {
     serverTime: state.playback.serverTime,
-    seq: state.playback.seq
+    seq: state.playback.seq,
   });
 
   if (isSelfPlayback && !shouldApplySelfPlayback(video, state.playback)) {
     if (
       shouldLogHeartbeat(
         ignoredSelfPlaybackLogState,
-        `${state.playback.actorId}|${state.playback.playState}|${normalizeUrl(state.playback.url) ?? state.playback.url}`
+        `${state.playback.actorId}|${state.playback.playState}|${normalizeUrl(state.playback.url) ?? state.playback.url}`,
       )
     ) {
       debugLog(
-        `Ignored self playback actor=${state.playback.actorId} seq=${state.playback.seq} localPaused=${video.paused} localT=${video.currentTime.toFixed(2)} remoteT=${state.playback.currentTime.toFixed(2)}`
+        `Ignored self playback actor=${state.playback.actorId} seq=${state.playback.seq} localPaused=${video.paused} localT=${video.currentTime.toFixed(2)} remoteT=${state.playback.currentTime.toFixed(2)}`,
       );
     }
     return;
   }
 
   rememberRemotePlaybackForSuppression(state.playback);
-  if (state.playback.playState === "paused" || state.playback.playState === "buffering") {
+  if (
+    state.playback.playState === "paused" ||
+    state.playback.playState === "buffering"
+  ) {
     activatePauseHold(
-      runtimeState.pendingRoomStateHydration || !runtimeState.hasReceivedInitialRoomState
+      runtimeState.pendingRoomStateHydration ||
+        !runtimeState.hasReceivedInitialRoomState
         ? INITIAL_ROOM_STATE_PAUSE_HOLD_MS
-        : PAUSE_HOLD_MS
+        : PAUSE_HOLD_MS,
     );
   }
 
   runtimeState.intendedPlayState = state.playback.playState;
   debugLog(
-    `Apply playback ${state.playback.playState} ${state.sharedVideo.url} t=${state.playback.currentTime.toFixed(2)} seq=${state.playback.seq} actor=${state.playback.actorId}`
+    `Apply playback ${state.playback.playState} ${state.sharedVideo.url} t=${state.playback.currentTime.toFixed(2)} seq=${state.playback.seq} actor=${state.playback.actorId}`,
   );
 
   runtimeState.pendingPlaybackApplication = { ...state.playback };
   if (canApplyPlaybackImmediately(video)) {
     applyPendingPlaybackApplication(video);
   } else {
-    debugLog(`Deferred playback apply until metadata is ready ${state.sharedVideo.url}`);
+    debugLog(
+      `Deferred playback apply until metadata is ready ${state.sharedVideo.url}`,
+    );
   }
 
   runtimeState.pendingRoomStateHydration = false;
@@ -924,19 +1073,28 @@ async function hydrateRoomState(): Promise<void> {
     hydrateRetryTimer = null;
   }
 
-  const response = await runtimeSendMessage<{ ok?: boolean; roomState?: RoomState; memberId?: string | null; roomCode?: string | null }>({
-    type: "content:get-room-state"
+  const response = await runtimeSendMessage<{
+    ok?: boolean;
+    roomState?: RoomState;
+    memberId?: string | null;
+    roomCode?: string | null;
+  }>({
+    type: "content:get-room-state",
   });
   if (response === null) {
     runtimeState.hydrationReady = true;
     return;
   }
   runtimeState.localMemberId = response?.memberId ?? null;
-  runtimeState.activeRoomCode = response?.roomCode ?? runtimeState.activeRoomCode;
+  runtimeState.activeRoomCode =
+    response?.roomCode ?? runtimeState.activeRoomCode;
 
   if (response?.ok && response.roomState) {
     debugLog(`Hydrate room state success for ${response.roomState.roomCode}`);
-    if (response.roomState.playback?.playState === "paused" || response.roomState.playback?.playState === "buffering") {
+    if (
+      response.roomState.playback?.playState === "paused" ||
+      response.roomState.playback?.playState === "buffering"
+    ) {
       runtimeState.intendedPlayState = response.roomState.playback.playState;
       activatePauseHold(INITIAL_ROOM_STATE_PAUSE_HOLD_MS);
     }
@@ -944,11 +1102,14 @@ async function hydrateRoomState(): Promise<void> {
     if (
       video &&
       !video.paused &&
-      (response.roomState.playback?.playState === "paused" || response.roomState.playback?.playState === "buffering") &&
+      (response.roomState.playback?.playState === "paused" ||
+        response.roomState.playback?.playState === "buffering") &&
       Date.now() - runtimeState.lastUserGestureAt >= USER_GESTURE_GRACE_MS
     ) {
       runtimeState.intendedPlayState = response.roomState.playback.playState;
-      debugLog(`Suppressed autoplay during hydrate for ${response.roomState.roomCode}`);
+      debugLog(
+        `Suppressed autoplay during hydrate for ${response.roomState.roomCode}`,
+      );
       pauseVideo(video);
     }
     await applyRoomState(response.roomState as RoomState);
@@ -966,15 +1127,20 @@ async function hydrateRoomState(): Promise<void> {
     return;
   }
 
-  debugLog(`Hydrate pending for ${response.roomCode ?? runtimeState.activeRoomCode ?? "unknown-room"}, retry scheduled`);
+  debugLog(
+    `Hydrate pending for ${response.roomCode ?? runtimeState.activeRoomCode ?? "unknown-room"}, retry scheduled`,
+  );
   scheduleHydrationRetry(1500);
 }
 
 async function reportCurrentUser(): Promise<void> {
   try {
-    const response = await fetch("https://api.bilibili.com/x/web-interface/nav", {
-      credentials: "include"
-    });
+    const response = await fetch(
+      "https://api.bilibili.com/x/web-interface/nav",
+      {
+        credentials: "include",
+      },
+    );
     const data = (await response.json()) as {
       code: number;
       data?: {
@@ -988,14 +1154,15 @@ async function reportCurrentUser(): Promise<void> {
       return;
     }
 
-    const nextDisplayName = data.data.uname?.trim() || (data.data.mid ? `UID-${data.data.mid}` : "");
+    const nextDisplayName =
+      data.data.uname?.trim() || (data.data.mid ? `UID-${data.data.mid}` : "");
     if (!nextDisplayName) {
       return;
     }
 
     const reportResponse = await runtimeSendMessage({
       type: "content:report-user",
-      payload: { displayName: nextDisplayName }
+      payload: { displayName: nextDisplayName },
     });
     if (reportResponse === null) {
       return;

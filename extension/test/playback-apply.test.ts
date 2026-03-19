@@ -3,14 +3,17 @@ import test from "node:test";
 import type { RoomState } from "@bili-syncplay/protocol";
 import { decidePlaybackApplication } from "../src/content/playback-apply";
 
-function createRoomState(sharedUrl: string | null, playbackOverrides: Partial<NonNullable<RoomState["playback"]>> = {}): RoomState {
+function createRoomState(
+  sharedUrl: string | null,
+  playbackOverrides: Partial<NonNullable<RoomState["playback"]>> = {},
+): RoomState {
   return {
     roomCode: "ROOM01",
     sharedVideo: sharedUrl
       ? {
           videoId: "BV1xx411c7mD",
           url: sharedUrl,
-          title: "Video"
+          title: "Video",
         }
       : null,
     playback: sharedUrl
@@ -23,10 +26,10 @@ function createRoomState(sharedUrl: string | null, playbackOverrides: Partial<No
           serverTime: 10,
           actorId: "remote-member",
           seq: 2,
-          ...playbackOverrides
+          ...playbackOverrides,
         }
       : null,
-    members: []
+    members: [],
   };
 }
 
@@ -45,12 +48,12 @@ test("accepts empty room state during hydration", () => {
       lastLocalIntentPlayState: null,
       localIntentGuardMs: 1_200,
       lastAppliedVersion: null,
-      localMemberId: null
+      localMemberId: null,
     }),
     {
       kind: "empty-room",
-      acceptedHydration: true
-    }
+      acceptedHydration: true,
+    },
   );
 });
 
@@ -61,7 +64,7 @@ test("protects non-shared page during hydration", () => {
       currentVideo: {
         videoId: "BVother",
         url: "https://www.bilibili.com/video/BVother?p=1",
-        title: "Other"
+        title: "Other",
       },
       normalizedSharedUrl: "https://www.bilibili.com/video/BVshared?p=1",
       normalizedCurrentUrl: "https://www.bilibili.com/video/BVother?p=1",
@@ -73,26 +76,29 @@ test("protects non-shared page during hydration", () => {
       lastLocalIntentPlayState: null,
       localIntentGuardMs: 1_200,
       lastAppliedVersion: null,
-      localMemberId: null
+      localMemberId: null,
     }),
     {
       kind: "ignore-non-shared",
       acceptedHydration: true,
-      shouldPauseNonSharedVideo: true
-    }
+      shouldPauseNonSharedVideo: true,
+    },
   );
 });
 
 test("ignores conflicting remote resume during local pause guard", () => {
   assert.equal(
     decidePlaybackApplication({
-      roomState: createRoomState("https://www.bilibili.com/video/BVshared?p=1", {
-        playState: "playing"
-      }),
+      roomState: createRoomState(
+        "https://www.bilibili.com/video/BVshared?p=1",
+        {
+          playState: "playing",
+        },
+      ),
       currentVideo: {
         videoId: "BVshared",
         url: "https://www.bilibili.com/video/BVshared?p=1",
-        title: "Shared"
+        title: "Shared",
       },
       normalizedSharedUrl: "https://www.bilibili.com/video/BVshared?p=1",
       normalizedCurrentUrl: "https://www.bilibili.com/video/BVshared?p=1",
@@ -104,23 +110,26 @@ test("ignores conflicting remote resume during local pause guard", () => {
       lastLocalIntentPlayState: "paused",
       localIntentGuardMs: 1_200,
       lastAppliedVersion: null,
-      localMemberId: null
+      localMemberId: null,
     }).kind,
-    "ignore-local-guard"
+    "ignore-local-guard",
   );
 });
 
 test("ignores stale playback updates by actor version", () => {
   assert.equal(
     decidePlaybackApplication({
-      roomState: createRoomState("https://www.bilibili.com/video/BVshared?p=1", {
-        serverTime: 10,
-        seq: 2
-      }),
+      roomState: createRoomState(
+        "https://www.bilibili.com/video/BVshared?p=1",
+        {
+          serverTime: 10,
+          seq: 2,
+        },
+      ),
       currentVideo: {
         videoId: "BVshared",
         url: "https://www.bilibili.com/video/BVshared?p=1",
-        title: "Shared"
+        title: "Shared",
       },
       normalizedSharedUrl: "https://www.bilibili.com/video/BVshared?p=1",
       normalizedCurrentUrl: "https://www.bilibili.com/video/BVshared?p=1",
@@ -133,23 +142,23 @@ test("ignores stale playback updates by actor version", () => {
       localIntentGuardMs: 1_200,
       lastAppliedVersion: {
         serverTime: 10,
-        seq: 2
+        seq: 2,
       },
-      localMemberId: null
+      localMemberId: null,
     }).kind,
-    "ignore-stale-playback"
+    "ignore-stale-playback",
   );
 });
 
 test("returns apply decision for current shared playback", () => {
   const decision = decidePlaybackApplication({
     roomState: createRoomState("https://www.bilibili.com/video/BVshared?p=1", {
-      actorId: "member-1"
+      actorId: "member-1",
     }),
     currentVideo: {
       videoId: "BVshared",
       url: "https://www.bilibili.com/video/BVshared?p=1",
-      title: "Shared"
+      title: "Shared",
     },
     normalizedSharedUrl: "https://www.bilibili.com/video/BVshared?p=1",
     normalizedCurrentUrl: "https://www.bilibili.com/video/BVshared?p=1",
@@ -161,7 +170,7 @@ test("returns apply decision for current shared playback", () => {
     lastLocalIntentPlayState: null,
     localIntentGuardMs: 1_200,
     lastAppliedVersion: null,
-    localMemberId: "member-1"
+    localMemberId: "member-1",
   });
 
   assert.equal(decision.kind, "apply");

@@ -1,4 +1,10 @@
-import { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
+import {
+  createHash,
+  randomBytes,
+  randomUUID,
+  scryptSync,
+  timingSafeEqual,
+} from "node:crypto";
 import type { AuthStore } from "./auth-store.js";
 import type { AdminRole, AdminSession } from "./types.js";
 
@@ -11,7 +17,10 @@ export type AdminAuthConfig = {
 };
 
 export type AdminAuthService = {
-  login: (username: string, password: string) => Promise<{ token: string; expiresAt: number; admin: AdminSession }>;
+  login: (
+    username: string,
+    password: string,
+  ) => Promise<{ token: string; expiresAt: number; admin: AdminSession }>;
   authenticate: (token: string) => Promise<AdminSession | null>;
   logout: (token: string) => Promise<void>;
 };
@@ -24,7 +33,9 @@ function verifyPassword(password: string, passwordHash: string): boolean {
   if (passwordHash.startsWith("sha256:")) {
     const expected = Buffer.from(passwordHash.slice("sha256:".length), "hex");
     const actual = sha256(password);
-    return expected.length === actual.length && timingSafeEqual(actual, expected);
+    return (
+      expected.length === actual.length && timingSafeEqual(actual, expected)
+    );
   }
 
   if (passwordHash.startsWith("scrypt:")) {
@@ -41,13 +52,24 @@ function verifyPassword(password: string, passwordHash: string): boolean {
 }
 
 function tokenIdOf(secret: string, token: string): string {
-  return createHash("sha256").update(secret).update(":").update(token).digest("hex");
+  return createHash("sha256")
+    .update(secret)
+    .update(":")
+    .update(token)
+    .digest("hex");
 }
 
-export function createAdminAuthService(config: AdminAuthConfig, store: AuthStore, now: () => number = Date.now): AdminAuthService {
+export function createAdminAuthService(
+  config: AdminAuthConfig,
+  store: AuthStore,
+  now: () => number = Date.now,
+): AdminAuthService {
   return {
     async login(username, password) {
-      if (username !== config.username || !verifyPassword(password, config.passwordHash)) {
+      if (
+        username !== config.username ||
+        !verifyPassword(password, config.passwordHash)
+      ) {
         throw new Error("invalid_credentials");
       }
 
@@ -60,7 +82,7 @@ export function createAdminAuthService(config: AdminAuthConfig, store: AuthStore
         role: config.role,
         createdAt: currentTime,
         expiresAt: currentTime + config.sessionTtlMs,
-        lastSeenAt: currentTime
+        lastSeenAt: currentTime,
       };
       store.save(tokenIdOf(config.sessionSecret, token), session);
       return { token, expiresAt: session.expiresAt, admin: session };
@@ -78,13 +100,13 @@ export function createAdminAuthService(config: AdminAuthConfig, store: AuthStore
       }
       const nextSession: AdminSession = {
         ...session,
-        lastSeenAt: currentTime
+        lastSeenAt: currentTime,
       };
       store.save(tokenId, nextSession);
       return nextSession;
     },
     async logout(token) {
       store.delete(tokenIdOf(config.sessionSecret, token));
-    }
+    },
   };
 }

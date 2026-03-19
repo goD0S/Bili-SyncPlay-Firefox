@@ -4,13 +4,8 @@
   "version": "0.8.1",
   "description": "__MSG_extensionDescription__",
   "default_locale": "zh_CN",
-  "permissions": [
-    "storage",
-    "tabs"
-  ],
-  "host_permissions": [
-    "https://www.bilibili.com/*"
-  ],
+  "permissions": ["storage", "tabs"],
+  "host_permissions": ["https://www.bilibili.com/*"],
   "background": {
     "service_worker": "background.js",
     "type": "module"
@@ -31,12 +26,8 @@
   },
   "web_accessible_resources": [
     {
-      "resources": [
-        "page-bridge.js"
-      ],
-      "matches": [
-        "https://www.bilibili.com/*"
-      ]
+      "resources": ["page-bridge.js"],
+      "matches": ["https://www.bilibili.com/*"]
     }
   ],
   "content_scripts": [
@@ -48,9 +39,7 @@
         "https://www.bilibili.com/list/watchlater*",
         "https://www.bilibili.com/medialist/play/watchlater*"
       ],
-      "js": [
-        "content.js"
-      ],
+      "js": ["content.js"],
       "run_at": "document_idle"
     }
   ]

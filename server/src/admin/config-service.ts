@@ -1,4 +1,8 @@
-import type { AdminConfig, PersistenceConfig, SecurityConfig } from "../types.js";
+import type {
+  AdminConfig,
+  PersistenceConfig,
+  SecurityConfig,
+} from "../types.js";
 
 export function createAdminConfigService(options: {
   adminConfig: AdminConfig;
@@ -12,31 +16,35 @@ export function createAdminConfigService(options: {
         persistence: {
           provider: options.persistenceConfig.provider,
           emptyRoomTtlMs: options.persistenceConfig.emptyRoomTtlMs,
-          roomCleanupIntervalMs: options.persistenceConfig.roomCleanupIntervalMs,
-          redisConfigured: options.persistenceConfig.provider === "redis"
+          roomCleanupIntervalMs:
+            options.persistenceConfig.roomCleanupIntervalMs,
+          redisConfigured: options.persistenceConfig.provider === "redis",
         },
         security: {
           allowedOrigins: options.securityConfig.allowedOrigins,
-          allowMissingOriginInDev: options.securityConfig.allowMissingOriginInDev,
+          allowMissingOriginInDev:
+            options.securityConfig.allowMissingOriginInDev,
           trustProxyHeaders: options.securityConfig.trustProxyHeaders,
           maxConnectionsPerIp: options.securityConfig.maxConnectionsPerIp,
-          connectionAttemptsPerMinute: options.securityConfig.connectionAttemptsPerMinute,
+          connectionAttemptsPerMinute:
+            options.securityConfig.connectionAttemptsPerMinute,
           maxMembersPerRoom: options.securityConfig.maxMembersPerRoom,
           maxMessageBytes: options.securityConfig.maxMessageBytes,
-          invalidMessageCloseThreshold: options.securityConfig.invalidMessageCloseThreshold,
-          rateLimits: options.securityConfig.rateLimits
+          invalidMessageCloseThreshold:
+            options.securityConfig.invalidMessageCloseThreshold,
+          rateLimits: options.securityConfig.rateLimits,
         },
         admin: options.adminConfig
           ? {
               configured: true,
               username: options.adminConfig.username,
               role: options.adminConfig.role,
-              sessionTtlMs: options.adminConfig.sessionTtlMs
+              sessionTtlMs: options.adminConfig.sessionTtlMs,
             }
           : {
-              configured: false
-            }
+              configured: false,
+            },
       };
-    }
+    },
   };
 }

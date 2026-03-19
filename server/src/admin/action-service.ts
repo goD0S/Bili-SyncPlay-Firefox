@@ -6,7 +6,7 @@ import {
   ROOM_ACTIVE_MESSAGE,
   ROOM_NOT_FOUND_MESSAGE,
   ROOM_VERSION_CONFLICT_MESSAGE,
-  SESSION_NOT_FOUND_MESSAGE
+  SESSION_NOT_FOUND_MESSAGE,
 } from "../messages.js";
 import type { LogEvent, PersistedRoom, Session } from "../types.js";
 import type { RoomStore, RoomUpdateResult } from "../room-store.js";
@@ -17,7 +17,7 @@ export class AdminActionError extends Error {
   constructor(
     readonly statusCode: number,
     readonly code: string,
-    message: string
+    message: string,
   ) {
     super(message);
   }
@@ -31,7 +31,11 @@ export function createAdminActionService(options: {
   getRoomStateByCode: (roomCode: string) => Promise<unknown | null>;
   broadcastRoomState: (roomCode: string) => Promise<void>;
   disconnectSessionSocket: (session: Session, reason: string) => void;
-  blockMemberToken: (roomCode: string, memberToken: string, expiresAt: number) => void;
+  blockMemberToken: (
+    roomCode: string,
+    memberToken: string,
+    expiresAt: number,
+  ) => void;
   logEvent: LogEvent;
   now?: () => number;
 }) {
@@ -47,7 +51,7 @@ export function createAdminActionService(options: {
 
   async function updateRoomWithRetry(
     roomCode: string,
-    action: (room: PersistedRoom) => Promise<RoomUpdateResult>
+    action: (room: PersistedRoom) => Promise<RoomUpdateResult>,
   ): Promise<PersistedRoom> {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const room = await getRoomOrThrow(roomCode);
@@ -56,10 +60,18 @@ export function createAdminActionService(options: {
         return result.room;
       }
       if (result.reason === "not_found") {
-        throw new AdminActionError(404, "room_not_found", ROOM_NOT_FOUND_MESSAGE);
+        throw new AdminActionError(
+          404,
+          "room_not_found",
+          ROOM_NOT_FOUND_MESSAGE,
+        );
       }
     }
-    throw new AdminActionError(409, "room_version_conflict", ROOM_VERSION_CONFLICT_MESSAGE);
+    throw new AdminActionError(
+      409,
+      "room_version_conflict",
+      ROOM_VERSION_CONFLICT_MESSAGE,
+    );
   }
 
   function writeAudit(
@@ -69,7 +81,7 @@ export function createAdminActionService(options: {
     targetId: string,
     request: Record<string, unknown>,
     result: "ok" | "rejected" | "error",
-    reason?: string
+    reason?: string,
   ): void {
     options.auditLogService.append({
       actor,
@@ -79,7 +91,7 @@ export function createAdminActionService(options: {
       request,
       result,
       reason,
-      instanceId: options.instanceId
+      instanceId: options.instanceId,
     });
   }
 
@@ -96,12 +108,12 @@ export function createAdminActionService(options: {
         roomCode,
         sessionCount: sessions.length,
         result: "ok",
-        actor: actor.username
+        actor: actor.username,
       });
       writeAudit(actor, "close_room", "room", roomCode, { reason }, "ok");
       return {
         roomCode,
-        disconnectedSessionCount: sessions.length
+        disconnectedSessionCount: sessions.length,
       };
     },
 
@@ -118,45 +130,66 @@ export function createAdminActionService(options: {
         roomCode,
         activeSessionCount: 0,
         result: "ok",
-        actor: actor.username
+        actor: actor.username,
       });
       writeAudit(actor, "expire_room", "room", roomCode, { reason }, "ok");
       return {
         roomCode,
-        activeSessionCount: 0
+        activeSessionCount: 0,
       };
     },
 
-    async clearRoomVideo(actor: AdminSession, roomCode: string, reason?: string) {
-      await updateRoomWithRetry(roomCode, async (room) =>
-        await options.roomStore.updateRoom(room.code, room.version, {
-          sharedVideo: null,
-          playback: null,
-          expiresAt: null,
-          lastActiveAt: now()
-        })
+    async clearRoomVideo(
+      actor: AdminSession,
+      roomCode: string,
+      reason?: string,
+    ) {
+      await updateRoomWithRetry(
+        roomCode,
+        async (room) =>
+          await options.roomStore.updateRoom(room.code, room.version, {
+            sharedVideo: null,
+            playback: null,
+            expiresAt: null,
+            lastActiveAt: now(),
+          }),
       );
       await options.broadcastRoomState(roomCode);
       options.logEvent("admin_room_video_cleared", {
         roomCode,
         result: "ok",
-        actor: actor.username
+        actor: actor.username,
       });
       writeAudit(actor, "clear_room_video", "room", roomCode, { reason }, "ok");
       return {
         roomCode,
-        roomState: await options.getRoomStateByCode(roomCode)
+        roomState: await options.getRoomStateByCode(roomCode),
       };
     },
 
-    async kickMember(actor: AdminSession, roomCode: string, memberId: string, reason?: string) {
+    async kickMember(
+      actor: AdminSession,
+      roomCode: string,
+      memberId: string,
+      reason?: string,
+    ) {
       await getRoomOrThrow(roomCode);
-      const session = options.runtimeRegistry.listSessionsByRoom(roomCode).find((entry) => entry.memberId === memberId);
+      const session = options.runtimeRegistry
+        .listSessionsByRoom(roomCode)
+        .find((entry) => entry.memberId === memberId);
       if (!session) {
-        throw new AdminActionError(404, "member_not_found", MEMBER_NOT_FOUND_MESSAGE);
+        throw new AdminActionError(
+          404,
+          "member_not_found",
+          MEMBER_NOT_FOUND_MESSAGE,
+        );
       }
       if (session.memberToken) {
-        options.blockMemberToken(roomCode, session.memberToken, now() + KICK_REJOIN_BLOCK_MS);
+        options.blockMemberToken(
+          roomCode,
+          session.memberToken,
+          now() + KICK_REJOIN_BLOCK_MS,
+        );
       }
       options.disconnectSessionSocket(session, "Admin kicked member");
       options.logEvent("admin_member_kicked", {
@@ -164,33 +197,55 @@ export function createAdminActionService(options: {
         memberId,
         sessionId: session.id,
         result: "ok",
-        actor: actor.username
+        actor: actor.username,
       });
-      writeAudit(actor, "kick_member", "member", memberId, { roomCode, reason }, "ok");
+      writeAudit(
+        actor,
+        "kick_member",
+        "member",
+        memberId,
+        { roomCode, reason },
+        "ok",
+      );
       return {
         roomCode,
         memberId,
-        sessionId: session.id
+        sessionId: session.id,
       };
     },
 
-    async disconnectSession(actor: AdminSession, sessionId: string, reason?: string) {
+    async disconnectSession(
+      actor: AdminSession,
+      sessionId: string,
+      reason?: string,
+    ) {
       const session = options.runtimeRegistry.getSession(sessionId);
       if (!session) {
-        throw new AdminActionError(404, "session_not_found", SESSION_NOT_FOUND_MESSAGE);
+        throw new AdminActionError(
+          404,
+          "session_not_found",
+          SESSION_NOT_FOUND_MESSAGE,
+        );
       }
       options.disconnectSessionSocket(session, "Admin disconnected session");
       options.logEvent("admin_session_disconnected", {
         sessionId,
         roomCode: session.roomCode,
         result: "ok",
-        actor: actor.username
+        actor: actor.username,
       });
-      writeAudit(actor, "disconnect_session", "session", sessionId, { reason }, "ok");
+      writeAudit(
+        actor,
+        "disconnect_session",
+        "session",
+        sessionId,
+        { reason },
+        "ok",
+      );
       return {
         sessionId,
-        roomCode: session.roomCode
+        roomCode: session.roomCode,
       };
-    }
+    },
   };
 }

@@ -15,7 +15,7 @@ export function createToastCoordinatorState(): ToastCoordinatorState {
   return {
     lastRoomState: null,
     lastSeekToastByActor: new Map(),
-    lastSharedVideoToastKey: null
+    lastSharedVideoToastKey: null,
   };
 }
 
@@ -36,7 +36,10 @@ export function createToastPresenter(): {
       return null;
     }
 
-    if (toastContainer?.isConnected && toastHost?.parentElement === mountTarget) {
+    if (
+      toastContainer?.isConnected &&
+      toastHost?.parentElement === mountTarget
+    ) {
       return toastContainer;
     }
 
@@ -79,7 +82,9 @@ export function createToastPresenter(): {
     `;
 
     mountTarget.appendChild(toastHost);
-    toastContainer = shadowRoot.getElementById("toast-stack") as HTMLDivElement | null;
+    toastContainer = shadowRoot.getElementById(
+      "toast-stack",
+    ) as HTMLDivElement | null;
     return toastContainer;
   }
 
@@ -101,11 +106,14 @@ export function createToastPresenter(): {
       window.setTimeout(() => {
         toast.remove();
       }, 2600);
-    }
+    },
   };
 }
 
-function getMemberName(state: RoomState, memberId: string | null | undefined): string | null {
+function getMemberName(
+  state: RoomState,
+  memberId: string | null | undefined,
+): string | null {
   if (!memberId) {
     return null;
   }
@@ -127,16 +135,28 @@ function formatPlaybackRate(rate: number): string {
   return `${rounded.toFixed(2).replace(/0+$/, "").replace(/\.$/, "")}x`;
 }
 
-function shouldShowSeekToast(previousPlayback: PlaybackState, nextPlayback: PlaybackState): boolean {
+function shouldShowSeekToast(
+  previousPlayback: PlaybackState,
+  nextPlayback: PlaybackState,
+): boolean {
   const actualDelta = nextPlayback.currentTime - previousPlayback.currentTime;
-  const elapsedSeconds = Math.max(0, nextPlayback.serverTime - previousPlayback.serverTime) / 1000;
+  const elapsedSeconds =
+    Math.max(0, nextPlayback.serverTime - previousPlayback.serverTime) / 1000;
   const expectedDelta = elapsedSeconds * previousPlayback.playbackRate;
 
-  if (previousPlayback.playState === "playing" && nextPlayback.playState !== "playing") {
-    return Math.abs(actualDelta - expectedDelta) >= SEEK_TOAST_THRESHOLD_SECONDS;
+  if (
+    previousPlayback.playState === "playing" &&
+    nextPlayback.playState !== "playing"
+  ) {
+    return (
+      Math.abs(actualDelta - expectedDelta) >= SEEK_TOAST_THRESHOLD_SECONDS
+    );
   }
 
-  if (previousPlayback.playState !== "playing" || nextPlayback.playState !== "playing") {
+  if (
+    previousPlayback.playState !== "playing" ||
+    nextPlayback.playState !== "playing"
+  ) {
     return Math.abs(actualDelta) >= SEEK_TOAST_THRESHOLD_SECONDS;
   }
 
@@ -158,13 +178,22 @@ export function getRoomStateToastMessages(args: {
   const messages: string[] = [];
   const nextSeekToastByActor = new Map(args.lastSeekToastByActor);
 
-  if (!args.localMemberId || !args.previousState || args.previousState.roomCode !== args.nextState.roomCode) {
+  if (
+    !args.localMemberId ||
+    !args.previousState ||
+    args.previousState.roomCode !== args.nextState.roomCode
+  ) {
     return { messages, nextSeekToastByActor };
   }
 
-  const sharedVideoChanged = args.previousState.sharedVideo?.url !== args.nextState.sharedVideo?.url;
-  const previousMembers = new Map(args.previousState.members.map((member) => [member.id, member.name]));
-  const currentMembers = new Map(args.nextState.members.map((member) => [member.id, member.name]));
+  const sharedVideoChanged =
+    args.previousState.sharedVideo?.url !== args.nextState.sharedVideo?.url;
+  const previousMembers = new Map(
+    args.previousState.members.map((member) => [member.id, member.name]),
+  );
+  const currentMembers = new Map(
+    args.nextState.members.map((member) => [member.id, member.name]),
+  );
 
   for (const [memberId, memberName] of currentMembers) {
     if (!previousMembers.has(memberId) && memberId !== args.localMemberId) {
@@ -178,20 +207,25 @@ export function getRoomStateToastMessages(args: {
     }
   }
 
-  if (args.pendingRoomStateHydration || sharedVideoChanged || !args.isCurrentPageShowingSharedVideo) {
+  if (
+    args.pendingRoomStateHydration ||
+    sharedVideoChanged ||
+    !args.isCurrentPageShowingSharedVideo
+  ) {
     return { messages, nextSeekToastByActor };
   }
 
   const shouldShowSeek = Boolean(
     args.previousState.playback &&
-      args.nextState.playback &&
-      args.previousState.sharedVideo?.url === args.nextState.sharedVideo?.url &&
-      args.nextState.playback.actorId !== args.localMemberId &&
-      shouldShowSeekToast(args.previousState.playback, args.nextState.playback)
+    args.nextState.playback &&
+    args.previousState.sharedVideo?.url === args.nextState.sharedVideo?.url &&
+    args.nextState.playback.actorId !== args.localMemberId &&
+    shouldShowSeekToast(args.previousState.playback, args.nextState.playback),
   );
 
   if (
-    args.previousState.playback?.playState !== args.nextState.playback?.playState &&
+    args.previousState.playback?.playState !==
+      args.nextState.playback?.playState &&
     args.nextState.playback &&
     args.nextState.playback.playState !== "buffering" &&
     args.nextState.playback.actorId !== args.localMemberId &&
@@ -199,15 +233,20 @@ export function getRoomStateToastMessages(args: {
     !(
       args.nextState.playback.playState === "playing" &&
       nextSeekToastByActor.has(args.nextState.playback.actorId) &&
-      args.now - (nextSeekToastByActor.get(args.nextState.playback.actorId) ?? 0) < SEEK_START_TOAST_SUPPRESSION_MS
+      args.now -
+        (nextSeekToastByActor.get(args.nextState.playback.actorId) ?? 0) <
+        SEEK_START_TOAST_SUPPRESSION_MS
     )
   ) {
-    const actorName = getMemberName(args.nextState, args.nextState.playback.actorId);
+    const actorName = getMemberName(
+      args.nextState,
+      args.nextState.playback.actorId,
+    );
     if (actorName) {
       messages.push(
         args.nextState.playback.playState === "playing"
           ? t("toastStartedPlaying", { name: actorName })
-          : t("toastPausedVideo", { name: actorName })
+          : t("toastPausedVideo", { name: actorName }),
       );
     }
   }
@@ -217,28 +256,37 @@ export function getRoomStateToastMessages(args: {
     args.nextState.playback &&
     args.previousState.sharedVideo?.url === args.nextState.sharedVideo?.url &&
     args.nextState.playback.actorId !== args.localMemberId &&
-    Math.abs(args.previousState.playback.playbackRate - args.nextState.playback.playbackRate) > 0.01
+    Math.abs(
+      args.previousState.playback.playbackRate -
+        args.nextState.playback.playbackRate,
+    ) > 0.01
   ) {
-    const actorName = getMemberName(args.nextState, args.nextState.playback.actorId);
+    const actorName = getMemberName(
+      args.nextState,
+      args.nextState.playback.actorId,
+    );
     if (actorName) {
       messages.push(
         t("toastSwitchedRate", {
           name: actorName,
-          rate: formatPlaybackRate(args.nextState.playback.playbackRate)
-        })
+          rate: formatPlaybackRate(args.nextState.playback.playbackRate),
+        }),
       );
     }
   }
 
   if (shouldShowSeek && args.nextState.playback) {
-    const actorName = getMemberName(args.nextState, args.nextState.playback.actorId);
+    const actorName = getMemberName(
+      args.nextState,
+      args.nextState.playback.actorId,
+    );
     if (actorName) {
       nextSeekToastByActor.set(args.nextState.playback.actorId, args.now);
       messages.push(
         t("toastSeekedTo", {
           name: actorName,
-          time: formatToastTime(args.nextState.playback.currentTime)
-        })
+          time: formatToastTime(args.nextState.playback.currentTime),
+        }),
       );
     }
   }
@@ -257,17 +305,21 @@ export function getSharedVideoToastMessage(args: {
   message: string | null;
   nextSharedVideoToastKey: string | null;
 } {
-  if (!args.toast || !args.localMemberId || args.lastSharedVideoToastKey === args.toast.key) {
+  if (
+    !args.toast ||
+    !args.localMemberId ||
+    args.lastSharedVideoToastKey === args.toast.key
+  ) {
     return {
       message: null,
-      nextSharedVideoToastKey: args.lastSharedVideoToastKey
+      nextSharedVideoToastKey: args.lastSharedVideoToastKey,
     };
   }
 
   if (args.normalizedToastUrl !== args.normalizedSharedUrl) {
     return {
       message: null,
-      nextSharedVideoToastKey: args.lastSharedVideoToastKey
+      nextSharedVideoToastKey: args.lastSharedVideoToastKey,
     };
   }
 
@@ -275,12 +327,15 @@ export function getSharedVideoToastMessage(args: {
   if (!actorName || args.toast.actorId === args.localMemberId) {
     return {
       message: null,
-      nextSharedVideoToastKey: args.toast.key
+      nextSharedVideoToastKey: args.toast.key,
     };
   }
 
   return {
-    message: t("toastSharedNewVideo", { name: actorName, title: args.toast.title }),
-    nextSharedVideoToastKey: args.toast.key
+    message: t("toastSharedNewVideo", {
+      name: actorName,
+      title: args.toast.title,
+    }),
+    nextSharedVideoToastKey: args.toast.key,
   };
 }

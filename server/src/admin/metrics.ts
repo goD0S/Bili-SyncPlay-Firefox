@@ -10,7 +10,7 @@ export function createMetricsService(options: {
       const totals = options.runtimeRegistry.getLifetimeEventCounts();
       const totalNonExpired = await options.roomStore.countRooms({
         keyword: undefined,
-        includeExpired: false
+        includeExpired: false,
       });
 
       const lines = [
@@ -34,10 +34,10 @@ export function createMetricsService(options: {
         `bili_syncplay_ws_connection_rejected_total ${totals.ws_connection_rejected ?? 0}`,
         "# HELP bili_syncplay_rate_limited_total Total rate_limited events",
         "# TYPE bili_syncplay_rate_limited_total counter",
-        `bili_syncplay_rate_limited_total ${totals.rate_limited ?? 0}`
+        `bili_syncplay_rate_limited_total ${totals.rate_limited ?? 0}`,
       ];
 
       return `${lines.join("\n")}\n`;
-    }
+    },
   };
 }

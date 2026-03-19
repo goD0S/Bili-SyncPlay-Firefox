@@ -5,12 +5,14 @@
 Bili-SyncPlay is a Chrome extension plus a WebSocket server for synchronized Bilibili watching. Users can create or join a room, share the current video, and keep playback, pause, seek, and playback rate in sync across participants.
 
 It supports the full local workflow:
+
 - load the unpacked extension in Chrome or Edge
 - run the local sync server
 - create a room and share an invite string
 - keep everyone on the same shared video in sync
 
 This repository is a monorepo:
+
 - `extension/`: Chrome extension
 - `server/`: WebSocket room server and admin panel
 - `packages/protocol/`: shared protocol types
@@ -93,6 +95,7 @@ If a member later browses to a different non-shared video while still in the roo
 - `https://www.bilibili.com/medialist/play/watchlater*` when the page URL carries `bvid`
 
 Video variants:
+
 - multi-part videos via `?p=`
 - festival pages via `bvid + cid`
 
@@ -167,6 +170,7 @@ node -e "const { createHash } = require('node:crypto'); const password = 'secret
 ```
 
 After login, the current UI includes:
+
 - overview
 - room list and room detail
 - runtime events
@@ -207,6 +211,7 @@ npm test
 ```
 
 Current test coverage in this repository includes:
+
 - protocol client message validation
 - server WebSocket validation, auth, origin filtering, and rate-limit checks
 - background room-state race handling
@@ -221,6 +226,7 @@ npm run test -w @bili-syncplay/extension
 ```
 
 Redis integration test notes:
+
 - `npm run test -w @bili-syncplay/server` keeps Redis-specific tests optional and may skip them when `REDIS_URL` is not configured
 - `npm run test:redis -w @bili-syncplay/server` is the explicit Redis regression entry point
 - `npm run test:server:redis` runs the same Redis regression from the workspace root
@@ -239,6 +245,7 @@ ws://localhost:8787
 ```
 
 Development notes:
+
 - `@bili-syncplay/server` depends on the built output of `@bili-syncplay/protocol`
 - for a clean local setup, prefer `npm run build` instead of building `server` alone
 - the extension does not keep a permanent socket by default; it connects when a room already exists in session state or when the user creates / joins a room
@@ -262,10 +269,12 @@ During build, that manifest version is generated automatically from the root `pa
 ### State Persistence
 
 The extension intentionally splits persistent state by lifetime:
+
 - `chrome.storage.session`: `roomCode`, `joinToken`, `memberToken`, `memberId`, `roomState`
 - `chrome.storage.local`: `displayName`, `serverUrl`
 
 Practical consequences:
+
 - browser restart does not restore the previous room automatically
 - the custom server URL survives browser restart
 - the popup can reconnect into the current room only while the browser session still holds both `roomCode` and `joinToken`
@@ -276,6 +285,7 @@ Practical consequences:
 ### Server Deployment
 
 Recommended setup:
+
 - Node.js 20 or 22
 - Redis
 - Nginx reverse proxy
@@ -301,6 +311,7 @@ When the environment variable is unset, the build output still uses `ws://localh
 For local unpacked-extension development, `ALLOWED_ORIGINS` must include the current `chrome-extension://<extension-id>` or the server will reject the WebSocket handshake with `origin_not_allowed`.
 
 The current server implementation:
+
 - listens on `PORT` only, defaulting to `8787`
 - serves WebSocket traffic and a simple health check on the same port
 - returns `{"ok":true,"service":"bili-syncplay-server"}` on `GET /`
@@ -376,20 +387,24 @@ node -e "const { createHash } = require('node:crypto'); console.log('sha256:' + 
 The server now includes a P0 admin backend on the same HTTP port.
 
 Admin control panel:
+
 - open `http://localhost:8787/admin`
 - authenticate with the account configured by `ADMIN_USERNAME`, `ADMIN_PASSWORD_HASH`, `ADMIN_SESSION_SECRET`, and `ADMIN_ROLE`
 - the UI covers login, overview, rooms, room detail, events, audit logs, config summary, and the existing admin actions
 
 Role model:
+
 - `viewer`: read-only access to overview, rooms, events, audit logs, and config
 - `operator`: viewer permissions plus room/session actions
 - `admin`: currently equivalent to operator, with headroom for future governance features
 
 Action behavior notes:
+
 - `kick member` disconnects the current member session and temporarily blocks immediate auto rejoin attempts that reuse the old `memberToken`
 - `disconnect session` only closes the specified socket; if the client still holds valid room context, it may join again normally
 
 Implemented endpoints:
+
 - `GET /metrics`
 - `GET /healthz`
 - `GET /readyz`
@@ -409,6 +424,7 @@ Implemented endpoints:
 - `POST /api/admin/sessions/:sessionId/disconnect`
 
 Authentication model:
+
 - management APIs use `Authorization: Bearer <token>`
 - login returns a server-issued session token
 - `ADMIN_ROLE` controls the single configured admin account role: `viewer`, `operator`, or `admin`
@@ -419,6 +435,7 @@ Authentication model:
 ### 1. Prepare the server
 
 Example environment:
+
 - Ubuntu 24.04 LTS
 - domain: `sync.example.com`
 - app directory: `/opt/bili-syncplay`
@@ -437,6 +454,7 @@ npm run build
 ```
 
 Why `npm run build` is recommended for first deployment:
+
 - it builds `packages/protocol`, which is required by the server at runtime
 - it avoids partial workspace builds that leave `server` pointing at missing protocol artifacts
 
@@ -490,7 +508,7 @@ curl http://127.0.0.1:8787/
 Expected response:
 
 ```json
-{"ok":true,"service":"bili-syncplay-server"}
+{ "ok": true, "service": "bili-syncplay-server" }
 ```
 
 ### 3. Create a systemd service
@@ -676,6 +694,7 @@ npm run build -w @bili-syncplay/server
 ### Troubleshooting
 
 Common developer-facing failure cases:
+
 - `Cannot connect to sync server.`: the extension could not reach the configured server URL, or the HTTP health probe derived from that URL failed.
 - repeated server logs with `origin_not_allowed`: `ALLOWED_ORIGINS` does not include the current `chrome-extension://<extension-id>`
 - `Room not found.`: the requested room code does not exist on the current server instance.
@@ -709,6 +728,7 @@ npm run test -w @bili-syncplay/extension
 ```
 
 Chrome-side debugging tips:
+
 - check the extension service worker logs from `chrome://extensions`
 - copy the unpacked extension ID from `chrome://extensions` and use it in `ALLOWED_ORIGINS`
 - reload the unpacked extension after rebuilding `extension/dist`
@@ -723,6 +743,7 @@ npm run release:version -- 0.5.4
 ```
 
 This command updates:
+
 - the root `package.json`
 - `packages/protocol/package.json`
 - `server/package.json`
@@ -744,6 +765,7 @@ release/bili-syncplay-extension-v<version>.zip
 ### Automated GitHub Release
 
 The repository already includes a GitHub Actions workflow that:
+
 - triggers on `v*` tags
 - builds the extension
 - creates a GitHub Release

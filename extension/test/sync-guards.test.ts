@@ -8,7 +8,7 @@ import {
   shouldApplySelfPlayback,
   shouldForcePauseWhileWaitingForInitialRoomState,
   shouldSuppressLocalEcho,
-  shouldSuppressRemotePlayTransition
+  shouldSuppressRemotePlayTransition,
 } from "../src/content/sync-guards";
 
 function createPlayback(overrides: Partial<PlaybackState> = {}): PlaybackState {
@@ -21,7 +21,7 @@ function createPlayback(overrides: Partial<PlaybackState> = {}): PlaybackState {
     serverTime: 1,
     actorId: "remote-member",
     seq: 1,
-    ...overrides
+    ...overrides,
   };
 }
 
@@ -33,9 +33,9 @@ test("suppresses autoplay while waiting for initial hydration without a recent u
       videoPaused: false,
       now: 5_000,
       lastUserGestureAt: 2_000,
-      userGestureGraceMs: 1_200
+      userGestureGraceMs: 1_200,
     }),
-    true
+    true,
   );
 });
 
@@ -47,9 +47,9 @@ test("allows user-initiated playback during initial hydration grace window", () 
       videoPaused: false,
       now: 5_000,
       lastUserGestureAt: 4_400,
-      userGestureGraceMs: 1_200
+      userGestureGraceMs: 1_200,
     }),
-    false
+    false,
   );
 });
 
@@ -62,11 +62,11 @@ test("protects non-shared pages from remote autoplay unless the user explicitly 
     explicitNonSharedPlaybackUrl: null,
     lastExplicitPlaybackAction: null,
     now: 8_000,
-    userGestureGraceMs: 1_200
+    userGestureGraceMs: 1_200,
   });
   assert.deepEqual(blocked, {
     shouldPause: true,
-    nextExplicitNonSharedPlaybackUrl: null
+    nextExplicitNonSharedPlaybackUrl: null,
   });
 
   const allowed = evaluateNonSharedPageGuard({
@@ -77,14 +77,15 @@ test("protects non-shared pages from remote autoplay unless the user explicitly 
     explicitNonSharedPlaybackUrl: null,
     lastExplicitPlaybackAction: {
       playState: "playing",
-      at: 7_400
+      at: 7_400,
     },
     now: 8_000,
-    userGestureGraceMs: 1_200
+    userGestureGraceMs: 1_200,
   });
   assert.deepEqual(allowed, {
     shouldPause: false,
-    nextExplicitNonSharedPlaybackUrl: "https://www.bilibili.com/video/BV1other?p=1"
+    nextExplicitNonSharedPlaybackUrl:
+      "https://www.bilibili.com/video/BV1other?p=1",
   });
 });
 
@@ -92,12 +93,12 @@ test("suppresses local echo for matching remote playback within the guard window
   const memory = rememberRemotePlaybackForSuppression({
     playback: createPlayback({
       playState: "paused",
-      currentTime: 25
+      currentTime: 25,
     }),
     normalizedUrl: "https://www.bilibili.com/video/BV1xx411c7mD?p=1",
     now: 10_000,
     remoteEchoSuppressionMs: 700,
-    remotePlayTransitionGuardMs: 1_800
+    remotePlayTransitionGuardMs: 1_800,
   });
 
   const decision = shouldSuppressLocalEcho({
@@ -106,23 +107,26 @@ test("suppresses local echo for matching remote playback within the guard window
     playState: "paused",
     currentTime: 25.05,
     playbackRate: 1,
-    now: 10_100
+    now: 10_100,
   });
 
   assert.equal(decision.shouldSuppress, true);
-  assert.deepEqual(decision.nextSuppressedRemotePlayback, memory.suppressedRemotePlayback);
+  assert.deepEqual(
+    decision.nextSuppressedRemotePlayback,
+    memory.suppressedRemotePlayback,
+  );
 });
 
 test("reapplies remote stop intent when an unexpected resume happens shortly after a remote pause", () => {
   const memory = rememberRemotePlaybackForSuppression({
     playback: createPlayback({
       playState: "paused",
-      currentTime: 30
+      currentTime: 30,
     }),
     normalizedUrl: "https://www.bilibili.com/video/BV1xx411c7mD?p=1",
     now: 20_000,
     remoteEchoSuppressionMs: 700,
-    remotePlayTransitionGuardMs: 1_800
+    remotePlayTransitionGuardMs: 1_800,
   });
 
   assert.equal(
@@ -132,9 +136,9 @@ test("reapplies remote stop intent when an unexpected resume happens shortly aft
       normalizedCurrentUrl: "https://www.bilibili.com/video/BV1xx411c7mD?p=1",
       activeSharedUrl: "https://www.bilibili.com/video/BV1xx411c7mD?p=1",
       intendedPlayState: "paused",
-      suppressedRemotePlayback: memory.suppressedRemotePlayback
+      suppressedRemotePlayback: memory.suppressedRemotePlayback,
     }),
-    true
+    true,
   );
 });
 
@@ -142,12 +146,12 @@ test("suppresses pause echo right after a remote playing intent unless it was us
   const memory = rememberRemotePlaybackForSuppression({
     playback: createPlayback({
       playState: "playing",
-      currentTime: 48
+      currentTime: 48,
     }),
     normalizedUrl: "https://www.bilibili.com/video/BV1xx411c7mD?p=1",
     now: 30_000,
     remoteEchoSuppressionMs: 700,
-    remotePlayTransitionGuardMs: 1_800
+    remotePlayTransitionGuardMs: 1_800,
   });
 
   const suppressed = shouldSuppressRemotePlayTransition({
@@ -157,7 +161,7 @@ test("suppresses pause echo right after a remote playing intent unless it was us
     currentTime: 48.4,
     lastExplicitPlaybackAction: null,
     now: 30_400,
-    userGestureGraceMs: 1_200
+    userGestureGraceMs: 1_200,
   });
   assert.equal(suppressed.shouldSuppress, true);
 
@@ -168,10 +172,10 @@ test("suppresses pause echo right after a remote playing intent unless it was us
     currentTime: 48.4,
     lastExplicitPlaybackAction: {
       playState: "paused",
-      at: 30_100
+      at: 30_100,
     },
     now: 30_400,
-    userGestureGraceMs: 1_200
+    userGestureGraceMs: 1_200,
   });
   assert.equal(allowed.shouldSuppress, false);
 });
@@ -185,10 +189,10 @@ test("applies self playback only when paused state, timeline, or rate actually d
       playback: createPlayback({
         playState: "playing",
         currentTime: 12,
-        playbackRate: 1
-      })
+        playbackRate: 1,
+      }),
     }),
-    true
+    true,
   );
 
   assert.equal(
@@ -199,9 +203,9 @@ test("applies self playback only when paused state, timeline, or rate actually d
       playback: createPlayback({
         playState: "playing",
         currentTime: 12,
-        playbackRate: 1
-      })
+        playbackRate: 1,
+      }),
     }),
-    false
+    false,
   );
 });

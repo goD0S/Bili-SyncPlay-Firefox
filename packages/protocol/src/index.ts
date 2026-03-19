@@ -1,4 +1,8 @@
-export { normalizeBilibiliUrl, parseBilibiliVideoRef, type BilibiliVideoRef } from "./video-ref.js";
+export {
+  normalizeBilibiliUrl,
+  parseBilibiliVideoRef,
+  type BilibiliVideoRef,
+} from "./video-ref.js";
 
 export type RoomCode = string;
 export type PlaybackPlayState = "playing" | "paused" | "buffering";
@@ -167,7 +171,11 @@ export type ServerMessage =
   | ErrorMessage
   | SyncPongMessage;
 
-const PLAYBACK_PLAY_STATES: PlaybackPlayState[] = ["playing", "paused", "buffering"];
+const PLAYBACK_PLAY_STATES: PlaybackPlayState[] = [
+  "playing",
+  "paused",
+  "buffering",
+];
 const ROOM_CODE_PATTERN = /^[A-Z0-9]{6}$/;
 const DISPLAY_NAME_MAX_LENGTH = 32;
 const TITLE_MAX_LENGTH = 128;
@@ -191,7 +199,11 @@ export function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
 
-function hasStringLengthInRange(value: string, minLength: number, maxLength: number): boolean {
+function hasStringLengthInRange(
+  value: string,
+  minLength: number,
+  maxLength: number,
+): boolean {
   return value.length >= minLength && value.length <= maxLength;
 }
 
@@ -199,7 +211,10 @@ function isBoundedString(value: unknown, maxLength: number): value is string {
   return isString(value) && value.length <= maxLength;
 }
 
-function isOptionalBoundedString(value: unknown, maxLength: number): value is string | undefined {
+function isOptionalBoundedString(
+  value: unknown,
+  maxLength: number,
+): value is string | undefined {
   return value === undefined || isBoundedString(value, maxLength);
 }
 
@@ -208,15 +223,27 @@ export function isRoomCode(value: unknown): value is RoomCode {
 }
 
 export function isToken(value: unknown): value is string {
-  return isString(value) && hasStringLengthInRange(value, TOKEN_MIN_LENGTH, TOKEN_MAX_LENGTH);
+  return (
+    isString(value) &&
+    hasStringLengthInRange(value, TOKEN_MIN_LENGTH, TOKEN_MAX_LENGTH)
+  );
 }
 
-export function isPlaybackPlayState(value: unknown): value is PlaybackPlayState {
-  return isString(value) && PLAYBACK_PLAY_STATES.includes(value as PlaybackPlayState);
+export function isPlaybackPlayState(
+  value: unknown,
+): value is PlaybackPlayState {
+  return (
+    isString(value) && PLAYBACK_PLAY_STATES.includes(value as PlaybackPlayState)
+  );
 }
 
-export function isClientHelloPayload(value: unknown): value is ClientHelloPayload {
-  return isRecord(value) && isOptionalBoundedString(value.displayName, DISPLAY_NAME_MAX_LENGTH);
+export function isClientHelloPayload(
+  value: unknown,
+): value is ClientHelloPayload {
+  return (
+    isRecord(value) &&
+    isOptionalBoundedString(value.displayName, DISPLAY_NAME_MAX_LENGTH)
+  );
 }
 
 export function isSharedVideo(value: unknown): value is SharedVideo {
@@ -244,10 +271,16 @@ export function isPlaybackState(value: unknown): value is PlaybackState {
 }
 
 function isCreateRoomMessage(value: unknown): value is CreateRoomMessage {
-  return isRecord(value) && value.type === "room:create" && (value.payload === undefined || isClientHelloPayload(value.payload));
+  return (
+    isRecord(value) &&
+    value.type === "room:create" &&
+    (value.payload === undefined || isClientHelloPayload(value.payload))
+  );
 }
 
-function isJoinRoomPayload(value: unknown): value is JoinRoomMessage["payload"] {
+function isJoinRoomPayload(
+  value: unknown,
+): value is JoinRoomMessage["payload"] {
   return (
     isRecord(value) &&
     isRoomCode(value.roomCode) &&
@@ -258,19 +291,38 @@ function isJoinRoomPayload(value: unknown): value is JoinRoomMessage["payload"] 
 }
 
 function isJoinRoomMessage(value: unknown): value is JoinRoomMessage {
-  return isRecord(value) && value.type === "room:join" && isJoinRoomPayload(value.payload);
+  return (
+    isRecord(value) &&
+    value.type === "room:join" &&
+    isJoinRoomPayload(value.payload)
+  );
 }
 
-function isProfileUpdatePayload(value: unknown): value is ProfileUpdateMessage["payload"] {
-  return isRecord(value) && isToken(value.memberToken) && isBoundedString(value.displayName, DISPLAY_NAME_MAX_LENGTH);
+function isProfileUpdatePayload(
+  value: unknown,
+): value is ProfileUpdateMessage["payload"] {
+  return (
+    isRecord(value) &&
+    isToken(value.memberToken) &&
+    isBoundedString(value.displayName, DISPLAY_NAME_MAX_LENGTH)
+  );
 }
 
 function isProfileUpdateMessage(value: unknown): value is ProfileUpdateMessage {
-  return isRecord(value) && value.type === "profile:update" && isProfileUpdatePayload(value.payload);
+  return (
+    isRecord(value) &&
+    value.type === "profile:update" &&
+    isProfileUpdatePayload(value.payload)
+  );
 }
 
-function isLeaveRoomPayload(value: unknown): value is NonNullable<LeaveRoomMessage["payload"]> {
-  return isRecord(value) && (value.memberToken === undefined || isToken(value.memberToken));
+function isLeaveRoomPayload(
+  value: unknown,
+): value is NonNullable<LeaveRoomMessage["payload"]> {
+  return (
+    isRecord(value) &&
+    (value.memberToken === undefined || isToken(value.memberToken))
+  );
 }
 
 function isLeaveRoomMessage(value: unknown): value is LeaveRoomMessage {
@@ -281,7 +333,9 @@ function isLeaveRoomMessage(value: unknown): value is LeaveRoomMessage {
   );
 }
 
-function isShareVideoPayload(value: unknown): value is ShareVideoMessage["payload"] {
+function isShareVideoPayload(
+  value: unknown,
+): value is ShareVideoMessage["payload"] {
   return (
     isRecord(value) &&
     isToken(value.memberToken) &&
@@ -291,31 +345,59 @@ function isShareVideoPayload(value: unknown): value is ShareVideoMessage["payloa
 }
 
 function isShareVideoMessage(value: unknown): value is ShareVideoMessage {
-  return isRecord(value) && value.type === "video:share" && isShareVideoPayload(value.payload);
+  return (
+    isRecord(value) &&
+    value.type === "video:share" &&
+    isShareVideoPayload(value.payload)
+  );
 }
 
-function isPlaybackUpdatePayload(value: unknown): value is PlaybackUpdateMessage["payload"] {
-  return isRecord(value) && isToken(value.memberToken) && isPlaybackState(value.playback);
+function isPlaybackUpdatePayload(
+  value: unknown,
+): value is PlaybackUpdateMessage["payload"] {
+  return (
+    isRecord(value) &&
+    isToken(value.memberToken) &&
+    isPlaybackState(value.playback)
+  );
 }
 
-function isPlaybackUpdateMessage(value: unknown): value is PlaybackUpdateMessage {
-  return isRecord(value) && value.type === "playback:update" && isPlaybackUpdatePayload(value.payload);
+function isPlaybackUpdateMessage(
+  value: unknown,
+): value is PlaybackUpdateMessage {
+  return (
+    isRecord(value) &&
+    value.type === "playback:update" &&
+    isPlaybackUpdatePayload(value.payload)
+  );
 }
 
-function isSyncRequestPayload(value: unknown): value is SyncRequestMessage["payload"] {
+function isSyncRequestPayload(
+  value: unknown,
+): value is SyncRequestMessage["payload"] {
   return isRecord(value) && isToken(value.memberToken);
 }
 
 function isSyncRequestMessage(value: unknown): value is SyncRequestMessage {
-  return isRecord(value) && value.type === "sync:request" && isSyncRequestPayload(value.payload);
+  return (
+    isRecord(value) &&
+    value.type === "sync:request" &&
+    isSyncRequestPayload(value.payload)
+  );
 }
 
-function isSyncPingPayload(value: unknown): value is SyncPingMessage["payload"] {
+function isSyncPingPayload(
+  value: unknown,
+): value is SyncPingMessage["payload"] {
   return isRecord(value) && isFiniteNumber(value.clientSendTime);
 }
 
 function isSyncPingMessage(value: unknown): value is SyncPingMessage {
-  return isRecord(value) && value.type === "sync:ping" && isSyncPingPayload(value.payload);
+  return (
+    isRecord(value) &&
+    value.type === "sync:ping" &&
+    isSyncPingPayload(value.payload)
+  );
 }
 
 export function isClientMessage(value: unknown): value is ClientMessage {

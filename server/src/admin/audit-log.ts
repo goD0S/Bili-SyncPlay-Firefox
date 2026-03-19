@@ -30,7 +30,7 @@ export function createAuditLogService(capacity = 1_000): AuditLogService {
         actor: {
           adminId: input.actor.adminId,
           username: input.actor.username,
-          role: input.actor.role
+          role: input.actor.role,
         },
         action: input.action,
         targetType: input.targetType,
@@ -38,7 +38,7 @@ export function createAuditLogService(capacity = 1_000): AuditLogService {
         request: input.request ?? {},
         result: input.result,
         reason: input.reason,
-        instanceId: input.instanceId
+        instanceId: input.instanceId,
       };
 
       records.push(record);
@@ -50,7 +50,11 @@ export function createAuditLogService(capacity = 1_000): AuditLogService {
     query(query) {
       const filtered = records.filter((record) => {
         const timestamp = recordTime(record);
-        if (query.actor && record.actor.username !== query.actor && record.actor.adminId !== query.actor) {
+        if (
+          query.actor &&
+          record.actor.username !== query.actor &&
+          record.actor.adminId !== query.actor
+        ) {
           return false;
         }
         if (query.action && record.action !== query.action) {
@@ -78,8 +82,8 @@ export function createAuditLogService(capacity = 1_000): AuditLogService {
       const start = (query.page - 1) * query.pageSize;
       return {
         items: filtered.slice(start, start + query.pageSize),
-        total: filtered.length
+        total: filtered.length,
       };
-    }
+    },
   };
 }

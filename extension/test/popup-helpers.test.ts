@@ -5,7 +5,7 @@ import { escapeHtml, parseInviteValue } from "../src/popup/helpers";
 test("escapeHtml escapes html-sensitive characters", () => {
   assert.equal(
     escapeHtml(`a&b<c>"d"'e`),
-    "a&amp;b&lt;c&gt;&quot;d&quot;&#39;e"
+    "a&amp;b&lt;c&gt;&quot;d&quot;&#39;e",
   );
 });
 
@@ -22,7 +22,7 @@ test("escapeHtml coerces non-string values safely", () => {
 test("parseInviteValue extracts roomCode and joinToken from an invite string", () => {
   assert.deepEqual(parseInviteValue("abc123:join-token-123456"), {
     roomCode: "ABC123",
-    joinToken: "join-token-123456"
+    joinToken: "join-token-123456",
   });
 });
 

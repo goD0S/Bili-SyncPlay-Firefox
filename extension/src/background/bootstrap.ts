@@ -37,13 +37,19 @@ export async function bootstrapBackground(args: {
   if (args.state.roomCode && persistedServerUrl.shouldAutoConnect) {
     args.connect();
   } else if (args.state.roomCode && persistedServerUrl.lastError) {
-    args.log("background", `Skipped reconnect because persisted server URL is invalid: ${args.state.serverUrl}`);
+    args.log(
+      "background",
+      `Skipped reconnect because persisted server URL is invalid: ${args.state.serverUrl}`,
+    );
   }
 
   args.addTabRemovedListener((tabId) => {
     if (args.state.sharedTabId === tabId) {
       args.state.sharedTabId = null;
-      args.log("background", `Cleared shared tab binding for closed tab ${tabId}`);
+      args.log(
+        "background",
+        `Cleared shared tab binding for closed tab ${tabId}`,
+      );
       args.broadcastPopupState();
     }
   });

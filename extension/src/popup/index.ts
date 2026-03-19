@@ -5,10 +5,13 @@ import {
   createServerUrlDraftState,
   getRenderedServerUrlValue,
   syncServerUrlDraft,
-  updateServerUrlDraft
+  updateServerUrlDraft,
 } from "./server-url-draft";
 import { DEFAULT_SERVER_URL } from "../background/runtime-state";
-import { applyIncomingPopupState, createPopupStateSyncState } from "./state-sync";
+import {
+  applyIncomingPopupState,
+  createPopupStateSyncState,
+} from "./state-sync";
 import { getDocumentLanguage, getUiLanguage, t } from "../shared/i18n";
 
 const app = document.getElementById("app");
@@ -213,7 +216,9 @@ function collectRefs(): PopupRefs {
     roomPanelIdle: getById("room-panel-idle"),
     roomCodeInput: getById("room-code") as HTMLInputElement,
     copyRoomButton: getById("copy-room") as HTMLButtonElement,
-    shareCurrentVideoButton: getById("share-current-video") as HTMLButtonElement,
+    shareCurrentVideoButton: getById(
+      "share-current-video",
+    ) as HTMLButtonElement,
     sharedVideoCard: getById("shared-video-card") as HTMLButtonElement,
     sharedVideoTitle: getById("shared-video-title"),
     sharedVideoMeta: getById("shared-video-meta"),
@@ -229,7 +234,7 @@ function collectRefs(): PopupRefs {
     clockStatus: getById("clock-status"),
     createRoomButton: getById("create-room") as HTMLButtonElement,
     joinRoomButton: getById("join-room") as HTMLButtonElement,
-    leaveRoomButton: getById("leave-room") as HTMLButtonElement
+    leaveRoomButton: getById("leave-room") as HTMLButtonElement,
   };
 }
 
@@ -242,7 +247,9 @@ function getById(id: string): HTMLElement {
 }
 
 async function queryState(): Promise<BackgroundToPopupMessage["payload"]> {
-  const response = (await chrome.runtime.sendMessage({ type: "popup:get-state" })) as BackgroundToPopupMessage;
+  const response = (await chrome.runtime.sendMessage({
+    type: "popup:get-state",
+  })) as BackgroundToPopupMessage;
   return response.payload;
 }
 
@@ -277,11 +284,15 @@ async function sendPopupLog(message: string): Promise<void> {
 
 function applyRoomActionControlState(nodes: PopupRefs): void {
   const isRoomTransitioning =
-    roomActionPending || lastKnownPendingCreateRoom || Boolean(lastKnownPendingJoinRoomCode);
+    roomActionPending ||
+    lastKnownPendingCreateRoom ||
+    Boolean(lastKnownPendingJoinRoomCode);
   nodes.createRoomButton.disabled = isRoomTransitioning;
-  nodes.joinRoomButton.disabled = isRoomTransitioning || !nodes.roomCodeInput.value.trim();
+  nodes.joinRoomButton.disabled =
+    isRoomTransitioning || !nodes.roomCodeInput.value.trim();
   nodes.leaveRoomButton.disabled = isRoomTransitioning;
-  nodes.roomCodeInput.disabled = isRoomTransitioning || Boolean(lastKnownRoomCode);
+  nodes.roomCodeInput.disabled =
+    isRoomTransitioning || Boolean(lastKnownRoomCode);
 }
 
 function setRoomActionPending(nextPending: boolean): void {
@@ -298,14 +309,20 @@ function setLocalStatusMessage(message: string | null): void {
   }
 }
 
-function formatInviteDraft(roomCode: string | null, joinToken: string | null): string {
+function formatInviteDraft(
+  roomCode: string | null,
+  joinToken: string | null,
+): string {
   if (!roomCode) {
     return "";
   }
   return joinToken ? `${roomCode}:${joinToken}` : roomCode;
 }
 
-function applyState(state: BackgroundToPopupMessage["payload"], source: "port" | "query" = "port"): boolean {
+function applyState(
+  state: BackgroundToPopupMessage["payload"],
+  source: "port" | "query" = "port",
+): boolean {
   if (!applyIncomingPopupState(popupStateSync, state, source)) {
     return false;
   }
@@ -328,17 +345,26 @@ function render(): void {
   const roomCodeFocused = document.activeElement === refs.roomCodeInput;
   const serverUrlFocused = document.activeElement === refs.serverUrlInput;
 
-  refs.serverStatus.textContent = state.connected ? t("statusConnected") : t("statusDisconnected");
+  refs.serverStatus.textContent = state.connected
+    ? t("statusConnected")
+    : t("statusDisconnected");
   refs.roomStatus.textContent = state.roomCode ?? "-";
-  refs.membersStatus.textContent = t("membersOnline", { count: state.roomState?.members.length ?? 0 });
-  refs.debugMemberStatus.textContent = state.displayName ?? state.memberId ?? "-";
-  refs.retryStatusValue.textContent = state.retryInMs !== null ? t("retrySeconds", { seconds: Math.ceil(state.retryInMs / 1000) }) : "-";
-  refs.retryStatusCount.textContent = state.retryAttempt > 0
-    ? `(${state.retryAttempt}/${state.retryAttemptMax})`
-    : "";
+  refs.membersStatus.textContent = t("membersOnline", {
+    count: state.roomState?.members.length ?? 0,
+  });
+  refs.debugMemberStatus.textContent =
+    state.displayName ?? state.memberId ?? "-";
+  refs.retryStatusValue.textContent =
+    state.retryInMs !== null
+      ? t("retrySeconds", { seconds: Math.ceil(state.retryInMs / 1000) })
+      : "-";
+  refs.retryStatusCount.textContent =
+    state.retryAttempt > 0
+      ? `(${state.retryAttempt}/${state.retryAttemptMax})`
+      : "";
   refs.clockStatus.textContent = t("clockStatus", {
     offset: state.clockOffsetMs ?? "-",
-    rtt: state.rttMs ?? "-"
+    rtt: state.rttMs ?? "-",
   });
   const visibleMessage = localStatusMessage ?? state.error;
   refs.message.textContent = visibleMessage ?? "";
@@ -352,21 +378,29 @@ function render(): void {
       refs.roomCodeInput.value = roomCodeDraft;
     }
   }
-  refs.serverUrlInput.value = getRenderedServerUrlValue(serverUrlDraft, state.serverUrl, serverUrlFocused);
+  refs.serverUrlInput.value = getRenderedServerUrlValue(
+    serverUrlDraft,
+    state.serverUrl,
+    serverUrlFocused,
+  );
 
   refs.copyRoomButton.disabled = !state.roomCode;
   refs.roomPanelJoined.hidden = !state.roomCode;
   refs.roomPanelIdle.hidden = Boolean(state.roomCode);
   applyRoomActionControlState(refs);
 
-  refs.sharedVideoTitle.textContent = state.roomState?.sharedVideo?.title ?? t("stateNoSharedVideo");
-  refs.sharedVideoMeta.textContent = formatVideoMeta(state.roomState?.sharedVideo?.url ?? null);
+  refs.sharedVideoTitle.textContent =
+    state.roomState?.sharedVideo?.title ?? t("stateNoSharedVideo");
+  refs.sharedVideoMeta.textContent = formatVideoMeta(
+    state.roomState?.sharedVideo?.url ?? null,
+  );
   const ownerText = formatVideoOwner(
     state.roomState?.members ?? [],
-    state.roomState?.sharedVideo?.sharedByMemberId ?? null
+    state.roomState?.sharedVideo?.sharedByMemberId ?? null,
   );
   refs.sharedVideoOwner.textContent = ownerText;
-  refs.sharedVideoOwner.hidden = !state.roomState?.sharedVideo?.url || !ownerText;
+  refs.sharedVideoOwner.hidden =
+    !state.roomState?.sharedVideo?.url || !ownerText;
   refs.sharedVideoCard.disabled = !state.roomState?.sharedVideo?.url;
 
   renderMemberList(refs.memberList, state.roomState?.members ?? []);
@@ -374,7 +408,7 @@ function render(): void {
 
   if (state.pendingJoinRoomCode || roomActionPending) {
     void sendPopupLog(
-      `Render room=${state.roomCode ?? "none"} connected=${state.connected} pendingJoin=${state.pendingJoinRoomCode ?? "none"} pendingAction=${roomActionPending}`
+      `Render room=${state.roomCode ?? "none"} connected=${state.connected} pendingJoin=${state.pendingJoinRoomCode ?? "none"} pendingAction=${roomActionPending}`,
     );
   }
 }
@@ -387,7 +421,10 @@ function formatVideoMeta(url: string | null): string {
   return match ? match[1] : t("actionOpenSharedVideo");
 }
 
-function formatVideoOwner(members: RoomMember[], actorId: string | null): string {
+function formatVideoOwner(
+  members: RoomMember[],
+  actorId: string | null,
+): string {
   if (!actorId) {
     return "";
   }
@@ -395,7 +432,10 @@ function formatVideoOwner(members: RoomMember[], actorId: string | null): string
   return owner ? t("ownerSharedBy", { owner }) : "";
 }
 
-function renderLogs(container: HTMLElement, logs: BackgroundToPopupMessage["payload"]["logs"]): void {
+function renderLogs(
+  container: HTMLElement,
+  logs: BackgroundToPopupMessage["payload"]["logs"],
+): void {
   if (logs.length === 0) {
     container.innerHTML = `<div class="muted">${escapeHtml(t("stateNoLogs"))}</div>`;
     return;
@@ -403,7 +443,9 @@ function renderLogs(container: HTMLElement, logs: BackgroundToPopupMessage["payl
 
   container.innerHTML = logs
     .map((entry) => {
-      const time = new Date(entry.at).toLocaleTimeString(getUiLanguage(), { hour12: false });
+      const time = new Date(entry.at).toLocaleTimeString(getUiLanguage(), {
+        hour12: false,
+      });
       return `<div class="log-line">[${time}] [${entry.scope}] ${escapeHtml(entry.message)}</div>`;
     })
     .join("");
@@ -415,7 +457,11 @@ function renderMemberList(container: HTMLElement, members: RoomMember[]): void {
     return;
   }
 
-  container.innerHTML = members.map((member) => `<span class="member-chip">${escapeHtml(member.name)}</span>`).join("");
+  container.innerHTML = members
+    .map(
+      (member) => `<span class="member-chip">${escapeHtml(member.name)}</span>`,
+    )
+    .join("");
 }
 
 async function handleShareCurrentVideo(): Promise<void> {
@@ -423,8 +469,10 @@ async function handleShareCurrentVideo(): Promise<void> {
     return;
   }
 
-  const state = popupStateSync.popupState ?? await queryState();
-  const activeVideo = await chrome.runtime.sendMessage({ type: "popup:get-active-video" });
+  const state = popupStateSync.popupState ?? (await queryState());
+  const activeVideo = await chrome.runtime.sendMessage({
+    type: "popup:get-active-video",
+  });
   if (!activeVideo?.ok || !activeVideo.payload?.video) {
     if (popupStateSync.popupState) {
       render();
@@ -432,7 +480,10 @@ async function handleShareCurrentVideo(): Promise<void> {
     return;
   }
 
-  const currentVideo = activeVideo.payload.video as { title: string; url: string };
+  const currentVideo = activeVideo.payload.video as {
+    title: string;
+    url: string;
+  };
   if (!state.roomCode) {
     const shouldCreateRoom = window.confirm(t("confirmCreateRoomBeforeShare"));
     if (!shouldCreateRoom) {
@@ -440,13 +491,14 @@ async function handleShareCurrentVideo(): Promise<void> {
     }
   } else if (
     state.roomState?.sharedVideo?.url &&
-    normalizeUrl(state.roomState.sharedVideo.url) !== normalizeUrl(currentVideo.url)
+    normalizeUrl(state.roomState.sharedVideo.url) !==
+      normalizeUrl(currentVideo.url)
   ) {
     const shouldReplace = window.confirm(
       t("confirmReplaceSharedVideo", {
         currentTitle: state.roomState.sharedVideo.title,
-        nextTitle: currentVideo.title
-      })
+        nextTitle: currentVideo.title,
+      }),
     );
     if (!shouldReplace) {
       return;
@@ -466,26 +518,30 @@ function normalizeUrl(url: string | null | undefined): string | null {
 function bindActions(nodes: PopupRefs): void {
   nodes.joinRoomButton.addEventListener("pointerdown", () => {
     void sendPopupLog(
-      `Join button pointerdown disabled=${nodes.joinRoomButton.disabled} pending=${roomActionPending} inputDisabled=${nodes.roomCodeInput.disabled}`
+      `Join button pointerdown disabled=${nodes.joinRoomButton.disabled} pending=${roomActionPending} inputDisabled=${nodes.roomCodeInput.disabled}`,
     );
   });
 
   nodes.leaveRoomButton.addEventListener("pointerdown", () => {
     void sendPopupLog(
-      `Leave button pointerdown disabled=${nodes.leaveRoomButton.disabled} pending=${roomActionPending} room=${lastKnownRoomCode ?? "none"}`
+      `Leave button pointerdown disabled=${nodes.leaveRoomButton.disabled} pending=${roomActionPending} room=${lastKnownRoomCode ?? "none"}`,
     );
   });
 
   nodes.createRoomButton.addEventListener("click", async () => {
     if (roomActionPending) {
-      void sendPopupLog("Create room click ignored because room action is pending");
+      void sendPopupLog(
+        "Create room click ignored because room action is pending",
+      );
       return;
     }
     void sendPopupLog("Create room button clicked");
     setLocalStatusMessage(null);
     setRoomActionPending(true);
     try {
-      const response = (await chrome.runtime.sendMessage({ type: "popup:create-room" })) as BackgroundToPopupMessage;
+      const response = (await chrome.runtime.sendMessage({
+        type: "popup:create-room",
+      })) as BackgroundToPopupMessage;
       applyActionState(response.payload);
       void sendPopupLog("Create room message resolved");
       setRoomActionPending(false);
@@ -516,7 +572,7 @@ function bindActions(nodes: PopupRefs): void {
       const response = (await chrome.runtime.sendMessage({
         type: "popup:join-room",
         roomCode: invite.roomCode,
-        joinToken: invite.joinToken
+        joinToken: invite.joinToken,
       })) as BackgroundToPopupMessage;
       applyActionState(response.payload);
       void sendPopupLog(`Join message resolved room=${invite.roomCode}`);
@@ -534,15 +590,22 @@ function bindActions(nodes: PopupRefs): void {
       return;
     }
     if (Date.now() - lastRoomEnteredAt < LEAVE_GUARD_MS) {
-      void sendPopupLog(`Leave click ignored by recent-join guard ${Date.now() - lastRoomEnteredAt}ms`);
+      void sendPopupLog(
+        `Leave click ignored by recent-join guard ${Date.now() - lastRoomEnteredAt}ms`,
+      );
       return;
     }
     void sendPopupLog("Leave room button clicked");
     setLocalStatusMessage(null);
-    roomCodeDraft = formatInviteDraft(lastKnownRoomCode, popupStateSync.popupState?.joinToken ?? null);
+    roomCodeDraft = formatInviteDraft(
+      lastKnownRoomCode,
+      popupStateSync.popupState?.joinToken ?? null,
+    );
     setRoomActionPending(true);
     try {
-      const response = (await chrome.runtime.sendMessage({ type: "popup:leave-room" })) as BackgroundToPopupMessage;
+      const response = (await chrome.runtime.sendMessage({
+        type: "popup:leave-room",
+      })) as BackgroundToPopupMessage;
       applyActionState(response.payload);
       void sendPopupLog("Leave room message resolved");
       setRoomActionPending(false);
@@ -577,7 +640,9 @@ function bindActions(nodes: PopupRefs): void {
       .slice()
       .reverse()
       .map((entry) => {
-        const time = new Date(entry.at).toLocaleTimeString(getUiLanguage(), { hour12: false });
+        const time = new Date(entry.at).toLocaleTimeString(getUiLanguage(), {
+          hour12: false,
+        });
         return `[${time}] [${entry.scope}] ${entry.message}`;
       })
       .join("\n");
@@ -605,7 +670,9 @@ function bindActions(nodes: PopupRefs): void {
   nodes.roomCodeInput.addEventListener("keydown", async (event) => {
     if (event.key !== "Enter" || roomActionPending) {
       if (event.key === "Enter" && roomActionPending) {
-        void sendPopupLog("Join by Enter ignored because room action is pending");
+        void sendPopupLog(
+          "Join by Enter ignored because room action is pending",
+        );
       }
       return;
     }
@@ -613,7 +680,9 @@ function bindActions(nodes: PopupRefs): void {
     const invite = parseInviteValue(inviteText);
     if (!invite) {
       setLocalStatusMessage(t("errorInvalidInviteFormat"));
-      void sendPopupLog("Join by Enter ignored because invite string is invalid");
+      void sendPopupLog(
+        "Join by Enter ignored because invite string is invalid",
+      );
       return;
     }
     setLocalStatusMessage(null);
@@ -624,7 +693,7 @@ function bindActions(nodes: PopupRefs): void {
       const response = (await chrome.runtime.sendMessage({
         type: "popup:join-room",
         roomCode: invite.roomCode,
-        joinToken: invite.joinToken
+        joinToken: invite.joinToken,
       })) as BackgroundToPopupMessage;
       applyActionState(response.payload);
       void sendPopupLog(`Join by Enter resolved room=${invite.roomCode}`);
@@ -640,7 +709,9 @@ function bindActions(nodes: PopupRefs): void {
     applyRoomActionControlState(nodes);
     const inviteText = nodes.roomCodeInput.value.trim();
     const invite = parseInviteValue(inviteText);
-    roomCodeDraft = invite ? `${invite.roomCode}:${invite.joinToken}` : inviteText;
+    roomCodeDraft = invite
+      ? `${invite.roomCode}:${invite.joinToken}`
+      : inviteText;
     if (localStatusMessage) {
       setLocalStatusMessage(null);
     }
@@ -654,7 +725,7 @@ function bindActions(nodes: PopupRefs): void {
     const requestedServerUrl = serverUrlDraft.value.trim();
     const response = (await chrome.runtime.sendMessage({
       type: "popup:set-server-url",
-      serverUrl: requestedServerUrl
+      serverUrl: requestedServerUrl,
     })) as BackgroundToPopupMessage;
     applyState(response.payload);
     syncServerUrlDraft(serverUrlDraft, response.payload.serverUrl);
@@ -667,7 +738,11 @@ function bindActions(nodes: PopupRefs): void {
   });
 
   nodes.serverUrlInput.addEventListener("input", () => {
-    updateServerUrlDraft(serverUrlDraft, nodes.serverUrlInput.value, popupStateSync.popupState?.serverUrl ?? "");
+    updateServerUrlDraft(
+      serverUrlDraft,
+      nodes.serverUrlInput.value,
+      popupStateSync.popupState?.serverUrl ?? "",
+    );
     if (localStatusMessage) {
       setLocalStatusMessage(null);
     }

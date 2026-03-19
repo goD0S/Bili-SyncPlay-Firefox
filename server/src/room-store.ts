@@ -25,11 +25,27 @@ export type RoomStore = {
   createRoom: (input: CreatePersistedRoomInput) => Promise<PersistedRoom>;
   getRoom: (code: string) => Promise<PersistedRoom | null>;
   saveRoom: (room: PersistedRoom) => Promise<PersistedRoom>;
-  updateRoom: (code: string, expectedVersion: number, patch: PersistedRoomPatch) => Promise<RoomUpdateResult>;
+  updateRoom: (
+    code: string,
+    expectedVersion: number,
+    patch: PersistedRoomPatch,
+  ) => Promise<RoomUpdateResult>;
   deleteRoom: (code: string) => Promise<void>;
   deleteExpiredRooms: (now: number) => Promise<number>;
-  listRooms: (query: Pick<RoomListQuery, "keyword" | "includeExpired" | "page" | "pageSize" | "sortBy" | "sortOrder">) => Promise<PersistedRoom[]>;
-  countRooms: (query: Pick<RoomListQuery, "keyword" | "includeExpired">) => Promise<number>;
+  listRooms: (
+    query: Pick<
+      RoomListQuery,
+      | "keyword"
+      | "includeExpired"
+      | "page"
+      | "pageSize"
+      | "sortBy"
+      | "sortOrder"
+    >,
+  ) => Promise<PersistedRoom[]>;
+  countRooms: (
+    query: Pick<RoomListQuery, "keyword" | "includeExpired">,
+  ) => Promise<number>;
   isReady: () => Promise<boolean>;
 };
 
@@ -38,18 +54,24 @@ type CreateInMemoryRoomStoreOptions = {
 };
 
 export function createRoomCode(): string {
-  return Array.from({ length: 6 }, () => ROOM_CODE_ALPHABET[Math.floor(Math.random() * ROOM_CODE_ALPHABET.length)]).join("");
+  return Array.from(
+    { length: 6 },
+    () =>
+      ROOM_CODE_ALPHABET[Math.floor(Math.random() * ROOM_CODE_ALPHABET.length)],
+  ).join("");
 }
 
 function cloneRoom(room: PersistedRoom): PersistedRoom {
   return {
     ...room,
     sharedVideo: room.sharedVideo ? { ...room.sharedVideo } : null,
-    playback: room.playback ? { ...room.playback } : null
+    playback: room.playback ? { ...room.playback } : null,
   };
 }
 
-export function createPersistedRoom(input: CreatePersistedRoomInput): PersistedRoom {
+export function createPersistedRoom(
+  input: CreatePersistedRoomInput,
+): PersistedRoom {
   return {
     code: input.code,
     joinToken: input.joinToken,
@@ -58,19 +80,31 @@ export function createPersistedRoom(input: CreatePersistedRoomInput): PersistedR
     playback: null,
     version: 0,
     lastActiveAt: input.createdAt,
-    expiresAt: null
+    expiresAt: null,
   };
 }
 
-export function createInMemoryRoomStore(options: CreateInMemoryRoomStoreOptions = {}): RoomStore {
+export function createInMemoryRoomStore(
+  options: CreateInMemoryRoomStoreOptions = {},
+): RoomStore {
   const rooms = new Map<string, PersistedRoom>();
   const now = options.now ?? Date.now;
 
-  function matchesQuery(room: PersistedRoom, query: Pick<RoomListQuery, "keyword" | "includeExpired">): boolean {
-    if (!query.includeExpired && room.expiresAt !== null && room.expiresAt <= now()) {
+  function matchesQuery(
+    room: PersistedRoom,
+    query: Pick<RoomListQuery, "keyword" | "includeExpired">,
+  ): boolean {
+    if (
+      !query.includeExpired &&
+      room.expiresAt !== null &&
+      room.expiresAt <= now()
+    ) {
       return false;
     }
-    if (query.keyword && !room.code.toLowerCase().includes(query.keyword.toLowerCase())) {
+    if (
+      query.keyword &&
+      !room.code.toLowerCase().includes(query.keyword.toLowerCase())
+    ) {
       return false;
     }
     return true;
@@ -79,7 +113,7 @@ export function createInMemoryRoomStore(options: CreateInMemoryRoomStoreOptions 
   function sortRooms(
     left: PersistedRoom,
     right: PersistedRoom,
-    query: Pick<RoomListQuery, "sortBy" | "sortOrder">
+    query: Pick<RoomListQuery, "sortBy" | "sortOrder">,
   ): number {
     const factor = query.sortOrder === "asc" ? 1 : -1;
     return (left[query.sortBy] - right[query.sortBy]) * factor;
@@ -117,7 +151,7 @@ export function createInMemoryRoomStore(options: CreateInMemoryRoomStoreOptions 
         ...currentRoom,
         ...patch,
         version: currentRoom.version + 1,
-        lastActiveAt: patch.lastActiveAt ?? now()
+        lastActiveAt: patch.lastActiveAt ?? now(),
       };
       rooms.set(code, nextRoom);
       return { ok: true, room: cloneRoom(nextRoom) };
@@ -143,22 +177,27 @@ export function createInMemoryRoomStore(options: CreateInMemoryRoomStoreOptions 
       return items.slice(start, start + query.pageSize).map(cloneRoom);
     },
     async countRooms(query) {
-      return Array.from(rooms.values()).filter((room) => matchesQuery(room, query)).length;
+      return Array.from(rooms.values()).filter((room) =>
+        matchesQuery(room, query),
+      ).length;
     },
     async isReady() {
       return true;
-    }
+    },
   };
 }
 
-export function roomStateOf(room: PersistedRoom, activeRoom: ActiveRoom | null): RoomStoreRoomState {
+export function roomStateOf(
+  room: PersistedRoom,
+  activeRoom: ActiveRoom | null,
+): RoomStoreRoomState {
   return {
     roomCode: room.code,
     sharedVideo: room.sharedVideo,
     playback: room.playback,
     members: Array.from(activeRoom?.members.values() ?? []).map((member) => ({
       id: member.memberId ?? member.id,
-      name: member.displayName
-    }))
+      name: member.displayName,
+    })),
   };
 }

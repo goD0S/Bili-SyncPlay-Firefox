@@ -1,4 +1,8 @@
-import type { PlaybackState, RoomState, SharedVideo } from "@bili-syncplay/protocol";
+import type {
+  PlaybackState,
+  RoomState,
+  SharedVideo,
+} from "@bili-syncplay/protocol";
 import type { SharedVideoToastPayload } from "../shared/messages";
 
 export function createPendingShareToast(args: {
@@ -17,38 +21,45 @@ export function createPendingShareToast(args: {
     title: args.state.sharedVideo.title,
     videoUrl: args.state.sharedVideo.url,
     roomCode: args.state.roomCode,
-    expiresAt: args.now + args.ttlMs
+    expiresAt: args.now + args.ttlMs,
   };
 }
 
 export function getPendingShareToastFor(args: {
-  pendingShareToast: (SharedVideoToastPayload & { expiresAt: number; roomCode: string }) | null;
+  pendingShareToast:
+    | (SharedVideoToastPayload & { expiresAt: number; roomCode: string })
+    | null;
   state: RoomState;
   normalizedPendingToastUrl: string | null;
   normalizedSharedUrl: string | null;
   now: number;
 }): {
-  pendingShareToast: (SharedVideoToastPayload & { expiresAt: number; roomCode: string }) | null;
+  pendingShareToast:
+    | (SharedVideoToastPayload & { expiresAt: number; roomCode: string })
+    | null;
   shareToast: SharedVideoToastPayload | null;
 } {
   if (!args.pendingShareToast) {
     return {
       pendingShareToast: null,
-      shareToast: null
+      shareToast: null,
     };
   }
 
-  if (args.pendingShareToast.expiresAt <= args.now || args.pendingShareToast.roomCode !== args.state.roomCode) {
+  if (
+    args.pendingShareToast.expiresAt <= args.now ||
+    args.pendingShareToast.roomCode !== args.state.roomCode
+  ) {
     return {
       pendingShareToast: null,
-      shareToast: null
+      shareToast: null,
     };
   }
 
   if (args.normalizedPendingToastUrl !== args.normalizedSharedUrl) {
     return {
       pendingShareToast: args.pendingShareToast,
-      shareToast: null
+      shareToast: null,
     };
   }
 
@@ -58,8 +69,8 @@ export function getPendingShareToastFor(args: {
       key: args.pendingShareToast.key,
       actorId: args.pendingShareToast.actorId,
       title: args.pendingShareToast.title,
-      videoUrl: args.pendingShareToast.videoUrl
-    }
+      videoUrl: args.pendingShareToast.videoUrl,
+    },
   };
 }
 
@@ -74,17 +85,22 @@ export function flushPendingShare(args: {
   video: SharedVideo | null;
   playback: PlaybackState | null;
 } {
-  if (!args.pendingSharedVideo || !args.connected || !args.roomCode || !args.memberToken) {
+  if (
+    !args.pendingSharedVideo ||
+    !args.connected ||
+    !args.roomCode ||
+    !args.memberToken
+  ) {
     return {
       shouldFlush: false,
       video: null,
-      playback: null
+      playback: null,
     };
   }
 
   return {
     shouldFlush: true,
     video: args.pendingSharedVideo,
-    playback: args.pendingSharedPlayback
+    playback: args.pendingSharedPlayback,
   };
 }

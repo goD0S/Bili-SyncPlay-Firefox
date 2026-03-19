@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { bootstrapBackground, type BootstrapMutableState } from "../src/background/bootstrap";
+import {
+  bootstrapBackground,
+  type BootstrapMutableState,
+} from "../src/background/bootstrap";
 import { DEFAULT_SERVER_URL } from "../src/background/runtime-state";
 import { INVALID_SERVER_URL_MESSAGE } from "../src/background/server-url";
 import type { PersistedBackgroundSnapshot } from "../src/background/storage-manager";
@@ -16,11 +19,13 @@ function createState(): BootstrapMutableState {
     roomState: null,
     serverUrl: DEFAULT_SERVER_URL,
     lastError: null,
-    sharedTabId: null
+    sharedTabId: null,
   };
 }
 
-function createPersistedSnapshot(overrides: Partial<PersistedBackgroundSnapshot> = {}): PersistedBackgroundSnapshot {
+function createPersistedSnapshot(
+  overrides: Partial<PersistedBackgroundSnapshot> = {},
+): PersistedBackgroundSnapshot {
   return {
     roomCode: null,
     joinToken: null,
@@ -29,7 +34,7 @@ function createPersistedSnapshot(overrides: Partial<PersistedBackgroundSnapshot>
     displayName: null,
     roomState: null,
     serverUrl: null,
-    ...overrides
+    ...overrides,
   };
 }
 
@@ -45,7 +50,7 @@ test("bootstrap skips auto reconnect when persisted serverUrl is invalid", async
       createPersistedSnapshot({
         roomCode: "ROOM01",
         joinToken: "join-token",
-        serverUrl: "http://localhost:8787"
+        serverUrl: "http://localhost:8787",
       }),
     connect: () => {
       connectCalls += 1;
@@ -54,11 +59,13 @@ test("bootstrap skips auto reconnect when persisted serverUrl is invalid", async
       logs.push({ scope, message });
     },
     broadcastPopupState: () => {
-      throw new Error("broadcastPopupState should not run during bootstrap for this case.");
+      throw new Error(
+        "broadcastPopupState should not run during bootstrap for this case.",
+      );
     },
     addTabRemovedListener: (listener) => {
       tabRemovedListener = listener;
-    }
+    },
   });
 
   assert.equal(connectCalls, 0);
@@ -68,8 +75,14 @@ test("bootstrap skips auto reconnect when persisted serverUrl is invalid", async
   assert.equal(state.lastError, INVALID_SERVER_URL_MESSAGE);
   assert.equal(typeof tabRemovedListener, "function");
   assert.equal(
-    logs.some((entry) => entry.scope === "background" && entry.message.includes("Skipped reconnect because persisted server URL is invalid")),
-    true
+    logs.some(
+      (entry) =>
+        entry.scope === "background" &&
+        entry.message.includes(
+          "Skipped reconnect because persisted server URL is invalid",
+        ),
+    ),
+    true,
   );
 });
 
@@ -83,14 +96,14 @@ test("bootstrap reconnects when persisted serverUrl is valid", async () => {
       createPersistedSnapshot({
         roomCode: "ROOM01",
         joinToken: "join-token",
-        serverUrl: "ws://localhost:8787"
+        serverUrl: "ws://localhost:8787",
       }),
     connect: () => {
       connectCalls += 1;
     },
     log: () => {},
     broadcastPopupState: () => {},
-    addTabRemovedListener: () => {}
+    addTabRemovedListener: () => {},
   });
 
   assert.equal(connectCalls, 1);

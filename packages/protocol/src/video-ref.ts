@@ -9,7 +9,10 @@ function isSupportedBilibiliHost(hostname: string): boolean {
   return SUPPORTED_BILIBILI_HOSTS.has(hostname);
 }
 
-function parseSupportedBilibiliPath(pathname: string): { kind: "video" | "bangumi" | "festival" | "watchlater"; id: string } | null {
+function parseSupportedBilibiliPath(pathname: string): {
+  kind: "video" | "bangumi" | "festival" | "watchlater";
+  id: string;
+} | null {
   const normalizedPath = pathname.replace(/\/+$/, "");
   const videoMatch = normalizedPath.match(/^\/video\/([^/?]+)$/);
   if (videoMatch) {
@@ -25,14 +28,19 @@ function parseSupportedBilibiliPath(pathname: string): { kind: "video" | "bangum
     return { kind: "festival", id: normalizedPath };
   }
 
-  if (normalizedPath === "/list/watchlater" || normalizedPath === "/medialist/play/watchlater") {
+  if (
+    normalizedPath === "/list/watchlater" ||
+    normalizedPath === "/medialist/play/watchlater"
+  ) {
     return { kind: "watchlater", id: normalizedPath };
   }
 
   return null;
 }
 
-export function parseBilibiliVideoRef(url: string | undefined | null): BilibiliVideoRef | null {
+export function parseBilibiliVideoRef(
+  url: string | undefined | null,
+): BilibiliVideoRef | null {
   if (!url) {
     return null;
   }
@@ -49,7 +57,11 @@ export function parseBilibiliVideoRef(url: string | undefined | null): BilibiliV
     }
 
     const bvid = parsed.searchParams.get("bvid");
-    if ((supportedPath.kind === "festival" || supportedPath.kind === "watchlater") && bvid) {
+    if (
+      (supportedPath.kind === "festival" ||
+        supportedPath.kind === "watchlater") &&
+      bvid
+    ) {
       const cid = parsed.searchParams.get("cid");
       const p = parsed.searchParams.get("p");
       return {
@@ -58,7 +70,7 @@ export function parseBilibiliVideoRef(url: string | undefined | null): BilibiliV
           ? `https://www.bilibili.com/video/${bvid}?cid=${cid}`
           : p
             ? `https://www.bilibili.com/video/${bvid}?p=${p}`
-            : `https://www.bilibili.com/video/${bvid}`
+            : `https://www.bilibili.com/video/${bvid}`,
       };
     }
 
@@ -69,13 +81,17 @@ export function parseBilibiliVideoRef(url: string | undefined | null): BilibiliV
     const p = parsed.searchParams.get("p");
     return {
       videoId: p ? `${supportedPath.id}:p${p}` : supportedPath.id,
-      normalizedUrl: p ? `${parsed.origin}${parsed.pathname.replace(/\/+$/, "")}?p=${p}` : `${parsed.origin}${parsed.pathname.replace(/\/+$/, "")}`
+      normalizedUrl: p
+        ? `${parsed.origin}${parsed.pathname.replace(/\/+$/, "")}?p=${p}`
+        : `${parsed.origin}${parsed.pathname.replace(/\/+$/, "")}`,
     };
   } catch {
     return null;
   }
 }
 
-export function normalizeBilibiliUrl(url: string | undefined | null): string | null {
+export function normalizeBilibiliUrl(
+  url: string | undefined | null,
+): string | null {
   return parseBilibiliVideoRef(url)?.normalizedUrl ?? null;
 }

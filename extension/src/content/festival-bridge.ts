@@ -11,14 +11,20 @@ export interface FestivalSnapshot {
 export interface FestivalBridgeController {
   clearSnapshot: () => void;
   getSnapshot: () => FestivalSnapshot | null;
-  refreshSnapshot: (args: { pathname: string; pageUrl: string; maxAgeMs: number }) => Promise<SharedVideo | null>;
+  refreshSnapshot: (args: {
+    pathname: string;
+    pageUrl: string;
+    maxAgeMs: number;
+  }) => Promise<SharedVideo | null>;
 }
 
 export function createFestivalBridgeController(): FestivalBridgeController {
   let festivalBridgeReady = false;
   let festivalSnapshot: FestivalSnapshot | null = null;
 
-  async function readFestivalSnapshotFromPageContext(pageUrl: string): Promise<SharedVideo | null> {
+  async function readFestivalSnapshotFromPageContext(
+    pageUrl: string,
+  ): Promise<SharedVideo | null> {
     ensureFestivalBridge();
     const requestId = `bili-syncplay-festival-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
@@ -46,7 +52,10 @@ export function createFestivalBridgeController(): FestivalBridgeController {
         if (messageEvent.source !== window) {
           return;
         }
-        if (messageEvent.data?.type !== "bili-syncplay:festival-video" || messageEvent.data.requestId !== requestId) {
+        if (
+          messageEvent.data?.type !== "bili-syncplay:festival-video" ||
+          messageEvent.data.requestId !== requestId
+        ) {
           return;
         }
         const detail = messageEvent.data.detail;
@@ -60,12 +69,15 @@ export function createFestivalBridgeController(): FestivalBridgeController {
         resolve({
           videoId: `${detail.bvid}:${detail.cid}`,
           url: buildFestivalShareUrl(pageUrl, detail.bvid, String(detail.cid)),
-          title: detail.title.trim()
+          title: detail.title.trim(),
         });
       };
 
       window.addEventListener("message", onSnapshot as EventListener);
-      window.postMessage({ type: "bili-syncplay:get-festival-video", requestId }, "*");
+      window.postMessage(
+        { type: "bili-syncplay:get-festival-video", requestId },
+        "*",
+      );
     });
   }
 
@@ -93,11 +105,14 @@ export function createFestivalBridgeController(): FestivalBridgeController {
         return null;
       }
 
-      if (festivalSnapshot && Date.now() - festivalSnapshot.updatedAt < maxAgeMs) {
+      if (
+        festivalSnapshot &&
+        Date.now() - festivalSnapshot.updatedAt < maxAgeMs
+      ) {
         return {
           videoId: festivalSnapshot.videoId,
           url: festivalSnapshot.url,
-          title: festivalSnapshot.title
+          title: festivalSnapshot.title,
         };
       }
 
@@ -107,16 +122,16 @@ export function createFestivalBridgeController(): FestivalBridgeController {
           ? {
               videoId: festivalSnapshot.videoId,
               url: festivalSnapshot.url,
-              title: festivalSnapshot.title
+              title: festivalSnapshot.title,
             }
           : null;
       }
 
       festivalSnapshot = {
         ...nextSnapshot,
-        updatedAt: Date.now()
+        updatedAt: Date.now(),
       };
       return nextSnapshot;
-    }
+    },
   };
 }

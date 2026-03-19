@@ -1,9 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyIncomingPopupState, createPopupStateSyncState } from "../src/popup/state-sync";
+import {
+  applyIncomingPopupState,
+  createPopupStateSyncState,
+} from "../src/popup/state-sync";
 import type { BackgroundToPopupMessage } from "../src/shared/messages";
 
-function createPopupState(roomCode: string | null): BackgroundToPopupMessage["payload"] {
+function createPopupState(
+  roomCode: string | null,
+): BackgroundToPopupMessage["payload"] {
   return {
     connected: Boolean(roomCode),
     serverUrl: "ws://localhost:8787",
@@ -16,7 +21,7 @@ function createPopupState(roomCode: string | null): BackgroundToPopupMessage["pa
           roomCode,
           sharedVideo: null,
           playback: null,
-          members: []
+          members: [],
         }
       : null,
     pendingCreateRoom: false,
@@ -26,7 +31,7 @@ function createPopupState(roomCode: string | null): BackgroundToPopupMessage["pa
     retryAttemptMax: 5,
     clockOffsetMs: null,
     rttMs: null,
-    logs: []
+    logs: [],
   };
 }
 

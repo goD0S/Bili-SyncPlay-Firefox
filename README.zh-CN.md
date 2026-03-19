@@ -5,12 +5,14 @@
 Bili-SyncPlay 是一个“Chrome 扩展 + WebSocket 服务端”的哔哩哔哩同步观影项目。用户可以创建或加入房间，分享当前视频，并在参与者之间同步播放、暂停、跳转和播放速率。
 
 它覆盖了完整的本地使用链路：
+
 - 在 Chrome / Edge 中加载未打包扩展
 - 启动本地同步服务
 - 创建房间并复制邀请串
 - 让多个成员保持同一共享视频的同步播放
 
 本仓库是一个 monorepo：
+
 - `extension/`：Chrome 扩展
 - `server/`：WebSocket 房间服务与管理后台
 - `packages/protocol/`：共享协议类型
@@ -93,6 +95,7 @@ npm run dev:server
 - `https://www.bilibili.com/medialist/play/watchlater*`，且页面 URL 中带有 `bvid`
 
 视频变体识别：
+
 - 多 P 视频通过 `?p=` 识别
 - festival 页面通过 `bvid + cid` 识别
 
@@ -167,6 +170,7 @@ node -e "const { createHash } = require('node:crypto'); const password = 'secret
 ```
 
 当前后台页面已经覆盖：
+
 - 概览
 - 房间列表和房间详情
 - 运行事件
@@ -207,6 +211,7 @@ npm test
 ```
 
 当前仓库中的测试覆盖包括：
+
 - protocol 客户端消息校验
 - server WebSocket 校验、认证、Origin 过滤和限流检查
 - background 房间状态竞态处理
@@ -221,6 +226,7 @@ npm run test -w @bili-syncplay/extension
 ```
 
 Redis 集成测试说明：
+
 - `npm run test -w @bili-syncplay/server` 会保留 Redis 专项测试为可选项；未配置 `REDIS_URL` 时可能跳过
 - `npm run test:redis -w @bili-syncplay/server` 是显式的 Redis 回归测试入口
 - 在仓库根目录也可以运行 `npm run test:server:redis`
@@ -239,6 +245,7 @@ ws://localhost:8787
 ```
 
 开发说明：
+
 - `@bili-syncplay/server` 依赖 `@bili-syncplay/protocol` 的构建产物
 - 对于全新本地环境，优先使用 `npm run build`，而不是单独构建 `server`
 - 扩展默认不会永久保持 socket 连接；只有在会话状态中已存在房间，或用户创建 / 加入房间时才会建立连接
@@ -262,10 +269,12 @@ Chrome 显示的扩展版本来自 `extension/dist/manifest.json`。
 ### 状态持久化
 
 扩展有意按生命周期拆分持久化状态：
+
 - `chrome.storage.session`: `roomCode`, `joinToken`, `memberToken`, `memberId`, `roomState`
 - `chrome.storage.local`: `displayName`, `serverUrl`
 
 实际影响：
+
 - 浏览器重启后不会自动恢复之前的房间
 - 自定义服务器地址会在浏览器重启后保留
 - 只有在浏览器会话中仍保留 `roomCode` 和 `joinToken` 时，弹窗才能重新进入当前房间
@@ -276,6 +285,7 @@ Chrome 显示的扩展版本来自 `extension/dist/manifest.json`。
 ### 服务器部署
 
 推荐环境：
+
 - Node.js 20 或 22
 - Redis
 - Nginx 反向代理
@@ -301,6 +311,7 @@ npm run build:release
 本地开发时，`ALLOWED_ORIGINS` 必须包含当前 `chrome-extension://<extension-id>`，否则服务端会以 `origin_not_allowed` 拒绝 WebSocket 握手。
 
 当前服务器实现：
+
 - 仅监听 `PORT`，默认值为 `8787`
 - 在同一个端口上同时提供 WebSocket 流量和简单健康检查
 - 对 `GET /` 返回 `{"ok":true,"service":"bili-syncplay-server"}`
@@ -376,20 +387,24 @@ node -e "const { createHash } = require('node:crypto'); console.log('sha256:' + 
 服务端现在已经内置 P0 管理后台，只读接口与主服务复用同一个 HTTP 端口。
 
 管理控制面板入口：
+
 - 打开 `http://localhost:8787/admin`
 - 使用 `ADMIN_USERNAME`、`ADMIN_PASSWORD_HASH`、`ADMIN_SESSION_SECRET`、`ADMIN_ROLE` 配置的账号登录
 - 页面已覆盖登录、概览、房间列表、房间详情、运行事件、审计日志、配置摘要，以及现有管理动作
 
 角色模型：
+
 - `viewer`：只读访问概览、房间、事件、审计日志、配置摘要
 - `operator`：在 `viewer` 基础上可执行房间和会话管理动作
 - `admin`：当前能力与 `operator` 基本一致，为后续更高权限治理能力预留扩展位
 
 动作语义说明：
+
 - `踢出成员` 会断开当前成员会话，并临时阻止客户端拿旧 `memberToken` 立即自动重连
 - `断开会话` 只关闭指定 socket；如果客户端仍持有有效房间上下文，后续仍可正常重新加入
 
 当前已实现接口：
+
 - `GET /metrics`
 - `GET /healthz`
 - `GET /readyz`
@@ -409,6 +424,7 @@ node -e "const { createHash } = require('node:crypto'); console.log('sha256:' + 
 - `POST /api/admin/sessions/:sessionId/disconnect`
 
 鉴权方式：
+
 - 管理接口使用 `Authorization: Bearer <token>`
 - 登录成功后返回服务端签发的 session token
 - `ADMIN_ROLE` 用于控制当前唯一后台账号的角色，可选 `viewer`、`operator`、`admin`
@@ -419,6 +435,7 @@ node -e "const { createHash } = require('node:crypto'); console.log('sha256:' + 
 ### 1. 准备服务器
 
 示例环境：
+
 - Ubuntu 24.04 LTS
 - 域名：`sync.example.com`
 - 应用目录：`/opt/bili-syncplay`
@@ -437,6 +454,7 @@ npm run build
 ```
 
 为什么首轮部署推荐使用 `npm run build`：
+
 - 它会构建 `packages/protocol`，而这是服务器运行时所必需的
 - 它可以避免只构建部分 workspace，导致 `server` 指向缺失的 protocol 产物
 
@@ -490,7 +508,7 @@ curl http://127.0.0.1:8787/
 预期响应：
 
 ```json
-{"ok":true,"service":"bili-syncplay-server"}
+{ "ok": true, "service": "bili-syncplay-server" }
 ```
 
 ### 3. 创建 systemd 服务
@@ -676,6 +694,7 @@ npm run build -w @bili-syncplay/server
 ### 故障排查
 
 常见的开发侧失败场景：
+
 - `无法连接到同步服务器。`：扩展无法访问配置的服务器地址，或由该地址推导出的 HTTP 健康检查失败。
 - 服务端日志反复出现 `origin_not_allowed`：`ALLOWED_ORIGINS` 没有包含当前 `chrome-extension://<extension-id>`
 - `房间不存在。`：请求的房间号在当前服务器实例上不存在。
@@ -709,6 +728,7 @@ npm run test -w @bili-syncplay/extension
 ```
 
 Chrome 侧调试建议：
+
 - 在 `chrome://extensions` 查看扩展 service worker 日志
 - 从 `chrome://extensions` 复制未打包扩展 ID，并加入 `ALLOWED_ORIGINS`
 - 重新构建 `extension/dist` 后，重新加载未打包扩展
@@ -723,6 +743,7 @@ npm run release:version -- 0.5.4
 ```
 
 该命令会更新：
+
 - 根目录 `package.json`
 - `packages/protocol/package.json`
 - `server/package.json`
@@ -744,6 +765,7 @@ release/bili-syncplay-extension-v<version>.zip
 ### 自动化 GitHub Release
 
 仓库已经包含一个 GitHub Actions 工作流，用于：
+
 - 在 `v*` 标签上触发
 - 构建扩展
 - 创建 GitHub Release

@@ -19,15 +19,25 @@ export function shouldPauseForNonSharedBroadcast(args: {
   normalizedCurrentVideoUrl: string | null;
   explicitNonSharedPlaybackUrl: string | null;
   playState: PlaybackState["playState"];
-  lastExplicitPlaybackAction: { playState: "playing" | "paused"; at: number } | null;
+  lastExplicitPlaybackAction: {
+    playState: "playing" | "paused";
+    at: number;
+  } | null;
   now: number;
   userGestureGraceMs: number;
 }): boolean {
-  if (!args.activeRoomCode || !args.activeSharedUrl || args.normalizedCurrentVideoUrl === args.activeSharedUrl) {
+  if (
+    !args.activeRoomCode ||
+    !args.activeSharedUrl ||
+    args.normalizedCurrentVideoUrl === args.activeSharedUrl
+  ) {
     return false;
   }
 
-  if (args.playState !== "playing" || args.explicitNonSharedPlaybackUrl === args.normalizedCurrentVideoUrl) {
+  if (
+    args.playState !== "playing" ||
+    args.explicitNonSharedPlaybackUrl === args.normalizedCurrentVideoUrl
+  ) {
     return false;
   }
 
@@ -55,6 +65,6 @@ export function createPlaybackBroadcastPayload(args: {
     updatedAt: args.now,
     serverTime: 0,
     actorId: args.actorId,
-    seq: args.seq
+    seq: args.seq,
   };
 }

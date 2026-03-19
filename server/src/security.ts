@@ -1,5 +1,9 @@
 import type { IncomingMessage } from "node:http";
-import { consumeFixedWindow, createWindowCounter, WINDOW_MINUTE_MS } from "./rate-limit.js";
+import {
+  consumeFixedWindow,
+  createWindowCounter,
+  WINDOW_MINUTE_MS,
+} from "./rate-limit.js";
 import type { SecurityConfig, UpgradeDecision } from "./types.js";
 
 export function createSecurityPolicy(config: SecurityConfig): {
@@ -7,20 +11,31 @@ export function createSecurityPolicy(config: SecurityConfig): {
   incrementConnectionCount: (remoteAddress: string | null) => void;
   decrementConnectionCount: (remoteAddress: string | null) => void;
   getRemoteAddress: (request: IncomingMessage) => string | null;
-  isOriginAllowed: (origin: string | null) => { ok: true } | { ok: false; reason: string };
+  isOriginAllowed: (
+    origin: string | null,
+  ) => { ok: true } | { ok: false; reason: string };
 } {
-  const ipAttemptWindows = new Map<string, ReturnType<typeof createWindowCounter>>();
+  const ipAttemptWindows = new Map<
+    string,
+    ReturnType<typeof createWindowCounter>
+  >();
   const ipConnectionCounts = new Map<string, number>();
 
   function getRemoteAddress(request: IncomingMessage): string | null {
     const forwarded = request.headers["x-forwarded-for"];
-    if (config.trustProxyHeaders && typeof forwarded === "string" && forwarded.trim()) {
+    if (
+      config.trustProxyHeaders &&
+      typeof forwarded === "string" &&
+      forwarded.trim()
+    ) {
       return forwarded.split(",")[0]?.trim() ?? null;
     }
     return request.socket.remoteAddress ?? null;
   }
 
-  function isOriginAllowed(origin: string | null): { ok: true } | { ok: false; reason: string } {
+  function isOriginAllowed(
+    origin: string | null,
+  ): { ok: true } | { ok: false; reason: string } {
     if (!origin) {
       if (config.allowMissingOriginInDev) {
         return { ok: true };
@@ -39,7 +54,10 @@ export function createSecurityPolicy(config: SecurityConfig): {
     if (!remoteAddress) {
       return;
     }
-    ipConnectionCounts.set(remoteAddress, (ipConnectionCounts.get(remoteAddress) ?? 0) + 1);
+    ipConnectionCounts.set(
+      remoteAddress,
+      (ipConnectionCounts.get(remoteAddress) ?? 0) + 1,
+    );
   }
 
   function decrementConnectionCount(remoteAddress: string | null): void {
@@ -62,13 +80,20 @@ export function createSecurityPolicy(config: SecurityConfig): {
     const ipKey = remoteAddress ?? "unknown";
     const attemptWindow = ipAttemptWindows.get(ipKey) ?? createWindowCounter();
     ipAttemptWindows.set(ipKey, attemptWindow);
-    if (!consumeFixedWindow(attemptWindow, config.connectionAttemptsPerMinute, WINDOW_MINUTE_MS, Date.now())) {
+    if (
+      !consumeFixedWindow(
+        attemptWindow,
+        config.connectionAttemptsPerMinute,
+        WINDOW_MINUTE_MS,
+        Date.now(),
+      )
+    ) {
       return {
         ok: false,
         statusCode: 429,
         statusText: "Too Many Requests",
         context,
-        reason: "connection_attempt_rate_limited"
+        reason: "connection_attempt_rate_limited",
       };
     }
 
@@ -79,7 +104,7 @@ export function createSecurityPolicy(config: SecurityConfig): {
         statusCode: 403,
         statusText: "Forbidden",
         context,
-        reason: originCheck.reason
+        reason: originCheck.reason,
       };
     }
 
@@ -89,7 +114,7 @@ export function createSecurityPolicy(config: SecurityConfig): {
         statusCode: 429,
         statusText: "Too Many Requests",
         context,
-        reason: "connection_count_limited"
+        reason: "connection_count_limited",
       };
     }
 
@@ -101,6 +126,6 @@ export function createSecurityPolicy(config: SecurityConfig): {
     incrementConnectionCount,
     decrementConnectionCount,
     getRemoteAddress,
-    isOriginAllowed
+    isOriginAllowed,
   };
 }

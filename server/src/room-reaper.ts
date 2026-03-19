@@ -19,7 +19,7 @@ export function createRoomReaper(options: {
       if (deletedCount > 0) {
         options.logEvent("room_expired_deleted", {
           deletedCount,
-          result: "ok"
+          result: "ok",
         });
       }
       return deletedCount;
@@ -27,7 +27,7 @@ export function createRoomReaper(options: {
       options.logEvent("room_persist_failed", {
         result: "error",
         reason: "room_reaper_failed",
-        error: error instanceof Error ? error.message : String(error)
+        error: error instanceof Error ? error.message : String(error),
       });
       return 0;
     }
@@ -41,6 +41,6 @@ export function createRoomReaper(options: {
     stop() {
       clearInterval(intervalId);
     },
-    runNow
+    runNow,
   };
 }

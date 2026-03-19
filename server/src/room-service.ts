@@ -1,4 +1,10 @@
-import { normalizeBilibiliUrl, type ClientMessage, type ErrorCode, type PlaybackState, type SharedVideo } from "@bili-syncplay/protocol";
+import {
+  normalizeBilibiliUrl,
+  type ClientMessage,
+  type ErrorCode,
+  type PlaybackState,
+  type SharedVideo,
+} from "@bili-syncplay/protocol";
 import type { ActiveRoomRegistry } from "./active-room-registry.js";
 import {
   INTERNAL_SERVER_ERROR_MESSAGE,
@@ -9,10 +15,16 @@ import {
   PLAYBACK_URL_MISMATCH_MESSAGE,
   ROOM_FULL_MESSAGE,
   ROOM_HAS_NO_SHARED_VIDEO_MESSAGE,
-  ROOM_NOT_FOUND_MESSAGE
+  ROOM_NOT_FOUND_MESSAGE,
 } from "./messages.js";
 import { createRoomCode, roomStateOf, type RoomStore } from "./room-store.js";
-import type { LogEvent, PersistenceConfig, PersistedRoom, SecurityConfig, Session } from "./types.js";
+import type {
+  LogEvent,
+  PersistenceConfig,
+  PersistedRoom,
+  SecurityConfig,
+  Session,
+} from "./types.js";
 
 const PAUSE_DOMINANCE_WINDOW_MS = 400;
 const MAX_VERSION_RETRIES = 3;
@@ -31,7 +43,7 @@ export class RoomServiceError extends Error {
     readonly code: ErrorCode,
     message: string,
     readonly reason: ServiceErrorReason,
-    readonly details: Record<string, unknown> = {}
+    readonly details: Record<string, unknown> = {},
   ) {
     super(message);
   }
@@ -53,33 +65,57 @@ export function createRoomService(options: {
   logEvent: LogEvent;
   now?: () => number;
 }): {
-  createRoomForSession: (session: Session, displayName?: string) => Promise<{ room: PersistedRoom; memberToken: string }>;
+  createRoomForSession: (
+    session: Session,
+    displayName?: string,
+  ) => Promise<{ room: PersistedRoom; memberToken: string }>;
   joinRoomForSession: (
     session: Session,
     roomCode: string,
     joinToken: string,
     displayName?: string,
-    previousMemberToken?: string
+    previousMemberToken?: string,
   ) => Promise<{ room: PersistedRoom; memberToken: string }>;
-  leaveRoomForSession: (session: Session) => Promise<{ room: PersistedRoom | null }>;
+  leaveRoomForSession: (
+    session: Session,
+  ) => Promise<{ room: PersistedRoom | null }>;
   shareVideoForSession: (
     session: Session,
     memberToken: string,
     video: SharedVideo,
-    playback?: PlaybackState
+    playback?: PlaybackState,
   ) => Promise<{ room: PersistedRoom }>;
   updatePlaybackForSession: (
     session: Session,
     memberToken: string,
-    playback: PlaybackState
+    playback: PlaybackState,
   ) => Promise<{ room: PersistedRoom | null; ignored: boolean }>;
-  updateProfileForSession: (session: Session, memberToken: string, displayName: string) => Promise<{ room: PersistedRoom }>;
-  getRoomStateForSession: (session: Session, memberToken: string, messageType: ClientMessage["type"]) => Promise<ReturnType<typeof roomStateOf>>;
-  getActiveRoom: (roomCode: string) => ReturnType<ActiveRoomRegistry["getRoom"]>;
-  getRoomStateByCode: (roomCode: string) => Promise<ReturnType<typeof roomStateOf> | null>;
+  updateProfileForSession: (
+    session: Session,
+    memberToken: string,
+    displayName: string,
+  ) => Promise<{ room: PersistedRoom }>;
+  getRoomStateForSession: (
+    session: Session,
+    memberToken: string,
+    messageType: ClientMessage["type"],
+  ) => Promise<ReturnType<typeof roomStateOf>>;
+  getActiveRoom: (
+    roomCode: string,
+  ) => ReturnType<ActiveRoomRegistry["getRoom"]>;
+  getRoomStateByCode: (
+    roomCode: string,
+  ) => Promise<ReturnType<typeof roomStateOf> | null>;
   deleteExpiredRooms: (currentTime?: number) => Promise<number>;
 } {
-  const { config, persistence, roomStore, activeRooms, generateToken, logEvent } = options;
+  const {
+    config,
+    persistence,
+    roomStore,
+    activeRooms,
+    generateToken,
+    logEvent,
+  } = options;
   const now = options.now ?? Date.now;
   const nextRoomCode = options.createRoomCode ?? createRoomCode;
 
@@ -111,7 +147,7 @@ export function createRoomService(options: {
     activeRoom: ReturnType<ActiveRoomRegistry["getOrCreateRoom"]>,
     session: Session,
     memberToken: string,
-    messageType: ClientMessage["type"]
+    messageType: ClientMessage["type"],
   ): void {
     const memberId = session.memberId;
     if (
@@ -127,16 +163,20 @@ export function createRoomService(options: {
         origin: session.origin,
         messageType,
         result: "rejected",
-        reason: "member_token_invalid"
+        reason: "member_token_invalid",
       });
-      throw new RoomServiceError("member_token_invalid", MEMBER_TOKEN_INVALID_MESSAGE, "member_token_invalid");
+      throw new RoomServiceError(
+        "member_token_invalid",
+        MEMBER_TOKEN_INVALID_MESSAGE,
+        "member_token_invalid",
+      );
     }
   }
 
   async function requireJoinedRoomSession(
     session: Session,
     memberToken: string,
-    messageType: ClientMessage["type"]
+    messageType: ClientMessage["type"],
   ): Promise<JoinedRoomAccess> {
     if (!session.roomCode) {
       logEvent("auth_failed", {
@@ -146,9 +186,13 @@ export function createRoomService(options: {
         origin: session.origin,
         messageType,
         result: "rejected",
-        reason: "not_in_room"
+        reason: "not_in_room",
       });
-      throw new RoomServiceError("not_in_room", NOT_IN_ROOM_MESSAGE, "not_in_room");
+      throw new RoomServiceError(
+        "not_in_room",
+        NOT_IN_ROOM_MESSAGE,
+        "not_in_room",
+      );
     }
 
     const persistedRoom = await resolveRoom(session.roomCode);
@@ -161,13 +205,21 @@ export function createRoomService(options: {
         origin: session.origin,
         messageType,
         result: "rejected",
-        reason: "room_not_found"
+        reason: "room_not_found",
       });
-      throw new RoomServiceError("room_not_found", ROOM_NOT_FOUND_MESSAGE, "room_not_found");
+      throw new RoomServiceError(
+        "room_not_found",
+        ROOM_NOT_FOUND_MESSAGE,
+        "room_not_found",
+      );
     }
 
     const activeRoom = activeRooms.getRoom(persistedRoom.code);
-    if (!activeRoom || !session.memberId || activeRoom.members.get(session.memberId) !== session) {
+    if (
+      !activeRoom ||
+      !session.memberId ||
+      activeRoom.members.get(session.memberId) !== session
+    ) {
       clearSessionRoom(session);
       logEvent("auth_failed", {
         sessionId: session.id,
@@ -176,9 +228,13 @@ export function createRoomService(options: {
         origin: session.origin,
         messageType,
         result: "rejected",
-        reason: "member_token_invalid"
+        reason: "member_token_invalid",
       });
-      throw new RoomServiceError("member_token_invalid", MEMBER_TOKEN_INVALID_MESSAGE, "member_token_invalid");
+      throw new RoomServiceError(
+        "member_token_invalid",
+        MEMBER_TOKEN_INVALID_MESSAGE,
+        "member_token_invalid",
+      );
     }
 
     requireMemberToken(activeRoom, session, memberToken, messageType);
@@ -187,7 +243,7 @@ export function createRoomService(options: {
 
   async function withVersionRetry(
     roomCode: string,
-    action: (room: PersistedRoom) => Promise<PersistedRoom | null>
+    action: (room: PersistedRoom) => Promise<PersistedRoom | null>,
   ): Promise<PersistedRoom | null> {
     for (let attempt = 0; attempt < MAX_VERSION_RETRIES; attempt += 1) {
       const room = await resolveRoom(roomCode);
@@ -203,12 +259,16 @@ export function createRoomService(options: {
 
     logEvent("room_version_conflict", {
       roomCode,
-      result: "conflict"
+      result: "conflict",
     });
     return null;
   }
 
-  function shouldIgnorePlaybackUpdate(room: PersistedRoom, nextPlayback: PlaybackState, currentTime: number): boolean {
+  function shouldIgnorePlaybackUpdate(
+    room: PersistedRoom,
+    nextPlayback: PlaybackState,
+    currentTime: number,
+  ): boolean {
     if (!room.playback) {
       return false;
     }
@@ -217,15 +277,23 @@ export function createRoomService(options: {
     if (currentPlayback.actorId === nextPlayback.actorId) {
       return false;
     }
-    const currentIsStopLike = currentPlayback.playState === "paused" || currentPlayback.playState === "buffering";
+    const currentIsStopLike =
+      currentPlayback.playState === "paused" ||
+      currentPlayback.playState === "buffering";
     const nextIsPlaying = nextPlayback.playState === "playing";
-    const withinPauseWindow = currentTime - currentPlayback.serverTime < PAUSE_DOMINANCE_WINDOW_MS;
-    const closeInTimeline = Math.abs(nextPlayback.currentTime - currentPlayback.currentTime) < 1.2;
+    const withinPauseWindow =
+      currentTime - currentPlayback.serverTime < PAUSE_DOMINANCE_WINDOW_MS;
+    const closeInTimeline =
+      Math.abs(nextPlayback.currentTime - currentPlayback.currentTime) < 1.2;
 
-    return currentIsStopLike && nextIsPlaying && withinPauseWindow && closeInTimeline;
+    return (
+      currentIsStopLike && nextIsPlaying && withinPauseWindow && closeInTimeline
+    );
   }
 
-  async function leaveCurrentRoom(session: Session): Promise<{ room: PersistedRoom | null }> {
+  async function leaveCurrentRoom(
+    session: Session,
+  ): Promise<{ room: PersistedRoom | null }> {
     if (!session.roomCode) {
       return { room: null };
     }
@@ -247,7 +315,7 @@ export function createRoomService(options: {
         roomCode,
         remoteAddress: session.remoteAddress,
         origin: session.origin,
-        result: "ok"
+        result: "ok",
       });
       return { room: persistedRoom };
     }
@@ -256,7 +324,7 @@ export function createRoomService(options: {
     const updatedRoom = await withVersionRetry(roomCode, async (room) => {
       const result = await roomStore.updateRoom(roomCode, room.version, {
         expiresAt,
-        lastActiveAt: now()
+        lastActiveAt: now(),
       });
       if (!result.ok) {
         return null;
@@ -269,7 +337,7 @@ export function createRoomService(options: {
         roomCode,
         version: updatedRoom.version,
         expiresAt,
-        result: "ok"
+        result: "ok",
       });
     }
 
@@ -278,7 +346,7 @@ export function createRoomService(options: {
       roomCode,
       remoteAddress: session.remoteAddress,
       origin: session.origin,
-      result: "ok"
+      result: "ok",
     });
 
     return { room: updatedRoom };
@@ -297,7 +365,7 @@ export function createRoomService(options: {
           room = await roomStore.createRoom({
             code: roomCode,
             joinToken: generateToken(),
-            createdAt
+            createdAt,
           });
           break;
         } catch {
@@ -308,9 +376,13 @@ export function createRoomService(options: {
         logEvent("room_persist_failed", {
           sessionId: session.id,
           result: "error",
-          reason: "room_create_conflict"
+          reason: "room_create_conflict",
         });
-        throw new RoomServiceError("internal_error", INTERNAL_SERVER_ERROR_MESSAGE, "internal_error");
+        throw new RoomServiceError(
+          "internal_error",
+          INTERNAL_SERVER_ERROR_MESSAGE,
+          "internal_error",
+        );
       }
 
       const memberToken = generateToken();
@@ -325,13 +397,19 @@ export function createRoomService(options: {
         version: room.version,
         sessionId: session.id,
         provider: persistence.provider,
-        result: "ok"
+        result: "ok",
       });
 
       return { room, memberToken };
     },
 
-    async joinRoomForSession(session, roomCode, joinToken, displayName, previousMemberToken) {
+    async joinRoomForSession(
+      session,
+      roomCode,
+      joinToken,
+      displayName,
+      previousMemberToken,
+    ) {
       setSessionDisplayName(session, displayName);
       await leaveCurrentRoom(session);
 
@@ -344,12 +422,19 @@ export function createRoomService(options: {
             origin: session.origin,
             messageType: "room:join",
             result: "rejected",
-            reason: "join_token_invalid"
+            reason: "join_token_invalid",
           });
-          throw new RoomServiceError("join_token_invalid", JOIN_TOKEN_INVALID_MESSAGE, "join_token_invalid");
+          throw new RoomServiceError(
+            "join_token_invalid",
+            JOIN_TOKEN_INVALID_MESSAGE,
+            "join_token_invalid",
+          );
         }
 
-        if (previousMemberToken && activeRooms.isMemberTokenBlocked(roomCode, previousMemberToken, now())) {
+        if (
+          previousMemberToken &&
+          activeRooms.isMemberTokenBlocked(roomCode, previousMemberToken, now())
+        ) {
           logEvent("auth_failed", {
             sessionId: session.id,
             roomCode,
@@ -357,22 +442,35 @@ export function createRoomService(options: {
             origin: session.origin,
             messageType: "room:join",
             result: "rejected",
-            reason: "member_kicked"
+            reason: "member_kicked",
           });
-          throw new RoomServiceError("join_token_invalid", MEMBER_KICKED_REJOIN_MESSAGE, "join_token_invalid");
+          throw new RoomServiceError(
+            "join_token_invalid",
+            MEMBER_KICKED_REJOIN_MESSAGE,
+            "join_token_invalid",
+          );
         }
 
         const activeRoom = activeRooms.getRoom(roomCode);
         const reconnectMemberId =
-          previousMemberToken && activeRoom ? activeRooms.findMemberIdByToken(roomCode, previousMemberToken) : null;
+          previousMemberToken && activeRoom
+            ? activeRooms.findMemberIdByToken(roomCode, previousMemberToken)
+            : null;
         const activeMemberCount = activeRoom?.members.size ?? 0;
-        if (activeMemberCount >= config.maxMembersPerRoom && reconnectMemberId === null) {
-          throw new RoomServiceError("room_full", ROOM_FULL_MESSAGE, "room_full");
+        if (
+          activeMemberCount >= config.maxMembersPerRoom &&
+          reconnectMemberId === null
+        ) {
+          throw new RoomServiceError(
+            "room_full",
+            ROOM_FULL_MESSAGE,
+            "room_full",
+          );
         }
 
         const result = await roomStore.updateRoom(roomCode, room.version, {
           expiresAt: null,
-          lastActiveAt: now()
+          lastActiveAt: now(),
         });
         if (!result.ok) {
           return null;
@@ -381,15 +479,27 @@ export function createRoomService(options: {
       });
 
       if (!joinedRoom) {
-        throw new RoomServiceError("room_not_found", ROOM_NOT_FOUND_MESSAGE, "room_not_found");
+        throw new RoomServiceError(
+          "room_not_found",
+          ROOM_NOT_FOUND_MESSAGE,
+          "room_not_found",
+        );
       }
 
-      const reconnectMemberId =
-        previousMemberToken ? activeRooms.findMemberIdByToken(joinedRoom.code, previousMemberToken) : null;
+      const reconnectMemberId = previousMemberToken
+        ? activeRooms.findMemberIdByToken(joinedRoom.code, previousMemberToken)
+        : null;
       const memberId = reconnectMemberId ?? session.id;
-      const memberToken = reconnectMemberId && previousMemberToken ? previousMemberToken : generateToken();
+      const memberToken =
+        reconnectMemberId && previousMemberToken
+          ? previousMemberToken
+          : generateToken();
       const previousSession =
-        reconnectMemberId !== null ? activeRooms.getRoom(joinedRoom.code)?.members.get(reconnectMemberId) ?? null : null;
+        reconnectMemberId !== null
+          ? (activeRooms
+              .getRoom(joinedRoom.code)
+              ?.members.get(reconnectMemberId) ?? null)
+          : null;
       session.memberId = memberId;
       activeRooms.addMember(joinedRoom.code, memberId, session, memberToken);
       session.roomCode = joinedRoom.code;
@@ -409,7 +519,7 @@ export function createRoomService(options: {
         version: joinedRoom.version,
         sessionId: session.id,
         provider: persistence.provider,
-        result: "ok"
+        result: "ok",
       });
 
       return { room: joinedRoom, memberToken };
@@ -418,41 +528,52 @@ export function createRoomService(options: {
     leaveRoomForSession: leaveCurrentRoom,
 
     async shareVideoForSession(session, memberToken, video, playback) {
-      const access = await requireJoinedRoomSession(session, memberToken, "video:share");
+      const access = await requireJoinedRoomSession(
+        session,
+        memberToken,
+        "video:share",
+      );
       const currentTime = now();
 
-      const room = await withVersionRetry(access.persistedRoom.code, async (currentRoom) => {
-        const nextPlayback: PlaybackState = playback
-          ? {
-              ...playback,
-              url: video.url,
-              actorId: session.memberId ?? session.id,
-              serverTime: currentTime
-            }
-          : {
-              url: video.url,
-              currentTime: 0,
-              playState: "paused",
-              playbackRate: 1,
-              updatedAt: currentTime,
-              serverTime: currentTime,
-              actorId: session.memberId ?? session.id,
-              seq: 0
-            };
-        const result = await roomStore.updateRoom(currentRoom.code, currentRoom.version, {
-          sharedVideo: {
-            ...video,
-            sharedByMemberId: session.memberId ?? session.id
-          },
-          playback: nextPlayback,
-          expiresAt: null,
-          lastActiveAt: currentTime
-        });
-        if (!result.ok) {
-          return null;
-        }
-        return result.room;
-      });
+      const room = await withVersionRetry(
+        access.persistedRoom.code,
+        async (currentRoom) => {
+          const nextPlayback: PlaybackState = playback
+            ? {
+                ...playback,
+                url: video.url,
+                actorId: session.memberId ?? session.id,
+                serverTime: currentTime,
+              }
+            : {
+                url: video.url,
+                currentTime: 0,
+                playState: "paused",
+                playbackRate: 1,
+                updatedAt: currentTime,
+                serverTime: currentTime,
+                actorId: session.memberId ?? session.id,
+                seq: 0,
+              };
+          const result = await roomStore.updateRoom(
+            currentRoom.code,
+            currentRoom.version,
+            {
+              sharedVideo: {
+                ...video,
+                sharedByMemberId: session.memberId ?? session.id,
+              },
+              playback: nextPlayback,
+              expiresAt: null,
+              lastActiveAt: currentTime,
+            },
+          );
+          if (!result.ok) {
+            return null;
+          }
+          return result.room;
+        },
+      );
 
       if (!room) {
         logEvent("room_persist_failed", {
@@ -460,70 +581,117 @@ export function createRoomService(options: {
           sessionId: session.id,
           provider: persistence.provider,
           result: "error",
-          reason: "video_share_conflict"
+          reason: "video_share_conflict",
         });
-        throw new RoomServiceError("internal_error", INTERNAL_SERVER_ERROR_MESSAGE, "internal_error");
+        throw new RoomServiceError(
+          "internal_error",
+          INTERNAL_SERVER_ERROR_MESSAGE,
+          "internal_error",
+        );
       }
 
       return { room };
     },
 
     async updatePlaybackForSession(session, memberToken, playback) {
-      const access = await requireJoinedRoomSession(session, memberToken, "playback:update");
+      const access = await requireJoinedRoomSession(
+        session,
+        memberToken,
+        "playback:update",
+      );
       if (!access.persistedRoom.sharedVideo) {
-        throw new RoomServiceError("invalid_message", ROOM_HAS_NO_SHARED_VIDEO_MESSAGE, "invalid_message");
+        throw new RoomServiceError(
+          "invalid_message",
+          ROOM_HAS_NO_SHARED_VIDEO_MESSAGE,
+          "invalid_message",
+        );
       }
 
-      const sharedUrl = normalizeBilibiliUrl(access.persistedRoom.sharedVideo.url);
+      const sharedUrl = normalizeBilibiliUrl(
+        access.persistedRoom.sharedVideo.url,
+      );
       const playbackUrl = normalizeBilibiliUrl(playback.url);
       if (!sharedUrl || !playbackUrl || sharedUrl !== playbackUrl) {
-        throw new RoomServiceError("invalid_message", PLAYBACK_URL_MISMATCH_MESSAGE, "invalid_message");
+        throw new RoomServiceError(
+          "invalid_message",
+          PLAYBACK_URL_MISMATCH_MESSAGE,
+          "invalid_message",
+        );
       }
 
       const currentTime = now();
       const nextPlayback: PlaybackState = {
         ...playback,
         actorId: session.memberId ?? session.id,
-        serverTime: currentTime
+        serverTime: currentTime,
       };
-      if (shouldIgnorePlaybackUpdate(access.persistedRoom, nextPlayback, currentTime)) {
+      if (
+        shouldIgnorePlaybackUpdate(
+          access.persistedRoom,
+          nextPlayback,
+          currentTime,
+        )
+      ) {
         return { room: access.persistedRoom, ignored: true };
       }
 
-      const result = await roomStore.updateRoom(access.persistedRoom.code, access.persistedRoom.version, {
-        playback: nextPlayback,
-        expiresAt: null,
-        lastActiveAt: currentTime
-      });
+      const result = await roomStore.updateRoom(
+        access.persistedRoom.code,
+        access.persistedRoom.version,
+        {
+          playback: nextPlayback,
+          expiresAt: null,
+          lastActiveAt: currentTime,
+        },
+      );
       if (!result.ok) {
         if (result.reason === "version_conflict") {
           logEvent("room_version_conflict", {
             roomCode: access.persistedRoom.code,
             version: access.persistedRoom.version,
             sessionId: session.id,
-            result: "ignored"
+            result: "ignored",
           });
           return { room: null, ignored: true };
         }
-        throw new RoomServiceError("room_not_found", ROOM_NOT_FOUND_MESSAGE, "room_not_found");
+        throw new RoomServiceError(
+          "room_not_found",
+          ROOM_NOT_FOUND_MESSAGE,
+          "room_not_found",
+        );
       }
 
       return { room: result.room, ignored: false };
     },
 
     async updateProfileForSession(session, memberToken, displayName) {
-      const access = await requireJoinedRoomSession(session, memberToken, "profile:update");
+      const access = await requireJoinedRoomSession(
+        session,
+        memberToken,
+        "profile:update",
+      );
       setSessionDisplayName(session, displayName);
       return { room: access.persistedRoom };
     },
 
     async getRoomStateForSession(session, memberToken, messageType) {
-      const access = await requireJoinedRoomSession(session, memberToken, messageType);
+      const access = await requireJoinedRoomSession(
+        session,
+        memberToken,
+        messageType,
+      );
       const persistedRoom = await resolveRoom(access.persistedRoom.code);
       if (!persistedRoom) {
-        throw new RoomServiceError("room_not_found", ROOM_NOT_FOUND_MESSAGE, "room_not_found");
+        throw new RoomServiceError(
+          "room_not_found",
+          ROOM_NOT_FOUND_MESSAGE,
+          "room_not_found",
+        );
       }
-      return roomStateOf(persistedRoom, activeRooms.getRoom(persistedRoom.code));
+      return roomStateOf(
+        persistedRoom,
+        activeRooms.getRoom(persistedRoom.code),
+      );
     },
 
     getActiveRoom(roomCode) {
@@ -540,6 +708,6 @@ export function createRoomService(options: {
 
     async deleteExpiredRooms(currentTime = now()) {
       return await roomStore.deleteExpiredRooms(currentTime);
-    }
+    },
   };
 }

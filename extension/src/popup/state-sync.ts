@@ -8,14 +8,14 @@ export interface PopupStateSyncState {
 export function createPopupStateSyncState(): PopupStateSyncState {
   return {
     popupState: null,
-    hasReceivedPortState: false
+    hasReceivedPortState: false,
   };
 }
 
 export function applyIncomingPopupState(
   state: PopupStateSyncState,
   nextState: BackgroundToPopupMessage["payload"],
-  source: "port" | "query"
+  source: "port" | "query",
 ): boolean {
   if (source === "query" && state.hasReceivedPortState) {
     return false;

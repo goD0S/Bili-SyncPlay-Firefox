@@ -1,19 +1,32 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { getBearerToken, getPathSegments, getQueryParams, JsonBodyParseError, readJsonBody, parsePositiveInt } from "./request.js";
+import {
+  getBearerToken,
+  getPathSegments,
+  getQueryParams,
+  JsonBodyParseError,
+  readJsonBody,
+  parsePositiveInt,
+} from "./request.js";
 import {
   ADMIN_AUTH_UNAVAILABLE_MESSAGE,
   FORBIDDEN_MESSAGE,
   INTERNAL_SERVER_ERROR_MESSAGE,
   INVALID_CREDENTIALS_MESSAGE,
   ROOM_NOT_FOUND_MESSAGE,
-  UNAUTHORIZED_MESSAGE
+  UNAUTHORIZED_MESSAGE,
 } from "../messages.js";
 import { sendError, sendOk } from "./response.js";
 import type { AdminAuthService } from "./auth-service.js";
 import { AdminActionError } from "./action-service.js";
 import type { AuditLogService } from "./audit-log.js";
 import type { EventStore } from "./event-store.js";
-import type { AdminRole, AdminSession, AuditLogQuery, EventListQuery, RoomListQuery } from "./types.js";
+import type {
+  AdminRole,
+  AdminSession,
+  AuditLogQuery,
+  EventListQuery,
+  RoomListQuery,
+} from "./types.js";
 
 function unauthorized(response: ServerResponse): void {
   sendError(response, 401, "unauthorized", UNAUTHORIZED_MESSAGE);
@@ -33,11 +46,32 @@ export function createAdminRouter(options: {
   getRoomDetail: (roomCode: string) => Promise<unknown | null>;
   auditLogService: AuditLogService;
   listAuditLogs: (query: AuditLogQuery) => { items: unknown[]; total: number };
-  closeRoom: (actor: AdminSession, roomCode: string, reason?: string) => Promise<unknown>;
-  expireRoom: (actor: AdminSession, roomCode: string, reason?: string) => Promise<unknown>;
-  clearRoomVideo: (actor: AdminSession, roomCode: string, reason?: string) => Promise<unknown>;
-  kickMember: (actor: AdminSession, roomCode: string, memberId: string, reason?: string) => Promise<unknown>;
-  disconnectSession: (actor: AdminSession, sessionId: string, reason?: string) => Promise<unknown>;
+  closeRoom: (
+    actor: AdminSession,
+    roomCode: string,
+    reason?: string,
+  ) => Promise<unknown>;
+  expireRoom: (
+    actor: AdminSession,
+    roomCode: string,
+    reason?: string,
+  ) => Promise<unknown>;
+  clearRoomVideo: (
+    actor: AdminSession,
+    roomCode: string,
+    reason?: string,
+  ) => Promise<unknown>;
+  kickMember: (
+    actor: AdminSession,
+    roomCode: string,
+    memberId: string,
+    reason?: string,
+  ) => Promise<unknown>;
+  disconnectSession: (
+    actor: AdminSession,
+    sessionId: string,
+    reason?: string,
+  ) => Promise<unknown>;
   eventStore: EventStore;
   serviceName: string;
   now?: () => number;
@@ -46,10 +80,13 @@ export function createAdminRouter(options: {
   const roleRank: Record<AdminRole, number> = {
     viewer: 1,
     operator: 2,
-    admin: 3
+    admin: 3,
   };
 
-  async function requireAdmin(request: IncomingMessage, response: ServerResponse): Promise<AdminSession | null> {
+  async function requireAdmin(
+    request: IncomingMessage,
+    response: ServerResponse,
+  ): Promise<AdminSession | null> {
     const token = getBearerToken(request);
     if (!token || !options.authService) {
       unauthorized(response);
@@ -63,7 +100,11 @@ export function createAdminRouter(options: {
     return session;
   }
 
-  function requireRole(session: AdminSession, role: AdminRole, response: ServerResponse): boolean {
+  function requireRole(
+    session: AdminSession,
+    role: AdminRole,
+    response: ServerResponse,
+  ): boolean {
     if (roleRank[session.role] < roleRank[role]) {
       forbidden(response);
       return false;
@@ -72,12 +113,17 @@ export function createAdminRouter(options: {
   }
 
   return {
-    async handle(request: IncomingMessage, response: ServerResponse): Promise<boolean> {
+    async handle(
+      request: IncomingMessage,
+      response: ServerResponse,
+    ): Promise<boolean> {
       const pathname = new URL(request.url ?? "/", "http://localhost").pathname;
 
       try {
         if (request.method === "GET" && pathname === "/metrics") {
-          response.writeHead(200, { "content-type": "text/plain; version=0.0.4; charset=utf-8" });
+          response.writeHead(200, {
+            "content-type": "text/plain; version=0.0.4; charset=utf-8",
+          });
           response.end(await options.getMetrics());
           return true;
         }
@@ -86,7 +132,7 @@ export function createAdminRouter(options: {
           sendOk(response, {
             status: "healthy",
             service: options.serviceName,
-            time: new Date(now()).toISOString()
+            time: new Date(now()).toISOString(),
           });
           return true;
         }
@@ -94,23 +140,35 @@ export function createAdminRouter(options: {
         if (request.method === "GET" && pathname === "/readyz") {
           const roomStoreReady = await options.roomStoreReady();
           const status = roomStoreReady ? "ready" : "not_ready";
-          sendOk(response, {
-            status,
-            checks: {
-              httpServer: "ok",
-              roomStore: roomStoreReady ? "ok" : "error",
-              redis: roomStoreReady ? "ok" : "error"
-            }
-          }, roomStoreReady ? 200 : 503);
+          sendOk(
+            response,
+            {
+              status,
+              checks: {
+                httpServer: "ok",
+                roomStore: roomStoreReady ? "ok" : "error",
+                redis: roomStoreReady ? "ok" : "error",
+              },
+            },
+            roomStoreReady ? 200 : 503,
+          );
           return true;
         }
 
         if (request.method === "POST" && pathname === "/api/admin/auth/login") {
           if (!options.authService) {
-            sendError(response, 503, "admin_auth_unavailable", ADMIN_AUTH_UNAVAILABLE_MESSAGE);
+            sendError(
+              response,
+              503,
+              "admin_auth_unavailable",
+              ADMIN_AUTH_UNAVAILABLE_MESSAGE,
+            );
             return true;
           }
-          const body = await readJsonBody<{ username?: string; password?: string }>(request);
+          const body = await readJsonBody<{
+            username?: string;
+            password?: string;
+          }>(request);
           const username = body.username?.trim() ?? "";
           const password = body.password ?? "";
           try {
@@ -121,16 +179,24 @@ export function createAdminRouter(options: {
               admin: {
                 id: result.admin.adminId,
                 username: result.admin.username,
-                role: result.admin.role
-              }
+                role: result.admin.role,
+              },
             });
           } catch {
-            sendError(response, 401, "invalid_credentials", INVALID_CREDENTIALS_MESSAGE);
+            sendError(
+              response,
+              401,
+              "invalid_credentials",
+              INVALID_CREDENTIALS_MESSAGE,
+            );
           }
           return true;
         }
 
-        if (request.method === "POST" && pathname === "/api/admin/auth/logout") {
+        if (
+          request.method === "POST" &&
+          pathname === "/api/admin/auth/logout"
+        ) {
           const token = getBearerToken(request);
           if (!token || !options.authService) {
             unauthorized(response);
@@ -151,7 +217,7 @@ export function createAdminRouter(options: {
             username: session.username,
             role: session.role,
             expiresAt: session.expiresAt,
-            lastSeenAt: session.lastSeenAt
+            lastSeenAt: session.lastSeenAt,
           });
           return true;
         }
@@ -182,20 +248,35 @@ export function createAdminRouter(options: {
           const queryParams = getQueryParams(request);
           const status = queryParams.get("status");
           const query: RoomListQuery = {
-            status: status === "active" || status === "idle" || status === "all" ? status : "all",
+            status:
+              status === "active" || status === "idle" || status === "all"
+                ? status
+                : "all",
             keyword: queryParams.get("keyword") ?? undefined,
             page: parsePositiveInt(queryParams.get("page"), 1),
-            pageSize: Math.min(parsePositiveInt(queryParams.get("pageSize"), 20), 100),
-            sortBy: queryParams.get("sortBy") === "createdAt" ? "createdAt" : "lastActiveAt",
+            pageSize: Math.min(
+              parsePositiveInt(queryParams.get("pageSize"), 20),
+              100,
+            ),
+            sortBy:
+              queryParams.get("sortBy") === "createdAt"
+                ? "createdAt"
+                : "lastActiveAt",
             sortOrder: queryParams.get("sortOrder") === "asc" ? "asc" : "desc",
-            includeExpired: queryParams.get("includeExpired") === "true"
+            includeExpired: queryParams.get("includeExpired") === "true",
           };
           sendOk(response, await options.listRooms(query));
           return true;
         }
 
         const segments = getPathSegments(request);
-        if (request.method === "GET" && segments.length === 4 && segments[0] === "api" && segments[1] === "admin" && segments[2] === "rooms") {
+        if (
+          request.method === "GET" &&
+          segments.length === 4 &&
+          segments[0] === "api" &&
+          segments[1] === "admin" &&
+          segments[2] === "rooms"
+        ) {
           const session = await requireAdmin(request, response);
           if (!session) {
             return true;
@@ -222,17 +303,24 @@ export function createAdminRouter(options: {
             remoteAddress: queryParams.get("remoteAddress") ?? undefined,
             origin: queryParams.get("origin") ?? undefined,
             result: queryParams.get("result") ?? undefined,
-            from: queryParams.get("from") ? Number(queryParams.get("from")) : undefined,
-            to: queryParams.get("to") ? Number(queryParams.get("to")) : undefined,
+            from: queryParams.get("from")
+              ? Number(queryParams.get("from"))
+              : undefined,
+            to: queryParams.get("to")
+              ? Number(queryParams.get("to"))
+              : undefined,
             page: parsePositiveInt(queryParams.get("page"), 1),
-            pageSize: Math.min(parsePositiveInt(queryParams.get("pageSize"), 20), 100)
+            pageSize: Math.min(
+              parsePositiveInt(queryParams.get("pageSize"), 20),
+              100,
+            ),
           };
           sendOk(response, {
             ...options.eventStore.query(query),
             pagination: {
               page: query.page,
-              pageSize: query.pageSize
-            }
+              pageSize: query.pageSize,
+            },
           });
           return true;
         }
@@ -257,23 +345,42 @@ export function createAdminRouter(options: {
               targetTypeValue === "block"
                 ? targetTypeValue
                 : undefined,
-            result: resultValue === "ok" || resultValue === "rejected" || resultValue === "error" ? resultValue : undefined,
-            from: queryParams.get("from") ? Number(queryParams.get("from")) : undefined,
-            to: queryParams.get("to") ? Number(queryParams.get("to")) : undefined,
+            result:
+              resultValue === "ok" ||
+              resultValue === "rejected" ||
+              resultValue === "error"
+                ? resultValue
+                : undefined,
+            from: queryParams.get("from")
+              ? Number(queryParams.get("from"))
+              : undefined,
+            to: queryParams.get("to")
+              ? Number(queryParams.get("to"))
+              : undefined,
             page: parsePositiveInt(queryParams.get("page"), 1),
-            pageSize: Math.min(parsePositiveInt(queryParams.get("pageSize"), 20), 100)
+            pageSize: Math.min(
+              parsePositiveInt(queryParams.get("pageSize"), 20),
+              100,
+            ),
           };
           sendOk(response, {
             ...options.listAuditLogs(query),
             pagination: {
               page: query.page,
-              pageSize: query.pageSize
-            }
+              pageSize: query.pageSize,
+            },
           });
           return true;
         }
 
-        if (request.method === "POST" && segments.length === 5 && segments[0] === "api" && segments[1] === "admin" && segments[2] === "rooms" && segments[4] === "close") {
+        if (
+          request.method === "POST" &&
+          segments.length === 5 &&
+          segments[0] === "api" &&
+          segments[1] === "admin" &&
+          segments[2] === "rooms" &&
+          segments[4] === "close"
+        ) {
           const session = await requireAdmin(request, response);
           if (!session) {
             return true;
@@ -282,11 +389,21 @@ export function createAdminRouter(options: {
             return true;
           }
           const body = await readJsonBody<{ reason?: string }>(request);
-          sendOk(response, await options.closeRoom(session, segments[3] ?? "", body.reason));
+          sendOk(
+            response,
+            await options.closeRoom(session, segments[3] ?? "", body.reason),
+          );
           return true;
         }
 
-        if (request.method === "POST" && segments.length === 5 && segments[0] === "api" && segments[1] === "admin" && segments[2] === "rooms" && segments[4] === "expire") {
+        if (
+          request.method === "POST" &&
+          segments.length === 5 &&
+          segments[0] === "api" &&
+          segments[1] === "admin" &&
+          segments[2] === "rooms" &&
+          segments[4] === "expire"
+        ) {
           const session = await requireAdmin(request, response);
           if (!session) {
             return true;
@@ -295,11 +412,21 @@ export function createAdminRouter(options: {
             return true;
           }
           const body = await readJsonBody<{ reason?: string }>(request);
-          sendOk(response, await options.expireRoom(session, segments[3] ?? "", body.reason));
+          sendOk(
+            response,
+            await options.expireRoom(session, segments[3] ?? "", body.reason),
+          );
           return true;
         }
 
-        if (request.method === "POST" && segments.length === 5 && segments[0] === "api" && segments[1] === "admin" && segments[2] === "rooms" && segments[4] === "clear-video") {
+        if (
+          request.method === "POST" &&
+          segments.length === 5 &&
+          segments[0] === "api" &&
+          segments[1] === "admin" &&
+          segments[2] === "rooms" &&
+          segments[4] === "clear-video"
+        ) {
           const session = await requireAdmin(request, response);
           if (!session) {
             return true;
@@ -308,11 +435,26 @@ export function createAdminRouter(options: {
             return true;
           }
           const body = await readJsonBody<{ reason?: string }>(request);
-          sendOk(response, await options.clearRoomVideo(session, segments[3] ?? "", body.reason));
+          sendOk(
+            response,
+            await options.clearRoomVideo(
+              session,
+              segments[3] ?? "",
+              body.reason,
+            ),
+          );
           return true;
         }
 
-        if (request.method === "POST" && segments.length === 7 && segments[0] === "api" && segments[1] === "admin" && segments[2] === "rooms" && segments[4] === "members" && segments[6] === "kick") {
+        if (
+          request.method === "POST" &&
+          segments.length === 7 &&
+          segments[0] === "api" &&
+          segments[1] === "admin" &&
+          segments[2] === "rooms" &&
+          segments[4] === "members" &&
+          segments[6] === "kick"
+        ) {
           const session = await requireAdmin(request, response);
           if (!session) {
             return true;
@@ -321,11 +463,26 @@ export function createAdminRouter(options: {
             return true;
           }
           const body = await readJsonBody<{ reason?: string }>(request);
-          sendOk(response, await options.kickMember(session, segments[3] ?? "", segments[5] ?? "", body.reason));
+          sendOk(
+            response,
+            await options.kickMember(
+              session,
+              segments[3] ?? "",
+              segments[5] ?? "",
+              body.reason,
+            ),
+          );
           return true;
         }
 
-        if (request.method === "POST" && segments.length === 5 && segments[0] === "api" && segments[1] === "admin" && segments[2] === "sessions" && segments[4] === "disconnect") {
+        if (
+          request.method === "POST" &&
+          segments.length === 5 &&
+          segments[0] === "api" &&
+          segments[1] === "admin" &&
+          segments[2] === "sessions" &&
+          segments[4] === "disconnect"
+        ) {
           const session = await requireAdmin(request, response);
           if (!session) {
             return true;
@@ -334,7 +491,14 @@ export function createAdminRouter(options: {
             return true;
           }
           const body = await readJsonBody<{ reason?: string }>(request);
-          sendOk(response, await options.disconnectSession(session, segments[3] ?? "", body.reason));
+          sendOk(
+            response,
+            await options.disconnectSession(
+              session,
+              segments[3] ?? "",
+              body.reason,
+            ),
+          );
           return true;
         }
 
@@ -348,9 +512,14 @@ export function createAdminRouter(options: {
           sendError(response, error.statusCode, error.code, error.message);
           return true;
         }
-        sendError(response, 500, "internal_error", INTERNAL_SERVER_ERROR_MESSAGE);
+        sendError(
+          response,
+          500,
+          "internal_error",
+          INTERNAL_SERVER_ERROR_MESSAGE,
+        );
         return true;
       }
-    }
+    },
   };
 }

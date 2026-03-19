@@ -51,20 +51,38 @@ export function updateClockSample(args: {
   rttMs: number;
   clockOffsetMs: number;
 } {
-  const sampleRtt = args.now - args.clientSendTime - (args.serverSendTime - args.serverReceiveTime);
-  const sampleOffset = ((args.serverReceiveTime - args.clientSendTime) + (args.serverSendTime - args.now)) / 2;
+  const sampleRtt =
+    args.now -
+    args.clientSendTime -
+    (args.serverSendTime - args.serverReceiveTime);
+  const sampleOffset =
+    (args.serverReceiveTime -
+      args.clientSendTime +
+      (args.serverSendTime - args.now)) /
+    2;
 
   return {
-    rttMs: args.previousRttMs === null ? sampleRtt : Math.round(args.previousRttMs * 0.7 + sampleRtt * 0.3),
+    rttMs:
+      args.previousRttMs === null
+        ? sampleRtt
+        : Math.round(args.previousRttMs * 0.7 + sampleRtt * 0.3),
     clockOffsetMs:
       args.previousClockOffsetMs === null
         ? sampleOffset
-        : Math.round(args.previousClockOffsetMs * 0.7 + sampleOffset * 0.3)
+        : Math.round(args.previousClockOffsetMs * 0.7 + sampleOffset * 0.3),
   };
 }
 
-export function compensateRoomStateForClock(state: RoomState, clockOffsetMs: number | null, now = Date.now()): RoomState {
-  if (!state.playback || clockOffsetMs === null || state.playback.playState !== "playing") {
+export function compensateRoomStateForClock(
+  state: RoomState,
+  clockOffsetMs: number | null,
+  now = Date.now(),
+): RoomState {
+  if (
+    !state.playback ||
+    clockOffsetMs === null ||
+    state.playback.playState !== "playing"
+  ) {
     return state;
   }
 
@@ -74,7 +92,9 @@ export function compensateRoomStateForClock(state: RoomState, clockOffsetMs: num
     ...state,
     playback: {
       ...state.playback,
-      currentTime: state.playback.currentTime + elapsedMs / 1000 * state.playback.playbackRate
-    }
+      currentTime:
+        state.playback.currentTime +
+        (elapsedMs / 1000) * state.playback.playbackRate,
+    },
   };
 }

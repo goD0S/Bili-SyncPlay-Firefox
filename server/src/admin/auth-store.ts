@@ -19,6 +19,6 @@ export function createInMemoryAuthStore(): AuthStore {
     },
     delete(tokenId) {
       sessions.delete(tokenId);
-    }
+    },
   };
 }

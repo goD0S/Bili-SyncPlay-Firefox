@@ -15,7 +15,11 @@ export type EventStoreQuery = {
 };
 
 export type EventStore = {
-  append: (input: { event: string; timestamp?: string; data: Record<string, unknown> }) => RuntimeEvent;
+  append: (input: {
+    event: string;
+    timestamp?: string;
+    data: Record<string, unknown>;
+  }) => RuntimeEvent;
   query: (query: EventStoreQuery) => { items: RuntimeEvent[]; total: number };
 };
 
@@ -32,12 +36,21 @@ export function createEventStore(capacity = 1_000): EventStore {
         id: randomUUID(),
         timestamp: input.timestamp ?? new Date().toISOString(),
         event: input.event,
-        roomCode: typeof input.data.roomCode === "string" ? input.data.roomCode : null,
-        sessionId: typeof input.data.sessionId === "string" ? input.data.sessionId : null,
-        remoteAddress: typeof input.data.remoteAddress === "string" ? input.data.remoteAddress : null,
-        origin: typeof input.data.origin === "string" ? input.data.origin : null,
-        result: typeof input.data.result === "string" ? input.data.result : null,
-        details: { ...input.data }
+        roomCode:
+          typeof input.data.roomCode === "string" ? input.data.roomCode : null,
+        sessionId:
+          typeof input.data.sessionId === "string"
+            ? input.data.sessionId
+            : null,
+        remoteAddress:
+          typeof input.data.remoteAddress === "string"
+            ? input.data.remoteAddress
+            : null,
+        origin:
+          typeof input.data.origin === "string" ? input.data.origin : null,
+        result:
+          typeof input.data.result === "string" ? input.data.result : null,
+        details: { ...input.data },
       };
 
       events.push(event);
@@ -58,7 +71,10 @@ export function createEventStore(capacity = 1_000): EventStore {
         if (query.sessionId && event.sessionId !== query.sessionId) {
           return false;
         }
-        if (query.remoteAddress && event.remoteAddress !== query.remoteAddress) {
+        if (
+          query.remoteAddress &&
+          event.remoteAddress !== query.remoteAddress
+        ) {
           return false;
         }
         if (query.origin && event.origin !== query.origin) {
@@ -80,8 +96,8 @@ export function createEventStore(capacity = 1_000): EventStore {
       const start = (query.page - 1) * query.pageSize;
       return {
         items: filtered.slice(start, start + query.pageSize),
-        total: filtered.length
+        total: filtered.length,
       };
-    }
+    },
   };
 }

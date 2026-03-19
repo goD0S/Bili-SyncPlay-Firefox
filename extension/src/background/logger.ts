@@ -2,11 +2,18 @@ import type { DebugLogEntry } from "../shared/messages";
 
 export const MAX_LOGS = 30;
 
-export function appendLog(logs: DebugLogEntry[], scope: DebugLogEntry["scope"], message: string, now = Date.now()): DebugLogEntry[] {
+export function appendLog(
+  logs: DebugLogEntry[],
+  scope: DebugLogEntry["scope"],
+  message: string,
+  now = Date.now(),
+): DebugLogEntry[] {
   return [{ at: now, scope, message }, ...logs].slice(0, MAX_LOGS);
 }
 
-export function formatContentLogSource(sender: chrome.runtime.MessageSender): string {
+export function formatContentLogSource(
+  sender: chrome.runtime.MessageSender,
+): string {
   const tabId = sender.tab?.id;
   const rawUrl = sender.tab?.url ?? sender.url ?? null;
   if (!rawUrl) {

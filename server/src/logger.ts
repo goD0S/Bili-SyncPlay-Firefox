@@ -5,7 +5,7 @@ import type { RuntimeRegistry } from "./admin/runtime-registry.js";
 export function createStructuredLogger(
   writeLine?: (line: string) => void,
   eventStore?: EventStore,
-  runtimeRegistry?: RuntimeRegistry
+  runtimeRegistry?: RuntimeRegistry,
 ): LogEvent {
   return (event, data) => {
     const timestamp = new Date().toISOString();

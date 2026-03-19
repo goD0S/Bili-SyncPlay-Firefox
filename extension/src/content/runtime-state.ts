@@ -64,6 +64,6 @@ export function createContentRuntimeState(): ContentRuntimeState {
     pendingPlaybackApplication: null,
     suppressedRemotePlayback: null,
     recentRemotePlayingIntent: null,
-    festivalSnapshot: null
+    festivalSnapshot: null,
   };
 }
