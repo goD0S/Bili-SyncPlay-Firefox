@@ -4,10 +4,6 @@
 
 Bili-SyncPlay 是一个“Chrome 扩展 + WebSocket 服务端”的哔哩哔哩同步观影项目。用户可以创建或加入房间，分享当前视频，并在参与者之间同步播放、暂停、跳转和播放速率。
 
-Chrome 应用商店：
-
-- [Bili-SyncPlay](https://chromewebstore.google.com/detail/bili-syncplay/lbmckljnginagfabglpfdepofoglfdkj)
-
 它覆盖了完整的本地使用链路：
 
 - 在 Chrome / Edge 中加载未打包扩展
@@ -30,7 +26,7 @@ Chrome 应用商店：
 
 ## 快速开始
 
-如果你想直接使用已发布版本，可以先从 Chrome 应用商店安装：
+如果你想直接使用已发布版本，可以直接从 Chrome 应用商店安装：
 
 - [Chrome 应用商店中的 Bili-SyncPlay](https://chromewebstore.google.com/detail/bili-syncplay/lbmckljnginagfabglpfdepofoglfdkj)
 
@@ -213,7 +209,7 @@ npm test
 - `npm run lint:fix`：执行可安全应用的 ESLint 自动修复
 - `npm run format`：用 Prettier 重写格式
 - `npm run format:check`：只检查格式，不改文件
-- `npm run typecheck`：执行 protocol、server，以及 extension 源码的 TypeScript 语义检查
+- `npm run typecheck`：执行 protocol、server、extension 源码的 TypeScript 语义检查
 - `npm run build`：按依赖顺序构建 `protocol`、`server`、`extension`
 - `npm test`：执行 protocol、server、extension 的全仓测试
 - `npm run test:server:redis`：显式执行 server 的 Redis 持久化回归测试
@@ -221,7 +217,7 @@ npm test
 开发约定：
 
 - 保持入口文件轻量化，并且让共享规则维持单一来源。
-- 涉及结构调整的改动在合并前必须执行 `npm run lint`、`npm run format:check`、`npm run typecheck`、`npm run build`、`npm test`。
+- 提交前执行 `npm run lint`、`npm run format:check`、`npm run typecheck`、`npm run build`、`npm test`。
 - 完整贡献约束见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
 
 构建全部内容：
@@ -313,6 +309,7 @@ Redis 集成测试说明：
 ```bash
 npm run lint
 npm run format:check
+npm run typecheck
 npm run build
 npm test
 ```
@@ -819,12 +816,6 @@ Chrome 侧调试建议：
 - 重新构建 `extension/dist` 后，重新加载未打包扩展
 - 扩展重新加载后，刷新已打开的 Bilibili 标签页，以便重新注入内容脚本
 
-结构治理相关文档：
-
-- [requirements.md](./docs/codebase-standardization/requirements.md)
-- [design.md](./docs/codebase-standardization/design.md)
-- [tasks.md](./docs/codebase-standardization/tasks.md)
-
 ### 构建发布包
 
 先更新 workspace 版本：
@@ -873,4 +864,4 @@ git push origin v0.5.4
 
 ## License
 
-本项目基于 GNU General Public License v3.0 授权。详见 [LICENSE](/d:/workspace/Bili-SyncPlay/LICENSE)。
+本项目基于 GNU General Public License v3.0 授权。详见 [LICENSE](./LICENSE)。

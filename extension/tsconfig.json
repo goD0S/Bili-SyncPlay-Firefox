@@ -7,8 +7,5 @@
     "strict": false,
     "noEmit": true
   },
-  "include": [
-    "src/chrome.d.ts",
-    "src/**/*.ts"
-  ]
+  "include": ["src/chrome.d.ts", "src/**/*.ts"]
 }

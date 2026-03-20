@@ -815,12 +815,6 @@ Chrome-side debugging tips:
 - reload the unpacked extension after rebuilding `extension/dist`
 - reload open Bilibili tabs after the extension is reloaded so content scripts are injected again
 
-Additional structure references:
-
-- [requirements.md](./docs/codebase-standardization/requirements.md)
-- [design.md](./docs/codebase-standardization/design.md)
-- [tasks.md](./docs/codebase-standardization/tasks.md)
-
 ### Build a Release Package
 
 Update the workspace version first:
