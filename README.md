@@ -198,6 +198,7 @@ Recommended root workspace commands:
 ```bash
 npm run lint
 npm run format:check
+npm run typecheck
 npm run build
 npm test
 ```
@@ -208,6 +209,7 @@ Useful command matrix:
 - `npm run lint:fix`: apply safe ESLint fixes
 - `npm run format`: rewrite files with Prettier
 - `npm run format:check`: verify formatting without rewriting
+- `npm run typecheck`: run TypeScript semantic checks across protocol, server, and extension source code
 - `npm run build`: build `protocol`, `server`, and `extension` in dependency order
 - `npm test`: run repository-wide protocol, server, and extension tests
 - `npm run test:server:redis`: run the explicit Redis regression entry point for server persistence
@@ -215,7 +217,7 @@ Useful command matrix:
 Development constraints:
 
 - Keep entry files thin and keep shared rules in a single source of truth.
-- Run `npm run lint`, `npm run format:check`, `npm run build`, and `npm test` before committing changes.
+- Run `npm run lint`, `npm run format:check`, `npm run typecheck`, `npm run build`, and `npm test` before committing changes.
 - See [CONTRIBUTING.md](./CONTRIBUTING.md) for the full contribution and refactoring constraints.
 
 Build everything:

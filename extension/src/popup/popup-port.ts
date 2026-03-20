@@ -1,16 +1,21 @@
-import type { BackgroundToPopupMessage } from "../shared/messages";
+import type {
+  BackgroundPopupState,
+  BackgroundPopupStateMessage,
+  BackgroundToPopupMessage,
+} from "../shared/messages";
 
-export async function queryPopupState(): Promise<
-  BackgroundToPopupMessage["payload"]
-> {
+export async function queryPopupState(): Promise<BackgroundPopupState> {
   const response = (await chrome.runtime.sendMessage({
     type: "popup:get-state",
   })) as BackgroundToPopupMessage;
-  return response.payload;
+  if (response.type !== "background:state") {
+    throw new Error("Unexpected popup state response");
+  }
+  return (response as BackgroundPopupStateMessage).payload;
 }
 
 export function connectPopupStatePort(args: {
-  onState: (state: BackgroundToPopupMessage["payload"]) => void;
+  onState: (state: BackgroundPopupState) => void;
   onDisconnect?: () => void;
 }): chrome.runtime.Port {
   const port = chrome.runtime.connect({ name: "popup-state" });

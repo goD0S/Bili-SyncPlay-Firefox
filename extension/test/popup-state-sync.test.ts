@@ -4,11 +4,9 @@ import {
   applyIncomingPopupState,
   createPopupStateSyncState,
 } from "../src/popup/state-sync";
-import type { BackgroundToPopupMessage } from "../src/shared/messages";
+import type { BackgroundPopupState } from "../src/shared/messages";
 
-function createPopupState(
-  roomCode: string | null,
-): BackgroundToPopupMessage["payload"] {
+function createPopupState(roomCode: string | null): BackgroundPopupState {
   return {
     connected: Boolean(roomCode),
     serverUrl: "ws://localhost:8787",
@@ -16,6 +14,7 @@ function createPopupState(
     roomCode,
     joinToken: roomCode ? `join-${roomCode}` : null,
     memberId: roomCode ? `member-${roomCode}` : null,
+    displayName: null,
     roomState: roomCode
       ? {
           roomCode,

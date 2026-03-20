@@ -1,7 +1,7 @@
 import type {
   RoomState,
   ServerMessage,
-  type ClientMessage,
+  ClientMessage,
 } from "@bili-syncplay/protocol";
 import type { BackgroundToContentMessage } from "../shared/messages";
 import {

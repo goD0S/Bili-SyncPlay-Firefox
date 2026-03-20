@@ -1,4 +1,4 @@
-import type { BackgroundToPopupMessage } from "../shared/messages";
+import type { BackgroundPopupState } from "../shared/messages";
 import { bindPopupActions } from "./popup-actions";
 import {
   connectPopupStatePort as createPopupStatePort,
@@ -58,11 +58,11 @@ async function init(): Promise<void> {
   }
 }
 
-async function queryState(): Promise<BackgroundToPopupMessage["payload"]> {
+async function queryState(): Promise<BackgroundPopupState> {
   return queryPopupState();
 }
 
-function applyActionState(state: BackgroundToPopupMessage["payload"]): void {
+function applyActionState(state: BackgroundPopupState): void {
   applyState(state, "port");
   render();
 }
@@ -102,7 +102,7 @@ function applyRoomActionControlState(nodes: PopupRefs): void {
 }
 
 function applyState(
-  state: BackgroundToPopupMessage["payload"],
+  state: BackgroundPopupState,
   source: "port" | "query" = "port",
 ): boolean {
   if (!applyIncomingPopupState(popupStateSync, state, source)) {

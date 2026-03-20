@@ -103,7 +103,15 @@ function readFestivalVideoDetail(): {
     return {
       bvid: matched.bvid,
       cid: matched.cid,
-      title: matched.title || activeTitle || initialState?.videoInfo?.title,
+      title:
+        (typeof matched === "object" &&
+        matched !== null &&
+        "title" in matched &&
+        typeof matched.title === "string"
+          ? matched.title
+          : undefined) ||
+        activeTitle ||
+        initialState?.videoInfo?.title,
     };
   } catch {
     return null;

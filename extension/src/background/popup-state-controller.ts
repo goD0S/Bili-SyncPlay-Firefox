@@ -3,6 +3,7 @@ import type {
   BackgroundToPopupMessage,
 } from "../shared/messages";
 import { createPopupStateSnapshot } from "./popup-bus";
+import type { BackgroundRuntimeState } from "./runtime-state";
 
 export interface PopupStateController {
   popupState(): BackgroundToPopupMessage;
@@ -13,9 +14,7 @@ export interface PopupStateController {
 }
 
 export function createPopupStateController(args: {
-  createState: () => ReturnType<
-    typeof createPopupStateSnapshot
-  >["payload"]["state"];
+  createState: () => BackgroundRuntimeState;
   getRetryInMs: () => number | null;
   retryAttemptMax: number;
   notifyContentScripts: (message: BackgroundToContentMessage) => Promise<void>;

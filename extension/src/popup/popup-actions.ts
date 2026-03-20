@@ -1,4 +1,7 @@
-import type { BackgroundToPopupMessage } from "../shared/messages";
+import type {
+  BackgroundPopupState,
+  BackgroundPopupStateMessage,
+} from "../shared/messages";
 import { getUiLanguage, t } from "../shared/i18n";
 import { areSharedVideoUrlsEqual } from "../shared/url";
 import { parseInviteValue } from "./helpers";
@@ -16,12 +19,12 @@ export function bindPopupActions(args: {
   leaveGuardMs: number;
   uiStateStore: PopupUiStateStore;
   serverUrlDraft: ServerUrlDraftState;
-  queryState: () => Promise<BackgroundToPopupMessage["payload"]>;
-  applyActionState: (state: BackgroundToPopupMessage["payload"]) => void;
+  queryState: () => Promise<BackgroundPopupState>;
+  applyActionState: (state: BackgroundPopupState) => void;
   render: () => void;
   sendPopupLog: (message: string) => Promise<void>;
   applyRoomActionControlState: (refs: PopupRefs) => void;
-  getPopupState: () => BackgroundToPopupMessage["payload"] | null;
+  getPopupState: () => BackgroundPopupState | null;
 }): void {
   const { refs } = args;
 
@@ -51,7 +54,7 @@ export function bindPopupActions(args: {
     try {
       const response = (await chrome.runtime.sendMessage({
         type: "popup:create-room",
-      })) as BackgroundToPopupMessage;
+      })) as BackgroundPopupStateMessage;
       args.applyActionState(response.payload);
       void args.sendPopupLog("Create room message resolved");
       patchUiState({ roomActionPending: false });
@@ -98,7 +101,7 @@ export function bindPopupActions(args: {
     try {
       const response = (await chrome.runtime.sendMessage({
         type: "popup:leave-room",
-      })) as BackgroundToPopupMessage;
+      })) as BackgroundPopupStateMessage;
       args.applyActionState(response.payload);
       void args.sendPopupLog("Leave room message resolved");
       patchUiState({ roomActionPending: false });
@@ -183,7 +186,7 @@ export function bindPopupActions(args: {
     const response = (await chrome.runtime.sendMessage({
       type: "popup:set-server-url",
       serverUrl: requestedServerUrl,
-    })) as BackgroundToPopupMessage;
+    })) as BackgroundPopupStateMessage;
     args.applyActionState(response.payload);
     syncServerUrlDraft(args.serverUrlDraft, response.payload.serverUrl);
     refs.serverUrlInput.value = response.payload.serverUrl;
@@ -298,7 +301,7 @@ export function bindPopupActions(args: {
         type: "popup:join-room",
         roomCode: invite.roomCode,
         joinToken: invite.joinToken,
-      })) as BackgroundToPopupMessage;
+      })) as BackgroundPopupStateMessage;
       args.applyActionState(response.payload);
       void args.sendPopupLog(`${args2.resolvedLabel} room=${invite.roomCode}`);
       patchUiState({ roomActionPending: false });

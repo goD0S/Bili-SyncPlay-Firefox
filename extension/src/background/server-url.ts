@@ -59,7 +59,7 @@ export function resolvePersistedServerUrl(
 
   return {
     serverUrl: trimmed,
-    lastError: result.message,
+    lastError: "message" in result ? result.message : INVALID_SERVER_URL_MESSAGE,
     shouldAutoConnect: false,
   };
 }

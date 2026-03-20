@@ -4,7 +4,7 @@ This repository uses a monorepo structure with shared protocol code, a browser e
 
 ## Workflow
 
-- Run `npm run lint`, `npm run format:check`, `npm run build`, and `npm test` before merging structural changes.
+- Run `npm run lint`, `npm run format:check`, `npm run typecheck`, `npm run build`, and `npm test` before merging structural changes.
 - When refactoring, update or add regression tests in the same change.
 - Keep formatting-only changes separate from behavior changes whenever practical.
 

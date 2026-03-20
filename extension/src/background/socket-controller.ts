@@ -57,7 +57,7 @@ export function createSocketController(args: {
     }
 
     const serverUrlResult = validateServerUrl(args.connectionState.serverUrl);
-    if (!serverUrlResult.ok) {
+    if ("message" in serverUrlResult) {
       args.connectionState.lastError = serverUrlResult.message;
       args.connectionState.connected = false;
       args.stopClockSyncTimer();
@@ -80,7 +80,7 @@ export function createSocketController(args: {
 
   async function openSocketWithProbe(targetServerUrl: string): Promise<void> {
     const serverUrlResult = validateServerUrl(targetServerUrl);
-    if (!serverUrlResult.ok) {
+    if ("message" in serverUrlResult) {
       args.connectionState.lastError = serverUrlResult.message;
       args.connectionState.connected = false;
       args.stopClockSyncTimer();

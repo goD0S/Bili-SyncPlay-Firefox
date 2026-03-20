@@ -41,6 +41,7 @@ import {
 import { createTabController } from "./tab-controller";
 import { t } from "../shared/i18n";
 
+const normalizeUrl = normalizeSharedVideoUrl;
 const stateStore = createBackgroundStateStore();
 const connectionState = stateStore.getState().connection;
 const roomSessionState = stateStore.getState().room;
@@ -84,7 +85,7 @@ const shareController = createShareController({
   roomSessionState,
   shareState,
   log: (scope, message) => diagnosticsController.log(scope, message),
-  sendToServer,
+  sendToServer: (message) => sendToServer(message as ClientMessage),
   connect: () => socketController.connect(),
   persistState,
   notifyAll,
@@ -251,8 +252,8 @@ async function bootstrap(): Promise<void> {
     connect: () => {
       void socketController.connect();
     },
-    log,
-    broadcastPopupState,
+    log: (scope, message) => diagnosticsController.log(scope, message),
+    broadcastPopupState: () => popupStateController.broadcastPopupState(),
     addTabRemovedListener: (listener) => {
       chrome.tabs.onRemoved.addListener(listener);
     },
@@ -424,8 +425,6 @@ function resetRoomLifecycleTransientState(
   roomSessionState.pendingSharedVideo = null;
   roomSessionState.pendingSharedPlayback = null;
 }
-
-const normalizeUrl = normalizeSharedVideoUrl;
 
 async function notifyContentScripts(
   message: BackgroundToContentMessage,

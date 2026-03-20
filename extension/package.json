@@ -6,6 +6,7 @@
   "scripts": {
     "prebuild": "npm --prefix ../packages/protocol run build",
     "build": "node scripts/build.mjs",
+    "typecheck": "tsc -p tsconfig.json",
     "pretest": "npm --prefix ../packages/protocol run build",
     "test": "tsx --test test/**/*.test.ts"
   },

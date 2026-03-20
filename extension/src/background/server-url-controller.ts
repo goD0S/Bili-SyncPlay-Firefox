@@ -23,7 +23,7 @@ export function createServerUrlController(args: {
   return {
     async updateServerUrl(nextServerUrl: string): Promise<void> {
       const serverUrlResult = validateServerUrl(nextServerUrl);
-      if (!serverUrlResult.ok) {
+      if ("message" in serverUrlResult) {
         args.connectionState.lastError = serverUrlResult.message;
         args.logInvalidServerUrl(
           "update-server-url",

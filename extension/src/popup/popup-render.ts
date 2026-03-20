@@ -1,5 +1,5 @@
 import type { RoomMember } from "@bili-syncplay/protocol";
-import type { BackgroundToPopupMessage } from "../shared/messages";
+import type { BackgroundPopupState } from "../shared/messages";
 import { getUiLanguage, t } from "../shared/i18n";
 import { escapeHtml } from "./helpers";
 import {
@@ -39,7 +39,7 @@ export function applyRoomActionControlState(args: {
 
 export function renderPopup(args: {
   refs: PopupRefs;
-  state: BackgroundToPopupMessage["payload"];
+  state: BackgroundPopupState;
   serverUrlDraft: ServerUrlDraftState;
   roomCodeDraft: string;
   setRoomCodeDraft: (value: string) => void;
@@ -162,7 +162,7 @@ function formatVideoOwner(
 
 function renderLogs(
   container: HTMLElement,
-  logs: BackgroundToPopupMessage["payload"]["logs"],
+  logs: BackgroundPopupState["logs"],
 ): void {
   if (logs.length === 0) {
     container.innerHTML = `<div class="muted">${escapeHtml(t("stateNoLogs"))}</div>`;

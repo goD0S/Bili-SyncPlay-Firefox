@@ -10,6 +10,7 @@ import { createShareController } from "./share-controller";
 import { createSyncController } from "./sync-controller";
 import { createToastCoordinatorState, createToastPresenter } from "./toast";
 
+const normalizeUrl = normalizeSharedVideoUrl;
 let seq = 0;
 let lastBroadcastAt = 0;
 let hydrateRetryTimer: number | null = null;
@@ -210,8 +211,6 @@ function startUserGestureTracking(): void {
 function activatePauseHold(durationMs = PAUSE_HOLD_MS): void {
   runtimeState.pauseHoldUntil = Date.now() + durationMs;
 }
-
-const normalizeUrl = normalizeSharedVideoUrl;
 
 async function reportCurrentUser(): Promise<void> {
   try {

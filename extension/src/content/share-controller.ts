@@ -34,12 +34,7 @@ export function createShareController(args: {
     pathname: string;
     pageUrl: string;
     maxAgeMs: number;
-  }) => Promise<{
-    videoId: string;
-    url: string;
-    title: string;
-    updatedAt: number;
-  } | null>;
+  }) => Promise<SharedVideo | null>;
   debugLog: (message: string) => void;
 }): ShareController {
   function getCurrentPartTitle(): string | null {

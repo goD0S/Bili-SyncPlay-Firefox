@@ -59,6 +59,21 @@ export type BackgroundToPopupMessage =
       };
     };
 
+export type BackgroundPopupState = Extract<
+  BackgroundToPopupMessage,
+  { type: "background:state" }
+>["payload"];
+
+export type BackgroundPopupStateMessage = Extract<
+  BackgroundToPopupMessage,
+  { type: "background:state" }
+>;
+
+export type BackgroundPopupConnected = Extract<
+  BackgroundToPopupMessage,
+  { type: "background:popup-connected" }
+>["payload"];
+
 export type BackgroundToContentMessage =
   | {
       type: "background:apply-room-state";

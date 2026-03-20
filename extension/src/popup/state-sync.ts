@@ -1,7 +1,7 @@
-import type { BackgroundToPopupMessage } from "../shared/messages";
+import type { BackgroundPopupState } from "../shared/messages";
 
 export interface PopupStateSyncState {
-  popupState: BackgroundToPopupMessage["payload"] | null;
+  popupState: BackgroundPopupState | null;
   hasReceivedPortState: boolean;
 }
 
@@ -14,7 +14,7 @@ export function createPopupStateSyncState(): PopupStateSyncState {
 
 export function applyIncomingPopupState(
   state: PopupStateSyncState,
-  nextState: BackgroundToPopupMessage["payload"],
+  nextState: BackgroundPopupState,
   source: "port" | "query",
 ): boolean {
   if (source === "query" && state.hasReceivedPortState) {

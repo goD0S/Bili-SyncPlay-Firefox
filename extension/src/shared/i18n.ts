@@ -171,7 +171,8 @@ function interpolate(template: string, params: MessageParams = {}): string {
 }
 
 export function getUiLanguage(): string {
-  const chromeLocale = globalThis.chrome?.i18n?.getUILanguage?.();
+  const chromeLocale =
+    typeof chrome !== "undefined" ? chrome.i18n?.getUILanguage?.() : undefined;
   if (typeof chromeLocale === "string" && chromeLocale.trim()) {
     return chromeLocale;
   }

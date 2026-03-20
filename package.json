@@ -12,6 +12,7 @@
     "lint:fix": "npm run lint -- --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "typecheck": "npm run typecheck -w @bili-syncplay/protocol && npm run typecheck -w @bili-syncplay/server && npm run typecheck -w @bili-syncplay/extension",
     "build": "npm run build -w @bili-syncplay/protocol && npm run build -w @bili-syncplay/server && npm run build -w @bili-syncplay/extension",
     "pretest": "npm run build -w @bili-syncplay/protocol",
     "test": "npm run --ignore-scripts test -w @bili-syncplay/protocol && npm run --ignore-scripts test -w @bili-syncplay/server && npm run --ignore-scripts test -w @bili-syncplay/extension",
