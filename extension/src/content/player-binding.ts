@@ -49,8 +49,7 @@ export function syncPlaybackPosition(
     targetTime,
     playState,
     isExplicitSeek:
-      playState === "playing" &&
-      Math.abs(targetTime - video.currentTime) >= 5,
+      playState === "playing" && Math.abs(targetTime - video.currentTime) >= 5,
   });
 
   if (decision.mode === "hard-seek") {

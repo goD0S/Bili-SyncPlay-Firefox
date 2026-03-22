@@ -28,7 +28,6 @@ import type {
   Session,
 } from "./types.js";
 
-const PAUSE_DOMINANCE_WINDOW_MS = 400;
 const PLAYBACK_AUTHORITY_WINDOW_MS = 1200;
 const MAX_VERSION_RETRIES = 3;
 
@@ -181,8 +180,9 @@ export function createRoomService(options: {
       return "ratechange";
     }
     if (
-      Math.abs(args.nextPlayback.currentTime - args.currentPlayback.currentTime) >=
-      2.5
+      Math.abs(
+        args.nextPlayback.currentTime - args.currentPlayback.currentTime,
+      ) >= 2.5
     ) {
       return "seek";
     }

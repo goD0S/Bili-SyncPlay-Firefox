@@ -93,7 +93,9 @@ export function createSyncController(args: {
   }): string {
     const localTime = args.localTime ?? null;
     const delta =
-      localTime === null ? "n/a" : Math.abs(localTime - args.targetTime).toFixed(2);
+      localTime === null
+        ? "n/a"
+        : Math.abs(localTime - args.targetTime).toFixed(2);
     const parts = [
       `actor=${args.actor ?? "unknown"}`,
       `playState=${args.playState}`,

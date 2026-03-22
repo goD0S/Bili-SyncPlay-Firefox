@@ -40,11 +40,7 @@ export type LocalPlaybackEventSource =
   | "timeupdate"
   | "manual";
 
-export type ExplicitUserActionKind =
-  | "play"
-  | "pause"
-  | "seek"
-  | "ratechange";
+export type ExplicitUserActionKind = "play" | "pause" | "seek" | "ratechange";
 
 export interface ExplicitUserAction {
   kind: ExplicitUserActionKind;

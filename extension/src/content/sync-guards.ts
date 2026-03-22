@@ -320,7 +320,8 @@ export function shouldSuppressProgrammaticEvent(
   );
   return {
     shouldSuppress:
-      delta <= getProgrammaticEventThreshold(input.eventSource, input.playState),
+      delta <=
+      getProgrammaticEventThreshold(input.eventSource, input.playState),
     nextProgrammaticApplyUntil: input.programmaticApplyUntil,
     nextProgrammaticApplySignature: input.programmaticApplySignature,
   };
