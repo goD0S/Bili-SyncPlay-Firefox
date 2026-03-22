@@ -59,6 +59,13 @@ export type ActiveRoom = {
   memberTokens: Map<string, string>;
 };
 
+export type PlaybackAuthority = {
+  actorId: string;
+  until: number;
+  kind: "share" | "play" | "pause" | "seek" | "ratechange";
+  source: "video:share" | "playback:update";
+};
+
 export type RequestContext = {
   remoteAddress: string | null;
   origin: string | null;

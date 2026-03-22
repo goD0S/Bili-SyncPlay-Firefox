@@ -20,6 +20,7 @@ import {
 import { createRoomCode, roomStateOf, type RoomStore } from "./room-store.js";
 import type {
   LogEvent,
+  PlaybackAuthority,
   PersistenceConfig,
   PersistedRoom,
   SecurityConfig,
@@ -27,6 +28,7 @@ import type {
 } from "./types.js";
 
 const PAUSE_DOMINANCE_WINDOW_MS = 400;
+const PLAYBACK_AUTHORITY_WINDOW_MS = 1200;
 const MAX_VERSION_RETRIES = 3;
 
 type ServiceErrorReason =
@@ -103,6 +105,7 @@ export function createRoomService(options: {
   getActiveRoom: (
     roomCode: string,
   ) => ReturnType<ActiveRoomRegistry["getRoom"]>;
+  getPlaybackAuthority: (roomCode: string) => PlaybackAuthority | null;
   getRoomStateByCode: (
     roomCode: string,
   ) => Promise<ReturnType<typeof roomStateOf> | null>;
@@ -118,6 +121,7 @@ export function createRoomService(options: {
   } = options;
   const now = options.now ?? Date.now;
   const nextRoomCode = options.createRoomCode ?? createRoomCode;
+  const playbackAuthorityByRoom = new Map<string, PlaybackAuthority>();
 
   function setSessionDisplayName(session: Session, displayName?: string): void {
     session.displayName = displayName?.trim() || session.displayName;
@@ -141,6 +145,67 @@ export function createRoomService(options: {
       return null;
     }
     return room;
+  }
+
+  function getPlaybackAuthority(roomCode: string): PlaybackAuthority | null {
+    const authority = playbackAuthorityByRoom.get(roomCode) ?? null;
+    if (!authority) {
+      return null;
+    }
+    if (authority.until <= now()) {
+      playbackAuthorityByRoom.delete(roomCode);
+      return null;
+    }
+    return authority;
+  }
+
+  function derivePlaybackAuthorityKind(args: {
+    currentPlayback: PlaybackState | null;
+    nextPlayback: PlaybackState;
+  }): PlaybackAuthority["kind"] | null {
+    if (!args.currentPlayback) {
+      return "play";
+    }
+    if (
+      args.nextPlayback.playState === "paused" ||
+      args.nextPlayback.playState === "buffering"
+    ) {
+      return "pause";
+    }
+    if (
+      Math.abs(
+        args.nextPlayback.playbackRate - args.currentPlayback.playbackRate,
+      ) > 0.01
+    ) {
+      return "ratechange";
+    }
+    if (
+      Math.abs(args.nextPlayback.currentTime - args.currentPlayback.currentTime) >=
+      2.5
+    ) {
+      return "seek";
+    }
+    if (
+      args.currentPlayback.playState !== "playing" &&
+      args.nextPlayback.playState === "playing"
+    ) {
+      return "play";
+    }
+    return null;
+  }
+
+  function recordPlaybackAuthority(args: {
+    roomCode: string;
+    actorId: string;
+    kind: PlaybackAuthority["kind"];
+    source: PlaybackAuthority["source"];
+  }): void {
+    playbackAuthorityByRoom.set(args.roomCode, {
+      actorId: args.actorId,
+      until: now() + PLAYBACK_AUTHORITY_WINDOW_MS,
+      kind: args.kind,
+      source: args.source,
+    });
   }
 
   function requireMemberToken(
@@ -571,6 +636,12 @@ export function createRoomService(options: {
           if (!result.ok) {
             return null;
           }
+          recordPlaybackAuthority({
+            roomCode: currentRoom.code,
+            actorId: nextPlayback.actorId,
+            kind: "share",
+            source: "video:share",
+          });
           return result.room;
         },
       );
@@ -625,6 +696,10 @@ export function createRoomService(options: {
         actorId: session.memberId ?? session.id,
         serverTime: currentTime,
       };
+      const authorityKind = derivePlaybackAuthorityKind({
+        currentPlayback: access.persistedRoom.playback,
+        nextPlayback,
+      });
       if (
         shouldIgnorePlaybackUpdate(
           access.persistedRoom,
@@ -659,6 +734,15 @@ export function createRoomService(options: {
           ROOM_NOT_FOUND_MESSAGE,
           "room_not_found",
         );
+      }
+
+      if (authorityKind) {
+        recordPlaybackAuthority({
+          roomCode: access.persistedRoom.code,
+          actorId: nextPlayback.actorId,
+          kind: authorityKind,
+          source: "playback:update",
+        });
       }
 
       return { room: result.room, ignored: false };
@@ -696,6 +780,10 @@ export function createRoomService(options: {
 
     getActiveRoom(roomCode) {
       return activeRooms.getRoom(roomCode);
+    },
+
+    getPlaybackAuthority(roomCode) {
+      return getPlaybackAuthority(roomCode);
     },
 
     async getRoomStateByCode(roomCode) {
