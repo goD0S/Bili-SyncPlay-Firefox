@@ -37,8 +37,8 @@ export function decidePlaybackReconcileMode(args: {
   }
 
   return {
-    mode: delta > 0.15 ? "hard-seek" : "ignore",
+    mode: delta <= 0.75 ? "ignore" : delta <= 2.5 ? "soft-apply" : "hard-seek",
     delta,
-    reason: delta > 0.15 ? "playing-drift" : "within-threshold",
+    reason: delta > 0.75 ? "playing-drift" : "within-threshold",
   };
 }
