@@ -1,5 +1,8 @@
 import type { PlaybackState } from "@bili-syncplay/protocol";
-import { decidePlaybackReconcileMode } from "./playback-reconcile";
+import {
+  decidePlaybackReconcileMode,
+  shouldTreatAsExplicitSeek,
+} from "./playback-reconcile";
 import type { ProgrammaticPlaybackSignature } from "./runtime-state";
 
 export function getVideoElement(): HTMLVideoElement | null {
@@ -48,8 +51,11 @@ export function syncPlaybackPosition(
     localCurrentTime: video.currentTime,
     targetTime,
     playState,
-    isExplicitSeek:
-      playState === "playing" && Math.abs(targetTime - video.currentTime) >= 5,
+    isExplicitSeek: shouldTreatAsExplicitSeek({
+      localCurrentTime: video.currentTime,
+      targetTime,
+      playState,
+    }),
   });
 
   if (decision.mode === "hard-seek") {

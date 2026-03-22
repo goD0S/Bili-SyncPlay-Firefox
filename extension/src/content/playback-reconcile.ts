@@ -12,6 +12,20 @@ export interface PlaybackReconcileDecision {
     | "explicit-seek";
 }
 
+export const EXPLICIT_SEEK_DELTA_THRESHOLD = 2.5;
+
+export function shouldTreatAsExplicitSeek(args: {
+  localCurrentTime: number;
+  targetTime: number;
+  playState: PlaybackState["playState"];
+}): boolean {
+  return (
+    args.playState === "playing" &&
+    Math.abs(args.targetTime - args.localCurrentTime) >=
+      EXPLICIT_SEEK_DELTA_THRESHOLD
+  );
+}
+
 export function decidePlaybackReconcileMode(args: {
   localCurrentTime: number;
   targetTime: number;

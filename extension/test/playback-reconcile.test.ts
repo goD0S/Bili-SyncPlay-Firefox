@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { decidePlaybackReconcileMode } from "../src/content/playback-reconcile";
+import {
+  decidePlaybackReconcileMode,
+  shouldTreatAsExplicitSeek,
+} from "../src/content/playback-reconcile";
 
 test("ignores small playback drift while playing", () => {
   assert.deepEqual(
@@ -42,6 +45,17 @@ test("forces hard seek for explicit jumps while playing", () => {
       delta: 8,
       reason: "explicit-seek",
     },
+  );
+});
+
+test("treats a three-second playing jump as an explicit seek", () => {
+  assert.equal(
+    shouldTreatAsExplicitSeek({
+      localCurrentTime: 12,
+      targetTime: 15,
+      playState: "playing",
+    }),
+    true,
   );
 });
 
