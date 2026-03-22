@@ -10,6 +10,7 @@ import {
 } from "./sync-guards";
 import type {
   ContentRuntimeState,
+  ExplicitUserActionKind,
   LocalPlaybackEventSource,
 } from "./runtime-state";
 
@@ -59,6 +60,18 @@ export function createPlaybackBindingController(args: {
     ) {
       args.runtimeState.lastExplicitPlaybackAction = {
         playState,
+        at: nowOf(),
+      };
+    }
+  }
+
+  function rememberExplicitUserAction(kind: ExplicitUserActionKind) {
+    if (
+      nowOf() - args.runtimeState.lastUserGestureAt <
+      args.userGestureGraceMs
+    ) {
+      args.runtimeState.lastExplicitUserAction = {
+        kind,
         at: nowOf(),
       };
     }
@@ -208,6 +221,7 @@ export function createPlaybackBindingController(args: {
       video,
       onPlay: () => {
         rememberExplicitPlaybackAction("playing");
+        rememberExplicitUserAction("play");
         if (!guardUnexpectedResume()) {
           scheduleBroadcast(video, "play", 180);
         }
@@ -215,6 +229,7 @@ export function createPlaybackBindingController(args: {
       onPause: () => {
         const currentVideo = args.getSharedVideo();
         rememberExplicitPlaybackAction("paused");
+        rememberExplicitUserAction("pause");
         if (
           currentVideo &&
           args.normalizeUrl(currentVideo.url) ===
@@ -239,13 +254,23 @@ export function createPlaybackBindingController(args: {
       },
       onPlaying: () => {
         rememberExplicitPlaybackAction("playing");
+        rememberExplicitUserAction("play");
         if (!guardUnexpectedResume()) {
           scheduleBroadcast(video, "playing", 180);
         }
       },
-      onSeeking: () => scheduleBroadcast(video, "seeking"),
-      onSeeked: () => scheduleBroadcast(video, "seeked", 120),
-      onRateChange: () => scheduleBroadcast(video, "ratechange", 120),
+      onSeeking: () => {
+        rememberExplicitUserAction("seek");
+        scheduleBroadcast(video, "seeking");
+      },
+      onSeeked: () => {
+        rememberExplicitUserAction("seek");
+        scheduleBroadcast(video, "seeked", 120);
+      },
+      onRateChange: () => {
+        rememberExplicitUserAction("ratechange");
+        scheduleBroadcast(video, "ratechange", 120);
+      },
       onTimeUpdate: () => {
         if (nowOf() - args.getLastBroadcastAt() > 2000 && !video.paused) {
           void args.broadcastPlayback(video, "timeupdate");

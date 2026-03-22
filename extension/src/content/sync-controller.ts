@@ -396,7 +396,9 @@ export function createSyncController(args: {
       currentTime: video.currentTime,
       playbackRate: video.playbackRate,
       eventSource,
+      lastExplicitUserAction: args.runtimeState.lastExplicitUserAction,
       now,
+      userGestureGraceMs: args.userGestureGraceMs,
     });
     args.runtimeState.programmaticApplyUntil =
       programmaticDecision.nextProgrammaticApplyUntil;
@@ -416,6 +418,21 @@ export function createSyncController(args: {
         })}`,
       );
       return;
+    }
+    if (
+      args.runtimeState.lastExplicitUserAction &&
+      now - args.runtimeState.lastExplicitUserAction.at <
+        args.userGestureGraceMs &&
+      (eventSource === "play" ||
+        eventSource === "playing" ||
+        eventSource === "pause" ||
+        eventSource === "seeking" ||
+        eventSource === "seeked" ||
+        eventSource === "ratechange")
+    ) {
+      args.debugLog(
+        `Allowed explicit user event actor=${args.runtimeState.localMemberId ?? "local"} playState=${playState} url=${currentVideo.url} delta=n/a result=${eventSource}`,
+      );
     }
 
     if (

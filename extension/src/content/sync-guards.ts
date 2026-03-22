@@ -1,6 +1,8 @@
 import type { PlaybackState } from "@bili-syncplay/protocol";
 import type {
   ExplicitPlaybackAction,
+  ExplicitUserAction,
+  ExplicitUserActionKind,
   LocalPlaybackEventSource,
   ProgrammaticPlaybackSignature,
   RecentRemotePlayingIntent,
@@ -71,7 +73,9 @@ export interface ProgrammaticEventSuppressionInput {
   currentTime: number;
   playbackRate: number;
   eventSource: LocalPlaybackEventSource;
+  lastExplicitUserAction: ExplicitUserAction | null;
   now: number;
+  userGestureGraceMs: number;
 }
 
 function getProgrammaticEventThreshold(
@@ -91,6 +95,24 @@ function getProgrammaticEventThreshold(
     return 1.2;
   }
   return playState === "playing" ? 0.9 : 0.25;
+}
+
+function mapEventSourceToExplicitAction(
+  eventSource: LocalPlaybackEventSource,
+): ExplicitUserActionKind | null {
+  if (eventSource === "play" || eventSource === "playing") {
+    return "play";
+  }
+  if (eventSource === "pause") {
+    return "pause";
+  }
+  if (eventSource === "seeking" || eventSource === "seeked") {
+    return "seek";
+  }
+  if (eventSource === "ratechange") {
+    return "ratechange";
+  }
+  return null;
 }
 
 export function shouldForcePauseWhileWaitingForInitialRoomState(
@@ -257,6 +279,21 @@ export function shouldSuppressProgrammaticEvent(
   if (
     !input.normalizedCurrentUrl ||
     input.normalizedCurrentUrl !== input.programmaticApplySignature.url
+  ) {
+    return {
+      shouldSuppress: false,
+      nextProgrammaticApplyUntil: input.programmaticApplyUntil,
+      nextProgrammaticApplySignature: input.programmaticApplySignature,
+    };
+  }
+
+  const matchedExplicitAction = mapEventSourceToExplicitAction(
+    input.eventSource,
+  );
+  if (
+    matchedExplicitAction &&
+    input.lastExplicitUserAction?.kind === matchedExplicitAction &&
+    input.now - input.lastExplicitUserAction.at < input.userGestureGraceMs
   ) {
     return {
       shouldSuppress: false,
