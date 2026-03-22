@@ -78,6 +78,17 @@ export interface ProgrammaticEventSuppressionInput {
   userGestureGraceMs: number;
 }
 
+export interface RemoteFollowupBroadcastSuppressionInput {
+  remoteFollowPlayingUntil: number;
+  remoteFollowPlayingUrl: string | null;
+  normalizedCurrentUrl: string | null;
+  playState: PlaybackState["playState"];
+  eventSource: LocalPlaybackEventSource;
+  lastExplicitUserAction: ExplicitUserAction | null;
+  now: number;
+  userGestureGraceMs: number;
+}
+
 function getProgrammaticEventThreshold(
   eventSource: LocalPlaybackEventSource,
   playState: PlaybackState["playState"],
@@ -324,6 +335,73 @@ export function shouldSuppressProgrammaticEvent(
       getProgrammaticEventThreshold(input.eventSource, input.playState),
     nextProgrammaticApplyUntil: input.programmaticApplyUntil,
     nextProgrammaticApplySignature: input.programmaticApplySignature,
+  };
+}
+
+export function shouldSuppressRemoteFollowupBroadcast(
+  input: RemoteFollowupBroadcastSuppressionInput,
+): {
+  shouldSuppress: boolean;
+  nextRemoteFollowPlayingUntil: number;
+  nextRemoteFollowPlayingUrl: string | null;
+} {
+  if (!input.remoteFollowPlayingUrl || input.remoteFollowPlayingUntil <= 0) {
+    return {
+      shouldSuppress: false,
+      nextRemoteFollowPlayingUntil: 0,
+      nextRemoteFollowPlayingUrl: null,
+    };
+  }
+
+  if (input.now >= input.remoteFollowPlayingUntil) {
+    return {
+      shouldSuppress: false,
+      nextRemoteFollowPlayingUntil: 0,
+      nextRemoteFollowPlayingUrl: null,
+    };
+  }
+
+  if (
+    !input.normalizedCurrentUrl ||
+    input.normalizedCurrentUrl !== input.remoteFollowPlayingUrl
+  ) {
+    return {
+      shouldSuppress: false,
+      nextRemoteFollowPlayingUntil: 0,
+      nextRemoteFollowPlayingUrl: null,
+    };
+  }
+
+  if (
+    input.playState === "paused" ||
+    input.playState === "buffering"
+  ) {
+    return {
+      shouldSuppress: false,
+      nextRemoteFollowPlayingUntil: 0,
+      nextRemoteFollowPlayingUrl: null,
+    };
+  }
+
+  const matchedExplicitAction = mapEventSourceToExplicitAction(
+    input.eventSource,
+  );
+  if (
+    matchedExplicitAction &&
+    input.lastExplicitUserAction?.kind === matchedExplicitAction &&
+    input.now - input.lastExplicitUserAction.at < input.userGestureGraceMs
+  ) {
+    return {
+      shouldSuppress: false,
+      nextRemoteFollowPlayingUntil: input.remoteFollowPlayingUntil,
+      nextRemoteFollowPlayingUrl: input.remoteFollowPlayingUrl,
+    };
+  }
+
+  return {
+    shouldSuppress: true,
+    nextRemoteFollowPlayingUntil: input.remoteFollowPlayingUntil,
+    nextRemoteFollowPlayingUrl: input.remoteFollowPlayingUrl,
   };
 }
 
