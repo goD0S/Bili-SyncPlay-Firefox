@@ -4,7 +4,6 @@ import type {
   SharedVideo,
 } from "@bili-syncplay/protocol";
 import type { SharedVideoToastPayload } from "../shared/messages";
-import { decidePlaybackApplication } from "./playback-apply";
 import {
   createPlaybackBroadcastPayload,
   derivePlaybackSyncIntent,
@@ -13,7 +12,6 @@ import {
 } from "./playback-broadcast";
 import {
   applyPendingPlaybackApplication as applyPendingPlaybackApplicationWithBinding,
-  canApplyPlaybackImmediately,
   createProgrammaticPlaybackSignature,
   getPlayState,
   pauseVideo,
@@ -22,6 +20,7 @@ import {
   decidePlaybackReconcileMode,
   shouldTreatAsExplicitSeek,
 } from "./playback-reconcile";
+import { createRoomStateApplyController } from "./room-state-apply-controller";
 import {
   hasRecentRemoteStopIntent as hasRecentRemoteStopIntentGuard,
   rememberRemotePlaybackForSuppression as rememberRemotePlaybackForSuppressionGuard,
@@ -108,9 +107,7 @@ export function createSyncController(args: {
     deadlineAt: number;
   } | null = null;
   let activeSoftApplyTimer: number | null = null;
-  const broadcastTraceLogState = { key: null as string | null, at: 0 };
   const ignoredRemotePlaybackLogState = { key: null as string | null, at: 0 };
-  const ignoredRoomStateLogState = { key: null as string | null, at: 0 };
   const localEchoLogState = { key: null as string | null, at: 0 };
   const dispatchPlaybackLogState = { key: null as string | null, at: 0 };
 
@@ -424,17 +421,6 @@ export function createSyncController(args: {
     args.runtimeState.lastLocalPlaybackVersion = null;
     args.runtimeState.intendedPlaybackRate = 1;
     args.debugLog(`Reset playback sync state: ${reason}`);
-  }
-
-  function scheduleHydrationRetry(delayMs = 350): void {
-    if (args.getHydrateRetryTimer() !== null) {
-      return;
-    }
-    const timer = window.setTimeout(() => {
-      args.setHydrateRetryTimer(null);
-      void hydrateRoomState();
-    }, delayMs);
-    args.setHydrateRetryTimer(timer);
   }
 
   function applyPendingPlaybackApplication(video: HTMLVideoElement): void {
@@ -1387,330 +1373,42 @@ export function createSyncController(args: {
       );
     }
   }
-
-  async function applyRoomState(
-    state: RoomState,
-    shareToast: SharedVideoToastPayload | null = null,
-  ): Promise<void> {
-    args.notifyRoomStateToasts(state);
-    args.maybeShowSharedVideoToast(shareToast, state);
-
-    const currentVideo = args.getSharedVideo();
-    const normalizedSharedUrl = args.normalizeUrl(state.sharedVideo?.url);
-    const normalizedCurrentUrl = args.normalizeUrl(currentVideo?.url);
-    const normalizedPlaybackUrl = args.normalizeUrl(state.playback?.url);
-
-    const decision = decidePlaybackApplication({
-      roomState: state,
-      currentVideo,
-      normalizedSharedUrl,
-      normalizedCurrentUrl,
-      normalizedPlaybackUrl,
-      pendingRoomStateHydration: args.runtimeState.pendingRoomStateHydration,
-      explicitNonSharedPlaybackUrl:
-        args.runtimeState.explicitNonSharedPlaybackUrl,
-      now: nowOf(),
-      lastLocalIntentAt: args.runtimeState.lastLocalIntentAt,
-      lastLocalIntentPlayState: args.runtimeState.lastLocalIntentPlayState,
-      localIntentGuardMs: args.localIntentGuardMs,
-      lastAppliedVersion: state.playback
-        ? (args.lastAppliedVersionByActor.get(state.playback.actorId) ?? null)
-        : null,
-      lastLocalPlaybackVersion: args.runtimeState.lastLocalPlaybackVersion,
-      localMemberId: args.runtimeState.localMemberId,
-    });
-
-    if (decision.kind === "empty-room") {
-      cancelActiveSoftApply(args.getVideoElement(), "room-empty");
-      args.runtimeState.activeSharedUrl = null;
-      clearRemoteFollowPlayingWindow();
-      if (decision.acceptedHydration) {
-        args.debugLog(`Accepted empty room state for ${state.roomCode}`);
-        acceptInitialRoomStateHydration();
-      }
-      return;
-    }
-
-    if (decision.kind === "no-current-video") {
-      cancelActiveSoftApply(args.getVideoElement(), "no-current-video");
-      return;
-    }
-
-    if (args.runtimeState.activeSharedUrl !== normalizedSharedUrl) {
-      args.runtimeState.activeSharedUrl = normalizedSharedUrl ?? null;
-      resetPlaybackSyncState(
-        `shared url changed to ${state.sharedVideo?.url ?? "none"}`,
-      );
-      args.runtimeState.intendedPlayState = "paused";
-      args.runtimeState.intendedPlaybackRate = 1;
-      args.debugLog(
-        `Reset local sync state for shared url ${state.sharedVideo?.url ?? "none"}`,
-      );
-    }
-
-    if (decision.kind === "ignore-non-shared") {
-      cancelActiveSoftApply(args.getVideoElement(), "non-shared-page");
-      logHeartbeatMessage(
-        ignoredRoomStateLogState,
-        `${normalizedSharedUrl ?? "none"}|${normalizedCurrentUrl ?? "none"}`,
-        `Ignored room state for ${state.sharedVideo?.url ?? "none"} on current page ${currentVideo?.url ?? "none"}`,
-      );
-      if (decision.acceptedHydration) {
-        acceptInitialRoomStateHydration();
-        args.runtimeState.intendedPlayState = "paused";
-        args.runtimeState.intendedPlaybackRate = 1;
-        activatePauseHold(args.initialRoomStatePauseHoldMs);
-        const video = args.getVideoElement();
-        if (video && !video.paused && decision.shouldPauseNonSharedVideo) {
-          pauseVideo(video);
-        }
-      }
-      return;
-    }
-
-    const video = args.getVideoElement();
-    if (!video) {
-      args.debugLog(
-        `Deferred room state because video element is not ready for ${state.sharedVideo.url}`,
-      );
-      scheduleHydrationRetry();
-      return;
-    }
-
-    if (decision.kind === "ignore-local-guard") {
-      acceptInitialRoomStateHydrationIfPending();
-      logIgnoredRemotePlayback({
-        playback: state.playback,
-        video,
-        result: "local-intent-guard",
-        extra: `seq=${state.playback.seq} localIntent=${args.runtimeState.lastLocalIntentPlayState ?? "none"}`,
-      });
-      return;
-    }
-
-    const pendingLocalPlaybackOverrideDecision =
-      getPendingLocalPlaybackOverrideDecision(state.playback);
-    if (pendingLocalPlaybackOverrideDecision.shouldIgnore) {
-      acceptInitialRoomStateHydrationIfPending();
-      logIgnoredRemotePlayback({
-        playback: state.playback,
-        video,
-        result:
-          pendingLocalPlaybackOverrideDecision.reason ??
-          "pending-local-playback-override",
-        extra: pendingLocalPlaybackOverrideDecision.extra,
-      });
-      return;
-    }
-
-    if (decision.kind === "ignore-stale-playback") {
-      acceptInitialRoomStateHydrationIfPending();
-      logIgnoredRemotePlayback({
-        playback: state.playback,
-        video,
-        result: "stale-playback",
-        extra: `seq=${state.playback.seq}`,
-      });
-      return;
-    }
-
-    if (decision.kind === "ignore-self-playback-version") {
-      acceptInitialRoomStateHydrationIfPending();
-      if (
-        args.shouldLogHeartbeat(
-          args.ignoredSelfPlaybackLogState,
-          `${state.playback.actorId}|${state.playback.seq}|${args.normalizeUrl(state.playback.url) ?? state.playback.url}`,
-        )
-      ) {
-        args.debugLog(
-          `Ignored self playback ${formatPlaybackDiagnostic({
-            actor: state.playback.actorId,
-            playState: state.playback.playState,
-            url: state.playback.url,
-            localTime: video.currentTime,
-            targetTime: state.playback.currentTime,
-            result: "self-playback-version-noop",
-            extra: `seq=${state.playback.seq} localSeq=${args.runtimeState.lastLocalPlaybackVersion?.seq ?? "none"}`,
-          })}`,
-        );
-      }
-      return;
-    }
-
-    const softApplyCancelReason = shouldCancelActiveSoftApplyForPlayback(
-      state.playback,
-    );
-    if (softApplyCancelReason) {
-      cancelActiveSoftApply(video, softApplyCancelReason);
-    }
-
-    args.lastAppliedVersionByActor.set(state.playback.actorId, {
-      serverTime: state.playback.serverTime,
-      seq: state.playback.seq,
-    });
-
-    if (
-      decision.isSelfPlayback &&
-      !shouldApplySelfPlayback(video, state.playback)
-    ) {
-      if (
-        args.shouldLogHeartbeat(
-          args.ignoredSelfPlaybackLogState,
-          `${state.playback.actorId}|${state.playback.playState}|${args.normalizeUrl(state.playback.url) ?? state.playback.url}`,
-        )
-      ) {
-        args.debugLog(
-          `Ignored self playback ${formatPlaybackDiagnostic({
-            actor: state.playback.actorId,
-            playState: state.playback.playState,
-            url: state.playback.url,
-            localTime: video.currentTime,
-            targetTime: state.playback.currentTime,
-            result: "self-playback-noop",
-            extra: `seq=${state.playback.seq} localPaused=${video.paused}`,
-          })}`,
-        );
-      }
-      return;
-    }
-
-    if (
-      shouldIgnoreRemotePlaybackApply(
-        video,
-        state.playback,
-        decision.isSelfPlayback,
-      )
-    ) {
-      acceptInitialRoomStateHydrationIfPending();
-      rememberRemoteFollowPlayingWindow(state.playback);
-      args.runtimeState.intendedPlayState = state.playback.playState;
-      args.runtimeState.intendedPlaybackRate = state.playback.playbackRate;
-      logIgnoredRemotePlayback({
-        playback: state.playback,
-        video,
-        result: "within-threshold-noop",
-        extra: `seq=${state.playback.seq}`,
-      });
-      return;
-    }
-
-    rememberRemotePlaybackForSuppression(state.playback);
-    if (
-      state.playback.playState === "paused" ||
-      state.playback.playState === "buffering"
-    ) {
-      clearRemoteFollowPlayingWindow();
-      activatePauseHold(
-        args.runtimeState.pendingRoomStateHydration ||
-          !args.runtimeState.hasReceivedInitialRoomState
-          ? args.initialRoomStatePauseHoldMs
-          : args.pauseHoldMs,
-      );
-    } else if (!decision.isSelfPlayback) {
-      rememberRemoteFollowPlayingWindow(state.playback);
-    }
-
-    args.runtimeState.intendedPlayState = state.playback.playState;
-    args.runtimeState.intendedPlaybackRate = state.playback.playbackRate;
-    args.debugLog(
-      `Apply playback ${formatPlaybackDiagnostic({
-        actor: state.playback.actorId,
-        playState: state.playback.playState,
-        url: state.sharedVideo.url,
-        localTime: video.currentTime,
-        targetTime: state.playback.currentTime,
-        result: "apply",
-        extra: `seq=${state.playback.seq}`,
-      })}`,
-    );
-
-    args.runtimeState.pendingPlaybackApplication = { ...state.playback };
-    if (canApplyPlaybackImmediately(video)) {
-      applyPendingPlaybackApplication(video);
-    } else {
-      armProgrammaticApplyWindow(
-        createProgrammaticPlaybackSignature(state.playback),
-        "pending",
-        state.playback.actorId,
-      );
-      args.debugLog(
-        `Deferred playback apply until metadata is ready ${state.sharedVideo.url}`,
-      );
-    }
-
-    acceptInitialRoomStateHydration();
-  }
-
-  async function hydrateRoomState(): Promise<void> {
-    const retryTimer = args.getHydrateRetryTimer();
-    if (retryTimer !== null) {
-      window.clearTimeout(retryTimer);
-      args.setHydrateRetryTimer(null);
-    }
-
-    const response = await args.runtimeSendMessage<{
-      ok?: boolean;
-      roomState?: RoomState;
-      memberId?: string | null;
-      roomCode?: string | null;
-    }>({
-      type: "content:get-room-state",
-    });
-    if (response === null) {
-      args.runtimeState.hydrationReady = true;
-      return;
-    }
-    args.runtimeState.localMemberId = response?.memberId ?? null;
-    args.runtimeState.activeRoomCode =
-      response?.roomCode ?? args.runtimeState.activeRoomCode;
-
-    if (response?.ok && response.roomState) {
-      args.debugLog(
-        `Hydrate room state success for ${response.roomState.roomCode}`,
-      );
-      if (
-        response.roomState.playback?.playState === "paused" ||
-        response.roomState.playback?.playState === "buffering"
-      ) {
-        args.runtimeState.intendedPlayState =
-          response.roomState.playback.playState;
-        activatePauseHold(args.initialRoomStatePauseHoldMs);
-      }
-      const video = args.getVideoElement();
-      if (
-        video &&
-        !video.paused &&
-        (response.roomState.playback?.playState === "paused" ||
-          response.roomState.playback?.playState === "buffering") &&
-        nowOf() - args.runtimeState.lastUserGestureAt >= args.userGestureGraceMs
-      ) {
-        args.runtimeState.intendedPlayState =
-          response.roomState.playback.playState;
-        args.debugLog(
-          `Suppressed autoplay during hydrate for ${response.roomState.roomCode}`,
-        );
-        pauseVideo(video);
-      }
-      await applyRoomState(response.roomState as RoomState);
-      args.runtimeState.hydrationReady = true;
-      return;
-    }
-
-    if (!response?.roomCode) {
-      args.runtimeState.pendingRoomStateHydration = false;
-    }
-
-    if (!response?.memberId) {
-      args.debugLog("Hydrate skipped without member id");
-      args.runtimeState.hydrationReady = true;
-      return;
-    }
-
-    args.debugLog(
-      `Hydrate pending for ${response.roomCode ?? args.runtimeState.activeRoomCode ?? "unknown-room"}, retry scheduled`,
-    );
-    scheduleHydrationRetry(1500);
-  }
+  const roomStateApplyController = createRoomStateApplyController({
+    runtimeState: args.runtimeState,
+    lastAppliedVersionByActor: args.lastAppliedVersionByActor,
+    ignoredSelfPlaybackLogState: args.ignoredSelfPlaybackLogState,
+    localIntentGuardMs: args.localIntentGuardMs,
+    pauseHoldMs: args.pauseHoldMs,
+    initialRoomStatePauseHoldMs: args.initialRoomStatePauseHoldMs,
+    userGestureGraceMs: args.userGestureGraceMs,
+    getNow: args.getNow,
+    debugLog: args.debugLog,
+    shouldLogHeartbeat: args.shouldLogHeartbeat,
+    runtimeSendMessage: args.runtimeSendMessage,
+    getHydrateRetryTimer: args.getHydrateRetryTimer,
+    setHydrateRetryTimer: args.setHydrateRetryTimer,
+    getVideoElement: args.getVideoElement,
+    getSharedVideo: args.getSharedVideo,
+    normalizeUrl: args.normalizeUrl,
+    notifyRoomStateToasts: args.notifyRoomStateToasts,
+    maybeShowSharedVideoToast: args.maybeShowSharedVideoToast,
+    cancelActiveSoftApply,
+    resetPlaybackSyncState,
+    activatePauseHold,
+    clearRemoteFollowPlayingWindow,
+    acceptInitialRoomStateHydration,
+    acceptInitialRoomStateHydrationIfPending,
+    logIgnoredRemotePlayback,
+    getPendingLocalPlaybackOverrideDecision,
+    shouldCancelActiveSoftApplyForPlayback,
+    shouldApplySelfPlayback,
+    shouldIgnoreRemotePlaybackApply,
+    rememberRemoteFollowPlayingWindow,
+    rememberRemotePlaybackForSuppression,
+    armProgrammaticApplyWindow,
+    applyPendingPlaybackApplication,
+    formatPlaybackDiagnostic,
+  });
 
   return {
     resetPlaybackSyncState,
@@ -1719,8 +1417,8 @@ export function createSyncController(args: {
     maintainActiveSoftApply,
     applyPendingPlaybackApplication,
     broadcastPlayback,
-    applyRoomState,
-    hydrateRoomState,
-    scheduleHydrationRetry,
+    applyRoomState: roomStateApplyController.applyRoomState,
+    hydrateRoomState: roomStateApplyController.hydrateRoomState,
+    scheduleHydrationRetry: roomStateApplyController.scheduleHydrationRetry,
   };
 }

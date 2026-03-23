@@ -21,6 +21,7 @@ import { bootstrapBackground } from "./bootstrap";
 import { createClockController } from "./clock-controller";
 import { createDiagnosticsController } from "./diagnostics-controller";
 import { createMessageController } from "./message-controller";
+import { createOutgoingMessageController } from "./outgoing-message-controller";
 import { flushPendingShare as getPendingShareFlushPlan } from "./room-manager";
 import { createPopupStateController } from "./popup-state-controller";
 import { createRoomSessionController } from "./room-session-controller";
@@ -29,6 +30,7 @@ import {
   MAX_RECONNECT_ATTEMPTS,
   SHARE_TOAST_TTL_MS,
 } from "./runtime-state";
+import { createServerMessageController } from "./server-message-controller";
 import { createServerUrlController } from "./server-url-controller";
 import { createShareController } from "./share-controller";
 import { createSocketController } from "./socket-controller";
@@ -42,36 +44,6 @@ import { createTabController } from "./tab-controller";
 import { t } from "../shared/i18n";
 
 const normalizeUrl = normalizeSharedVideoUrl;
-const HEARTBEAT_LOG_INTERVAL_MS = 10000;
-let pendingOutgoingPlaybackUpdate: {
-  actorId: string;
-  seq: number;
-  url: string;
-  currentTime: number;
-  playbackRate: number;
-  playState: string;
-  syncIntent: string | null;
-  sentAt: number;
-} | null = null;
-const playbackUpdateLogState = {
-  outgoing: { key: null as string | null, at: 0 },
-  confirm: { key: null as string | null, at: 0 },
-  pending: { key: null as string | null, at: 0 },
-  roomState: { key: null as string | null, at: 0 },
-};
-
-function shouldLogPlaybackHeartbeat(
-  state: { key: string | null; at: number },
-  key: string,
-  now = Date.now(),
-): boolean {
-  if (state.key === key && now - state.at < HEARTBEAT_LOG_INTERVAL_MS) {
-    return false;
-  }
-  state.key = key;
-  state.at = now;
-  return true;
-}
 const stateStore = createBackgroundStateStore();
 const connectionState = stateStore.getState().connection;
 const roomSessionState = stateStore.getState().room;
@@ -88,6 +60,16 @@ const diagnosticsController = createDiagnosticsController({
     }
   },
 });
+const backgroundLog = (message: string) =>
+  diagnosticsController.log("background", message);
+const serverLog = (message: string) =>
+  diagnosticsController.log("server", message);
+let outgoingMessageController: ReturnType<
+  typeof createOutgoingMessageController
+> | null = null;
+let serverMessageController: ReturnType<
+  typeof createServerMessageController
+> | null = null;
 const runtimeSyncController = createRuntimeSyncController({
   stateStore,
   connectionState,
@@ -96,6 +78,14 @@ const runtimeSyncController = createRuntimeSyncController({
   clockState,
   diagnosticsState,
   persistBackgroundState,
+});
+outgoingMessageController = createOutgoingMessageController({
+  connectionState,
+  connect: () => socketController.connect(),
+  log: backgroundLog,
+  shouldLogOutgoingMessage: (messageType) =>
+    diagnosticsController.shouldLogOutgoingMessage(messageType),
+  normalizeUrl,
 });
 const tabController = createTabController({
   roomSessionState,
@@ -145,6 +135,18 @@ const roomSessionController = createRoomSessionController({
   normalizeUrl,
   logServerError,
   shareToastTtlMs: SHARE_TOAST_TTL_MS,
+});
+serverMessageController = createServerMessageController({
+  log: serverLog,
+  shouldLogIncomingMessage: (messageType) =>
+    diagnosticsController.shouldLogIncomingMessage(messageType),
+  consumeRoomState: (roomState) => {
+    outgoingMessageController?.consumeRoomState(roomState);
+  },
+  handleRoomSessionServerMessage: (message) =>
+    roomSessionController.handleServerMessage(message),
+  updateClockOffset,
+  notifyAll,
 });
 const socketController = createSocketController({
   connectionState,
@@ -342,119 +344,11 @@ function logServerError(code: string, message: string): void {
 }
 
 function sendToServer(message: ClientMessage): void {
-  if (
-    !connectionState.socket ||
-    connectionState.socket.readyState !== WebSocket.OPEN
-  ) {
-    diagnosticsController.log(
-      "background",
-      `Socket not ready for ${message.type}`,
-    );
-    void socketController.connect();
-    return;
-  }
-  if (message.type === "playback:update") {
-    pendingOutgoingPlaybackUpdate = {
-      actorId: message.payload.playback.actorId,
-      seq: message.payload.playback.seq,
-      url: message.payload.playback.url,
-      currentTime: message.payload.playback.currentTime,
-      playbackRate: message.payload.playback.playbackRate,
-      playState: message.payload.playback.playState,
-      syncIntent: message.payload.playback.syncIntent ?? null,
-      sentAt: Date.now(),
-    };
-    const isHeartbeatPlaybackUpdate =
-      message.payload.playback.syncIntent === null &&
-      message.payload.playback.playState === "playing";
-    if (
-      !isHeartbeatPlaybackUpdate ||
-      shouldLogPlaybackHeartbeat(
-        playbackUpdateLogState.outgoing,
-        `${message.payload.playback.playState}|${normalizeUrl(message.payload.playback.url) ?? message.payload.playback.url}|outgoing`,
-      )
-    ) {
-      diagnosticsController.log(
-        "background",
-        `-> playback:update actor=${message.payload.playback.actorId} seq=${message.payload.playback.seq} playState=${message.payload.playback.playState} url=${message.payload.playback.url} t=${message.payload.playback.currentTime.toFixed(2)} rate=${message.payload.playback.playbackRate.toFixed(2)} intent=${message.payload.playback.syncIntent ?? "none"}`,
-      );
-    }
-  } else if (diagnosticsController.shouldLogOutgoingMessage(message.type)) {
-    diagnosticsController.log("background", `-> ${message.type}`);
-  }
-  connectionState.socket.send(JSON.stringify(message));
+  outgoingMessageController?.sendToServer(message);
 }
 
 async function handleServerMessage(message: ServerMessage): Promise<void> {
-  if (message.type === "room:state") {
-    const isHeartbeatRoomState =
-      message.payload.playback?.playState === "playing" &&
-      message.payload.playback?.syncIntent === null;
-    if (
-      !isHeartbeatRoomState ||
-      shouldLogPlaybackHeartbeat(
-        playbackUpdateLogState.roomState,
-        `${message.payload.roomCode}|${normalizeUrl(message.payload.sharedVideo?.url) ?? message.payload.sharedVideo?.url ?? "none"}|${message.payload.playback?.playState ?? "none"}|${message.payload.playback?.actorId ?? "none"}|room-state`,
-      )
-    ) {
-      diagnosticsController.log(
-        "server",
-        `<- room:state room=${message.payload.roomCode} shared=${message.payload.sharedVideo?.url ?? "none"} actor=${message.payload.playback?.actorId ?? "none"} seq=${message.payload.playback?.seq ?? "none"} playState=${message.payload.playback?.playState ?? "none"} t=${message.payload.playback ? message.payload.playback.currentTime.toFixed(2) : "n/a"} rate=${message.payload.playback ? message.payload.playback.playbackRate.toFixed(2) : "n/a"} intent=${message.payload.playback?.syncIntent ?? "none"}`,
-      );
-    }
-    if (
-      pendingOutgoingPlaybackUpdate &&
-      message.payload.playback &&
-      normalizeUrl(message.payload.playback.url) ===
-        normalizeUrl(pendingOutgoingPlaybackUpdate.url)
-    ) {
-      const ageMs = Date.now() - pendingOutgoingPlaybackUpdate.sentAt;
-      if (
-        message.payload.playback.actorId ===
-          pendingOutgoingPlaybackUpdate.actorId &&
-        message.payload.playback.seq >= pendingOutgoingPlaybackUpdate.seq
-      ) {
-        if (
-          pendingOutgoingPlaybackUpdate.syncIntent !== null ||
-          pendingOutgoingPlaybackUpdate.playState !== "playing" ||
-          shouldLogPlaybackHeartbeat(
-            playbackUpdateLogState.confirm,
-            `${pendingOutgoingPlaybackUpdate.playState}|${normalizeUrl(pendingOutgoingPlaybackUpdate.url) ?? pendingOutgoingPlaybackUpdate.url}|confirm`,
-          )
-        ) {
-          diagnosticsController.log(
-            "background",
-            `Confirmed local playback:update actor=${pendingOutgoingPlaybackUpdate.actorId} pendingSeq=${pendingOutgoingPlaybackUpdate.seq} roomSeq=${message.payload.playback.seq} playState=${message.payload.playback.playState} t=${message.payload.playback.currentTime.toFixed(2)} rate=${message.payload.playback.playbackRate.toFixed(2)} intent=${message.payload.playback.syncIntent ?? "none"} ageMs=${ageMs}`,
-          );
-        }
-        pendingOutgoingPlaybackUpdate = null;
-      } else {
-        if (
-          shouldLogPlaybackHeartbeat(
-            playbackUpdateLogState.pending,
-            `${pendingOutgoingPlaybackUpdate.playState}|${normalizeUrl(pendingOutgoingPlaybackUpdate.url) ?? pendingOutgoingPlaybackUpdate.url}|pending`,
-          )
-        ) {
-          diagnosticsController.log(
-            "background",
-            `Pending local playback:update actor=${pendingOutgoingPlaybackUpdate.actorId} pendingSeq=${pendingOutgoingPlaybackUpdate.seq} pendingState=${pendingOutgoingPlaybackUpdate.playState} pendingT=${pendingOutgoingPlaybackUpdate.currentTime.toFixed(2)} pendingRate=${pendingOutgoingPlaybackUpdate.playbackRate.toFixed(2)} pendingIntent=${pendingOutgoingPlaybackUpdate.syncIntent ?? "none"} sawActor=${message.payload.playback.actorId} sawSeq=${message.payload.playback.seq} sawState=${message.payload.playback.playState} sawT=${message.payload.playback.currentTime.toFixed(2)} sawRate=${message.payload.playback.playbackRate.toFixed(2)} sawIntent=${message.payload.playback.syncIntent ?? "none"} ageMs=${ageMs}`,
-          );
-        }
-      }
-    }
-  } else if (diagnosticsController.shouldLogIncomingMessage(message.type)) {
-    diagnosticsController.log("server", `<- ${message.type}`);
-  }
-  if (message.type !== "sync:pong") {
-    await roomSessionController.handleServerMessage(message);
-    return;
-  }
-  updateClockOffset(
-    message.payload.clientSendTime,
-    message.payload.serverReceiveTime,
-    message.payload.serverSendTime,
-  );
-  notifyAll();
+  await serverMessageController?.handleServerMessage(message);
 }
 
 function updateClockOffset(
