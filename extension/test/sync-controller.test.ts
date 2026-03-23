@@ -944,3 +944,76 @@ test("sync controller cooldown does not suppress explicit seek or explicit ratec
     windowHarness.restore();
   }
 });
+
+test("sync controller avoids repeated correction loops after a short 2x buffer", async () => {
+  const windowHarness = installWindowStub();
+  const harness = createControllerHarness();
+  const sharedVideo = {
+    videoId: "BV1xx411c7mD",
+    url: "https://www.bilibili.com/video/BV1xx411c7mD?p=1",
+    title: "Video",
+  };
+  const video = createVideo({
+    paused: false,
+    currentTime: 24,
+    playbackRate: 2,
+  });
+
+  harness.runtimeState.hydrationReady = true;
+  harness.runtimeState.pendingRoomStateHydration = false;
+  harness.setSharedVideo(sharedVideo);
+  harness.setCurrentPlaybackVideo(sharedVideo);
+  harness.setVideoElement(video);
+
+  try {
+    harness.setNow(20_000);
+    await harness.controller.applyRoomState(
+      createRoomState({
+        actorId: "remote-member",
+        seq: 10,
+        serverTime: 19_900,
+        currentTime: 25.7,
+        playState: "playing",
+        playbackRate: 2,
+      }),
+    );
+
+    assert.ok(video.currentTime > 24);
+    assert.ok(video.currentTime < 24.4);
+    assert.ok(video.playbackRate > 2.1);
+
+    video.currentTime = 25.58;
+    harness.controller.maintainActiveSoftApply(video);
+    assert.ok(Math.abs(video.playbackRate - 2) < 0.001);
+    assert.equal(harness.runtimeState.softApplyCooldownUntil > 20_000, true);
+
+    harness.setNow(21_500);
+    video.currentTime = 26.6;
+    await harness.controller.applyRoomState(
+      createRoomState({
+        actorId: "remote-member",
+        seq: 11,
+        serverTime: 21_400,
+        currentTime: 27.9,
+        playState: "playing",
+        playbackRate: 2,
+      }),
+    );
+
+    assert.ok(Math.abs(video.currentTime - 26.6) < 0.001);
+    assert.ok(Math.abs(video.playbackRate - 2) < 0.001);
+    assert.equal(
+      harness.debugLogs.filter((message) => message.includes("Started soft apply"))
+        .length,
+      1,
+    );
+    assert.equal(
+      harness.debugLogs.some((message) =>
+        message.includes("result=cooldown-suppress"),
+      ),
+      true,
+    );
+  } finally {
+    windowHarness.restore();
+  }
+});
