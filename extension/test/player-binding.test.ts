@@ -97,8 +97,41 @@ test("programmatic apply signature tracks the soft-applied position instead of t
   assert.equal(applied.applied, true);
   assert.equal(applied.didChange, true);
   assert.equal(signatures.length, 1);
-  assert.ok(Math.abs(signatures[0]!.currentTime - 12.55) < 0.001);
+  assert.ok(Math.abs(signatures[0]!.currentTime - 12.4) < 0.001);
   assert.ok(Math.abs(signatures[0]!.playbackRate - 1.12) < 0.001);
+});
+
+test("soft apply uses a more conservative time step than the raw drift", () => {
+  const video = createVideo({
+    currentTime: 12,
+    playbackRate: 1,
+  });
+
+  const applied = syncPlaybackPosition(video, 13.1, "playing", undefined, 1);
+
+  assert.equal(applied.mode, "soft-apply");
+  assert.ok(Math.abs(video.currentTime - 12.4) < 0.001);
+  assert.ok(Math.abs(applied.targetTime - applied.currentTime - 0.7) < 0.001);
+  assert.equal(applied.didWriteCurrentTime, true);
+});
+
+test("explicit seek still uses hard seek for immediate alignment", () => {
+  const video = createVideo({
+    currentTime: 12,
+    playbackRate: 1,
+  });
+
+  const applied = syncPlaybackPosition(
+    video,
+    25,
+    "playing",
+    "explicit-seek",
+    1,
+  );
+
+  assert.equal(applied.mode, "hard-seek");
+  assert.ok(Math.abs(video.currentTime - 25) < 0.001);
+  assert.equal(applied.didWriteCurrentTime, true);
 });
 
 test("ignore-window playback update does not arm programmatic apply when nothing actually changed", () => {

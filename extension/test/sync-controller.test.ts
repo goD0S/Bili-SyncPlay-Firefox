@@ -636,7 +636,7 @@ test("sync controller reproduces repeated soft apply after heartbeat-driven conv
       }),
     );
 
-    assert.ok(Math.abs(video.currentTime - 24.55) < 0.001);
+    assert.ok(Math.abs(video.currentTime - 24.4) < 0.001);
     assert.ok(Math.abs(video.playbackRate - 1.12) < 0.001);
 
     video.currentTime = 25;
@@ -656,7 +656,7 @@ test("sync controller reproduces repeated soft apply after heartbeat-driven conv
       }),
     );
 
-    assert.ok(Math.abs(video.currentTime - 26.55) < 0.001);
+    assert.ok(Math.abs(video.currentTime - 26.4) < 0.001);
     assert.ok(Math.abs(video.playbackRate - 1.12) < 0.001);
 
     const startedSoftApplyLogs = harness.debugLogs.filter((message) =>

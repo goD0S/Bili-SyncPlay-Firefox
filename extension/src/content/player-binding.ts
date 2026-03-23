@@ -5,8 +5,8 @@ import {
 } from "./playback-reconcile";
 import type { ProgrammaticPlaybackSignature } from "./runtime-state";
 
-const SOFT_APPLY_STEP_SECONDS = 0.35;
-const SOFT_APPLY_MAX_STEP_SECONDS = 0.55;
+const SOFT_APPLY_STEP_SECONDS = 0.22;
+const SOFT_APPLY_MAX_STEP_SECONDS = 0.4;
 const SOFT_APPLY_RATE_OFFSET = 0.12;
 const MIN_PLAYBACK_RATE = 0.85;
 const MAX_PLAYBACK_RATE = 1.15;
@@ -83,7 +83,7 @@ function getSoftApplySignature(args: {
   const drift = args.targetTime - args.localCurrentTime;
   const stepLimit = Math.min(
     SOFT_APPLY_MAX_STEP_SECONDS,
-    Math.max(SOFT_APPLY_STEP_SECONDS, Math.abs(drift) * 0.6),
+    Math.max(SOFT_APPLY_STEP_SECONDS, Math.abs(drift) * 0.45),
   );
   const steppedCurrentTime =
     args.localCurrentTime + clamp(drift, -stepLimit, stepLimit);
