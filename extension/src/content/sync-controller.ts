@@ -188,19 +188,18 @@ export function createSyncController(args: {
     result: string,
     eventSource: LocalPlaybackEventSource,
     trace: string,
-    normalizedUrl: string | null,
-    now = nowOf(),
+    _normalizedUrl: string | null,
+    _now = nowOf(),
   ): void {
-    if (eventSource !== "timeupdate") {
-      args.debugLog(`Broadcast trace result=${result} ${trace}`);
+    if (
+      eventSource === "timeupdate" ||
+      eventSource === "canplay" ||
+      eventSource === "playing" ||
+      eventSource === "seeked"
+    ) {
       return;
     }
-    logHeartbeatMessage(
-      broadcastTraceLogState,
-      `${result}|${normalizedUrl ?? "none"}`,
-      `Broadcast trace result=${result} ${trace}`,
-      now,
-    );
+    args.debugLog(`Broadcast trace result=${result} ${trace}`);
   }
 
   function activatePauseHold(durationMs = args.pauseHoldMs): void {
@@ -930,6 +929,17 @@ export function createSyncController(args: {
     return basePlayState;
   }
 
+  function shouldLogSuppressedBroadcastDetail(
+    eventSource: LocalPlaybackEventSource,
+  ): boolean {
+    return !(
+      eventSource === "timeupdate" ||
+      eventSource === "canplay" ||
+      eventSource === "playing" ||
+      eventSource === "seeked"
+    );
+  }
+
   async function broadcastPlayback(
     video: HTMLVideoElement,
     eventSource: LocalPlaybackEventSource = "manual",
@@ -1091,18 +1101,20 @@ export function createSyncController(args: {
     args.runtimeState.programmaticApplySignature =
       programmaticDecision.nextProgrammaticApplySignature;
     if (programmaticDecision.shouldSuppress) {
-      args.debugLog(
-        `Skip broadcast ${formatPlaybackDiagnostic({
-          actor: args.runtimeState.localMemberId,
-          playState,
-          url: currentVideo.url,
-          localTime: video.currentTime,
-          targetTime:
-            programmaticDecision.nextProgrammaticApplySignature?.currentTime ??
-            video.currentTime,
-          result: `programmatic-${eventSource}`,
-        })}`,
-      );
+      if (shouldLogSuppressedBroadcastDetail(eventSource)) {
+        args.debugLog(
+          `Skip broadcast ${formatPlaybackDiagnostic({
+            actor: args.runtimeState.localMemberId,
+            playState,
+            url: currentVideo.url,
+            localTime: video.currentTime,
+            targetTime:
+              programmaticDecision.nextProgrammaticApplySignature
+                ?.currentTime ?? video.currentTime,
+            result: `programmatic-${eventSource}`,
+          })}`,
+        );
+      }
       logBroadcastTrace(
         "programmatic-suppress",
         eventSource,
@@ -1197,16 +1209,18 @@ export function createSyncController(args: {
     args.runtimeState.remoteFollowPlayingUrl =
       followupDecision.nextRemoteFollowPlayingUrl;
     if (followupDecision.shouldSuppress) {
-      args.debugLog(
-        `Skip broadcast ${formatPlaybackDiagnostic({
-          actor: args.runtimeState.localMemberId,
-          playState,
-          url: currentVideo.url,
-          localTime: video.currentTime,
-          targetTime: video.currentTime,
-          result: `remote-follow-${eventSource}`,
-        })}`,
-      );
+      if (shouldLogSuppressedBroadcastDetail(eventSource)) {
+        args.debugLog(
+          `Skip broadcast ${formatPlaybackDiagnostic({
+            actor: args.runtimeState.localMemberId,
+            playState,
+            url: currentVideo.url,
+            localTime: video.currentTime,
+            targetTime: video.currentTime,
+            result: `remote-follow-${eventSource}`,
+          })}`,
+        );
+      }
       logBroadcastTrace(
         "remote-follow-suppress",
         eventSource,

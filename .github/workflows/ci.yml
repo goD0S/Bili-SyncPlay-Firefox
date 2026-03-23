@@ -28,6 +28,9 @@ jobs:
       - name: Check formatting
         run: npm run format:check
 
+      - name: Run typecheck
+        run: npm run typecheck
+
       - name: Build workspaces
         run: npm run build
 

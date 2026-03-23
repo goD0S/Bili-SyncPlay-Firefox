@@ -15,7 +15,7 @@
 - Do not rewrite published history unless explicitly requested by the repository maintainer.
 - Keep formatting-only changes separate from behavior changes whenever practical.
 - Do not mix unrelated refactors, docs updates, and feature or bug-fix changes in a single commit when they can be reviewed independently.
-- Before committing changes, run `npm run lint`, `npm run format:check`, `npm run build`, and `npm test`.
+- Before committing changes, run `npm run lint`, `npm run format:check`, `npm run typecheck`, `npm run build`, and `npm test`.
 - Prefer small, reviewable commits that preserve behavior at each step of a refactor.
 
 ## Commit Conventions

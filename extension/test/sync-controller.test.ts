@@ -274,12 +274,7 @@ test("sync controller suppresses follow-up local broadcast after applying a late
   await harness.controller.broadcastPlayback(video, "timeupdate");
 
   assert.equal(harness.runtimeMessages.length, 0);
-  assert.equal(
-    harness.debugLogs.some((message) =>
-      message.includes("result=remote-follow-timeupdate"),
-    ),
-    true,
-  );
+  assert.equal(harness.runtimeState.remoteFollowPlayingUntil > 22_050, true);
 });
 
 test("sync controller keeps the remote follow window through buffering and suppresses the later playing event", async () => {
@@ -320,12 +315,6 @@ test("sync controller keeps the remote follow window through buffering and suppr
 
   assert.equal(harness.runtimeMessages.length, 0);
   assert.equal(harness.runtimeState.remoteFollowPlayingUntil > 20_900, true);
-  assert.equal(
-    harness.debugLogs.some((message) =>
-      message.includes("result=remote-follow-playing"),
-    ),
-    true,
-  );
 });
 
 test("sync controller allows explicit user seek inside the silence window", async () => {
