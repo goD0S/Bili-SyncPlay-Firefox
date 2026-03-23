@@ -462,11 +462,13 @@ export function createSyncController(args: {
           clearSoftApplyCooldown();
         }
         args.debugLog(
-          `Playback reconcile actor=${playback.actorId} playState=${playback.playState} url=${playback.url} ${formatPlaybackReconcileDecision({
-            mode: adjustment.mode,
-            reason: adjustment.reason,
-            delta: adjustment.delta,
-          })} wroteTime=${adjustment.didWriteCurrentTime} wroteRate=${adjustment.didWritePlaybackRate} targetTime=${adjustment.targetTime.toFixed(2)} appliedTime=${adjustment.currentTime.toFixed(2)} appliedRate=${adjustment.playbackRate.toFixed(2)} restoreRate=${adjustment.restorePlaybackRate.toFixed(2)}`,
+          `Playback reconcile actor=${playback.actorId} playState=${playback.playState} url=${playback.url} ${formatPlaybackReconcileDecision(
+            {
+              mode: adjustment.mode,
+              reason: adjustment.reason,
+              delta: adjustment.delta,
+            },
+          )} wroteTime=${adjustment.didWriteCurrentTime} wroteRate=${adjustment.didWritePlaybackRate} targetTime=${adjustment.targetTime.toFixed(2)} appliedTime=${adjustment.currentTime.toFixed(2)} appliedRate=${adjustment.playbackRate.toFixed(2)} restoreRate=${adjustment.restorePlaybackRate.toFixed(2)}`,
         );
         if (adjustment.mode === "soft-apply") {
           upsertActiveSoftApply(

@@ -149,7 +149,6 @@ export function syncPlaybackPosition(
   playbackRate: number,
 ): AppliedPlaybackAdjustment {
   const previousCurrentTime = video.currentTime;
-  const previousPlaybackRate = video.playbackRate;
   const decision = decidePlaybackReconcileMode({
     localCurrentTime: previousCurrentTime,
     targetTime,
@@ -210,8 +209,7 @@ export function syncPlaybackPosition(
       restorePlaybackRate: playbackRate,
       didWriteCurrentTime: shouldWriteCurrentTime,
       didWritePlaybackRate: shouldWritePlaybackRate,
-      didChange:
-        shouldWriteCurrentTime || shouldWritePlaybackRate,
+      didChange: shouldWriteCurrentTime || shouldWritePlaybackRate,
     };
   }
 

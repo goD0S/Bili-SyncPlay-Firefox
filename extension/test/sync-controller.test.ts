@@ -766,9 +766,10 @@ test("sync controller suppresses repeated apply during the soft-apply cooldown w
       true,
     );
     assert.equal(
-      harness.debugLogs.some((message) =>
-        message.includes("Ignored remote playback") &&
-        message.includes("result=cooldown-suppress"),
+      harness.debugLogs.some(
+        (message) =>
+          message.includes("Ignored remote playback") &&
+          message.includes("result=cooldown-suppress"),
       ),
       true,
     );
@@ -1003,8 +1004,9 @@ test("sync controller avoids repeated correction loops after a short 2x buffer",
     assert.ok(Math.abs(video.currentTime - 26.6) < 0.001);
     assert.ok(Math.abs(video.playbackRate - 2) < 0.001);
     assert.equal(
-      harness.debugLogs.filter((message) => message.includes("Started soft apply"))
-        .length,
+      harness.debugLogs.filter((message) =>
+        message.includes("Started soft apply"),
+      ).length,
       1,
     );
     assert.equal(

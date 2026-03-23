@@ -42,8 +42,7 @@ function getAdaptivePlayingThresholds(playbackRate: number | undefined): {
   const extraRate = rateMultiplier - 1;
 
   return {
-    ignoreThreshold:
-      PLAYING_IGNORE_THRESHOLD_SECONDS * (1 + extraRate * 0.35),
+    ignoreThreshold: PLAYING_IGNORE_THRESHOLD_SECONDS * (1 + extraRate * 0.35),
     rateOnlyThreshold:
       PLAYING_RATE_ONLY_THRESHOLD_SECONDS * (1 + extraRate * 0.7),
     softApplyThreshold:
@@ -95,8 +94,8 @@ export function decidePlaybackReconcileMode(args: {
         : delta <= adaptiveThresholds.rateOnlyThreshold
           ? "rate-only"
           : delta <= adaptiveThresholds.softApplyThreshold
-          ? "soft-apply"
-          : "hard-seek",
+            ? "soft-apply"
+            : "hard-seek",
     delta,
     reason:
       delta <= adaptiveThresholds.ignoreThreshold
