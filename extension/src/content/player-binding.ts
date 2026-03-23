@@ -126,6 +126,7 @@ export function syncPlaybackPosition(
     localCurrentTime: previousCurrentTime,
     targetTime,
     playState,
+    playbackRate,
     isExplicitSeek: shouldTreatAsExplicitSeek({
       syncIntent,
       playState,

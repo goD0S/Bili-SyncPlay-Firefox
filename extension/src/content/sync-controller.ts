@@ -534,6 +534,7 @@ export function createSyncController(args: {
       localCurrentTime: video.currentTime,
       targetTime: playback.currentTime,
       playState: playback.playState,
+      playbackRate: playback.playbackRate,
       isExplicitSeek: shouldTreatAsExplicitSeek({
         syncIntent: playback.syncIntent,
         playState: playback.playState,

@@ -29,6 +29,28 @@ const PLAYING_IGNORE_THRESHOLD_SECONDS = 0.45;
 const PLAYING_RATE_ONLY_THRESHOLD_SECONDS = 0.9;
 const PLAYING_SOFT_APPLY_THRESHOLD_SECONDS = 1.2;
 
+function getPlaybackRateMultiplier(playbackRate: number | undefined): number {
+  return Math.max(1, playbackRate ?? 1);
+}
+
+function getAdaptivePlayingThresholds(playbackRate: number | undefined): {
+  ignoreThreshold: number;
+  rateOnlyThreshold: number;
+  softApplyThreshold: number;
+} {
+  const rateMultiplier = getPlaybackRateMultiplier(playbackRate);
+  const extraRate = rateMultiplier - 1;
+
+  return {
+    ignoreThreshold:
+      PLAYING_IGNORE_THRESHOLD_SECONDS * (1 + extraRate * 0.35),
+    rateOnlyThreshold:
+      PLAYING_RATE_ONLY_THRESHOLD_SECONDS * (1 + extraRate * 0.7),
+    softApplyThreshold:
+      PLAYING_SOFT_APPLY_THRESHOLD_SECONDS * (1 + extraRate * 0.55),
+  };
+}
+
 export function shouldTreatAsExplicitSeek(args: {
   syncIntent?: PlaybackState["syncIntent"];
   playState: PlaybackState["playState"];
@@ -41,6 +63,7 @@ export function decidePlaybackReconcileMode(args: {
   targetTime: number;
   playState: PlaybackState["playState"];
   isExplicitSeek?: boolean;
+  playbackRate?: number;
 }): PlaybackReconcileDecision {
   const delta = Math.abs(args.targetTime - args.localCurrentTime);
 
@@ -63,22 +86,24 @@ export function decidePlaybackReconcileMode(args: {
     };
   }
 
+  const adaptiveThresholds = getAdaptivePlayingThresholds(args.playbackRate);
+
   return {
     mode:
-      delta <= PLAYING_IGNORE_THRESHOLD_SECONDS
+      delta <= adaptiveThresholds.ignoreThreshold
         ? "ignore"
-        : delta <= PLAYING_RATE_ONLY_THRESHOLD_SECONDS
+        : delta <= adaptiveThresholds.rateOnlyThreshold
           ? "rate-only"
-        : delta <= PLAYING_SOFT_APPLY_THRESHOLD_SECONDS
+          : delta <= adaptiveThresholds.softApplyThreshold
           ? "soft-apply"
           : "hard-seek",
     delta,
     reason:
-      delta <= PLAYING_IGNORE_THRESHOLD_SECONDS
+      delta <= adaptiveThresholds.ignoreThreshold
         ? "within-threshold"
-        : delta <= PLAYING_RATE_ONLY_THRESHOLD_SECONDS
+        : delta <= adaptiveThresholds.rateOnlyThreshold
           ? "playing-rate-adjust"
-          : delta <= PLAYING_SOFT_APPLY_THRESHOLD_SECONDS
+          : delta <= adaptiveThresholds.softApplyThreshold
             ? "playing-soft-drift"
             : "playing-hard-drift",
   };
