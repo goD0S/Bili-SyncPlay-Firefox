@@ -17,6 +17,18 @@ test("ignores small playback drift while playing", () => {
   assert.ok(Math.abs(decision.delta - 0.3) < 0.001);
 });
 
+test("tolerates slightly larger playing drift before escalating to correction", () => {
+  const decision = decidePlaybackReconcileMode({
+    localCurrentTime: 12,
+    targetTime: 12.42,
+    playState: "playing",
+  });
+
+  assert.equal(decision.mode, "ignore");
+  assert.equal(decision.reason, "within-threshold");
+  assert.ok(Math.abs(decision.delta - 0.42) < 0.001);
+});
+
 test("uses soft apply for medium playback drift while playing", () => {
   const decision = decidePlaybackReconcileMode({
     localCurrentTime: 12,
@@ -32,13 +44,13 @@ test("uses soft apply for medium playback drift while playing", () => {
 test("uses rate-only adjustment for light playing drift above the ignore window", () => {
   const decision = decidePlaybackReconcileMode({
     localCurrentTime: 12,
-    targetTime: 12.45,
+    targetTime: 12.55,
     playState: "playing",
   });
 
   assert.equal(decision.mode, "rate-only");
   assert.equal(decision.reason, "playing-rate-adjust");
-  assert.ok(Math.abs(decision.delta - 0.45) < 0.001);
+  assert.ok(Math.abs(decision.delta - 0.55) < 0.001);
 });
 
 test("forces hard seek for explicit jumps while playing", () => {
