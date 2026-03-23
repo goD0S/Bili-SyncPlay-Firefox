@@ -13,10 +13,14 @@ const MAX_PLAYBACK_RATE = 1.15;
 
 interface AppliedPlaybackAdjustment {
   mode: "ignore" | "soft-apply" | "hard-seek";
+  reason: ReturnType<typeof decidePlaybackReconcileMode>["reason"];
+  delta: number;
   currentTime: number;
   playbackRate: number;
   targetTime: number;
   restorePlaybackRate: number;
+  didWriteCurrentTime: boolean;
+  didWritePlaybackRate: boolean;
   didChange: boolean;
 }
 
@@ -114,19 +118,25 @@ export function syncPlaybackPosition(
   });
 
   if (decision.mode === "hard-seek") {
+    const shouldWritePlaybackRate =
+      Math.abs(video.playbackRate - playbackRate) > 0.01;
     video.currentTime = targetTime;
-    if (Math.abs(video.playbackRate - playbackRate) > 0.01) {
+    if (shouldWritePlaybackRate) {
       video.playbackRate = playbackRate;
     }
     return {
       mode: "hard-seek",
+      reason: decision.reason,
+      delta: decision.delta,
       currentTime: targetTime,
       playbackRate,
       targetTime,
       restorePlaybackRate: playbackRate,
+      didWriteCurrentTime: Math.abs(previousCurrentTime - targetTime) > 0.01,
+      didWritePlaybackRate: shouldWritePlaybackRate,
       didChange:
         Math.abs(previousCurrentTime - targetTime) > 0.01 ||
-        Math.abs(previousPlaybackRate - playbackRate) > 0.01,
+        shouldWritePlaybackRate,
     };
   }
 
@@ -136,34 +146,47 @@ export function syncPlaybackPosition(
       targetTime,
       basePlaybackRate: playbackRate,
     });
-    if (Math.abs(video.currentTime - softApplied.currentTime) > 0.01) {
+    const shouldWriteCurrentTime =
+      Math.abs(video.currentTime - softApplied.currentTime) > 0.01;
+    const shouldWritePlaybackRate =
+      Math.abs(video.playbackRate - softApplied.playbackRate) > 0.01;
+    if (shouldWriteCurrentTime) {
       video.currentTime = softApplied.currentTime;
     }
-    if (Math.abs(video.playbackRate - softApplied.playbackRate) > 0.01) {
+    if (shouldWritePlaybackRate) {
       video.playbackRate = softApplied.playbackRate;
     }
     return {
       mode: "soft-apply",
+      reason: decision.reason,
+      delta: decision.delta,
       currentTime: softApplied.currentTime,
       playbackRate: softApplied.playbackRate,
       targetTime,
       restorePlaybackRate: playbackRate,
+      didWriteCurrentTime: shouldWriteCurrentTime,
+      didWritePlaybackRate: shouldWritePlaybackRate,
       didChange:
-        Math.abs(previousCurrentTime - softApplied.currentTime) > 0.01 ||
-        Math.abs(previousPlaybackRate - softApplied.playbackRate) > 0.01,
+        shouldWriteCurrentTime || shouldWritePlaybackRate,
     };
   }
 
-  if (Math.abs(video.playbackRate - playbackRate) > 0.01) {
+  const shouldWritePlaybackRate =
+    Math.abs(video.playbackRate - playbackRate) > 0.01;
+  if (shouldWritePlaybackRate) {
     video.playbackRate = playbackRate;
   }
   return {
     mode: "ignore",
+    reason: decision.reason,
+    delta: decision.delta,
     currentTime: video.currentTime,
     playbackRate,
     targetTime,
     restorePlaybackRate: playbackRate,
-    didChange: Math.abs(previousPlaybackRate - playbackRate) > 0.01,
+    didWriteCurrentTime: false,
+    didWritePlaybackRate: shouldWritePlaybackRate,
+    didChange: shouldWritePlaybackRate,
   };
 }
 

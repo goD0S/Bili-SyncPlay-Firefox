@@ -18,6 +18,7 @@ import {
 } from "./player-binding";
 import {
   decidePlaybackReconcileMode,
+  formatPlaybackReconcileDecision,
   shouldTreatAsExplicitSeek,
 } from "./playback-reconcile";
 import { createRoomStateApplyController } from "./room-state-apply-controller";
@@ -431,6 +432,13 @@ export function createSyncController(args: {
         args.runtimeState.pendingPlaybackApplication = null;
       },
       onPlaybackAdjusted: (adjustment, playback) => {
+        args.debugLog(
+          `Playback reconcile actor=${playback.actorId} playState=${playback.playState} url=${playback.url} ${formatPlaybackReconcileDecision({
+            mode: adjustment.mode,
+            reason: adjustment.reason,
+            delta: adjustment.delta,
+          })} wroteTime=${adjustment.didWriteCurrentTime} wroteRate=${adjustment.didWritePlaybackRate} targetTime=${adjustment.targetTime.toFixed(2)} appliedTime=${adjustment.currentTime.toFixed(2)} appliedRate=${adjustment.playbackRate.toFixed(2)} restoreRate=${adjustment.restorePlaybackRate.toFixed(2)}`,
+        );
         if (adjustment.mode === "soft-apply") {
           upsertActiveSoftApply(
             playback,
@@ -454,7 +462,7 @@ export function createSyncController(args: {
       result.adjustment?.mode === "ignore"
     ) {
       args.debugLog(
-        "Skipped noop playback apply because reconcile stayed within ignore threshold",
+        `Skipped noop playback apply because reconcile stayed within ignore threshold reason=${result.adjustment.reason} delta=${result.adjustment.delta.toFixed(2)}`,
       );
     }
   }

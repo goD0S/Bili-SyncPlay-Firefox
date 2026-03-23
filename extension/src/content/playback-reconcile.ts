@@ -12,6 +12,12 @@ export interface PlaybackReconcileDecision {
     | "explicit-seek";
 }
 
+export function formatPlaybackReconcileDecision(
+  decision: PlaybackReconcileDecision,
+): string {
+  return `mode=${decision.mode} reason=${decision.reason} delta=${decision.delta.toFixed(2)}`;
+}
+
 const PAUSED_HARD_SEEK_THRESHOLD_SECONDS = 0.15;
 const PLAYING_IGNORE_THRESHOLD_SECONDS = 0.35;
 const PLAYING_SOFT_APPLY_THRESHOLD_SECONDS = 1.2;

@@ -277,6 +277,78 @@ test("sync controller suppresses follow-up local broadcast after applying a late
   assert.equal(harness.runtimeState.remoteFollowPlayingUntil > 22_050, true);
 });
 
+test("sync controller logs reconcile decisions for soft apply and ignore paths", async () => {
+  const windowHarness = installWindowStub();
+  const harness = createControllerHarness();
+  const sharedVideo = {
+    videoId: "BV1xx411c7mD",
+    url: "https://www.bilibili.com/video/BV1xx411c7mD?p=1",
+    title: "Video",
+  };
+  const video = createVideo({
+    paused: false,
+    currentTime: 24,
+    playbackRate: 1,
+  });
+
+  harness.runtimeState.hydrationReady = true;
+  harness.runtimeState.pendingRoomStateHydration = false;
+  harness.setSharedVideo(sharedVideo);
+  harness.setCurrentPlaybackVideo(sharedVideo);
+  harness.setVideoElement(video);
+  harness.setNow(20_000);
+
+  try {
+    await harness.controller.applyRoomState(
+      createRoomState({
+        actorId: "remote-member",
+        seq: 10,
+        serverTime: 19_900,
+        currentTime: 24.8,
+        playState: "playing",
+        playbackRate: 1,
+      }),
+    );
+
+    video.currentTime = 24.78;
+    harness.controller.maintainActiveSoftApply(video);
+
+    video.currentTime = 24.92;
+    harness.setNow(22_000);
+    await harness.controller.applyRoomState(
+      createRoomState({
+        actorId: "remote-member",
+        seq: 11,
+        serverTime: 21_900,
+        currentTime: 25.05,
+        playState: "playing",
+        playbackRate: 1,
+      }),
+    );
+
+    assert.equal(
+      harness.debugLogs.some(
+        (message) =>
+          message.includes("Playback reconcile") &&
+          message.includes("mode=soft-apply") &&
+          message.includes("wroteTime=true") &&
+          message.includes("wroteRate=true"),
+      ),
+      true,
+    );
+    assert.equal(
+      harness.debugLogs.some(
+        (message) =>
+          message.includes("Ignored remote playback") &&
+          message.includes("result=within-threshold-noop"),
+      ),
+      true,
+    );
+  } finally {
+    windowHarness.restore();
+  }
+});
+
 test("sync controller keeps the remote follow window through buffering and suppresses the later playing event", async () => {
   const harness = createControllerHarness();
   const sharedVideo = {
