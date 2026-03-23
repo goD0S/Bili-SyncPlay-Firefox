@@ -42,6 +42,7 @@ import { createTabController } from "./tab-controller";
 import { t } from "../shared/i18n";
 
 const normalizeUrl = normalizeSharedVideoUrl;
+const HEARTBEAT_LOG_INTERVAL_MS = 10000;
 let pendingOutgoingPlaybackUpdate: {
   actorId: string;
   seq: number;
@@ -52,6 +53,25 @@ let pendingOutgoingPlaybackUpdate: {
   syncIntent: string | null;
   sentAt: number;
 } | null = null;
+const playbackUpdateLogState = {
+  outgoing: { key: null as string | null, at: 0 },
+  confirm: { key: null as string | null, at: 0 },
+  pending: { key: null as string | null, at: 0 },
+  roomState: { key: null as string | null, at: 0 },
+};
+
+function shouldLogPlaybackHeartbeat(
+  state: { key: string | null; at: number },
+  key: string,
+  now = Date.now(),
+): boolean {
+  if (state.key === key && now - state.at < HEARTBEAT_LOG_INTERVAL_MS) {
+    return false;
+  }
+  state.key = key;
+  state.at = now;
+  return true;
+}
 const stateStore = createBackgroundStateStore();
 const connectionState = stateStore.getState().connection;
 const roomSessionState = stateStore.getState().room;
@@ -344,10 +364,21 @@ function sendToServer(message: ClientMessage): void {
       syncIntent: message.payload.playback.syncIntent ?? null,
       sentAt: Date.now(),
     };
-    diagnosticsController.log(
-      "background",
-      `-> playback:update actor=${message.payload.playback.actorId} seq=${message.payload.playback.seq} playState=${message.payload.playback.playState} url=${message.payload.playback.url} t=${message.payload.playback.currentTime.toFixed(2)} rate=${message.payload.playback.playbackRate.toFixed(2)} intent=${message.payload.playback.syncIntent ?? "none"}`,
-    );
+    const isHeartbeatPlaybackUpdate =
+      message.payload.playback.syncIntent === null &&
+      message.payload.playback.playState === "playing";
+    if (
+      !isHeartbeatPlaybackUpdate ||
+      shouldLogPlaybackHeartbeat(
+        playbackUpdateLogState.outgoing,
+        `${message.payload.playback.playState}|${normalizeUrl(message.payload.playback.url) ?? message.payload.playback.url}|outgoing`,
+      )
+    ) {
+      diagnosticsController.log(
+        "background",
+        `-> playback:update actor=${message.payload.playback.actorId} seq=${message.payload.playback.seq} playState=${message.payload.playback.playState} url=${message.payload.playback.url} t=${message.payload.playback.currentTime.toFixed(2)} rate=${message.payload.playback.playbackRate.toFixed(2)} intent=${message.payload.playback.syncIntent ?? "none"}`,
+      );
+    }
   } else if (diagnosticsController.shouldLogOutgoingMessage(message.type)) {
     diagnosticsController.log("background", `-> ${message.type}`);
   }
@@ -356,10 +387,21 @@ function sendToServer(message: ClientMessage): void {
 
 async function handleServerMessage(message: ServerMessage): Promise<void> {
   if (message.type === "room:state") {
-    diagnosticsController.log(
-      "server",
-      `<- room:state room=${message.payload.roomCode} shared=${message.payload.sharedVideo?.url ?? "none"} actor=${message.payload.playback?.actorId ?? "none"} seq=${message.payload.playback?.seq ?? "none"} playState=${message.payload.playback?.playState ?? "none"} t=${message.payload.playback ? message.payload.playback.currentTime.toFixed(2) : "n/a"} rate=${message.payload.playback ? message.payload.playback.playbackRate.toFixed(2) : "n/a"} intent=${message.payload.playback?.syncIntent ?? "none"}`,
-    );
+    const isHeartbeatRoomState =
+      message.payload.playback?.playState === "playing" &&
+      message.payload.playback?.syncIntent === null;
+    if (
+      !isHeartbeatRoomState ||
+      shouldLogPlaybackHeartbeat(
+        playbackUpdateLogState.roomState,
+        `${message.payload.roomCode}|${normalizeUrl(message.payload.sharedVideo?.url) ?? message.payload.sharedVideo?.url ?? "none"}|${message.payload.playback?.playState ?? "none"}|${message.payload.playback?.actorId ?? "none"}|room-state`,
+      )
+    ) {
+      diagnosticsController.log(
+        "server",
+        `<- room:state room=${message.payload.roomCode} shared=${message.payload.sharedVideo?.url ?? "none"} actor=${message.payload.playback?.actorId ?? "none"} seq=${message.payload.playback?.seq ?? "none"} playState=${message.payload.playback?.playState ?? "none"} t=${message.payload.playback ? message.payload.playback.currentTime.toFixed(2) : "n/a"} rate=${message.payload.playback ? message.payload.playback.playbackRate.toFixed(2) : "n/a"} intent=${message.payload.playback?.syncIntent ?? "none"}`,
+      );
+    }
     if (
       pendingOutgoingPlaybackUpdate &&
       message.payload.playback &&
@@ -372,16 +414,32 @@ async function handleServerMessage(message: ServerMessage): Promise<void> {
           pendingOutgoingPlaybackUpdate.actorId &&
         message.payload.playback.seq >= pendingOutgoingPlaybackUpdate.seq
       ) {
-        diagnosticsController.log(
-          "background",
-          `Confirmed local playback:update actor=${pendingOutgoingPlaybackUpdate.actorId} pendingSeq=${pendingOutgoingPlaybackUpdate.seq} roomSeq=${message.payload.playback.seq} playState=${message.payload.playback.playState} t=${message.payload.playback.currentTime.toFixed(2)} rate=${message.payload.playback.playbackRate.toFixed(2)} intent=${message.payload.playback.syncIntent ?? "none"} ageMs=${ageMs}`,
-        );
+        if (
+          pendingOutgoingPlaybackUpdate.syncIntent !== null ||
+          pendingOutgoingPlaybackUpdate.playState !== "playing" ||
+          shouldLogPlaybackHeartbeat(
+            playbackUpdateLogState.confirm,
+            `${pendingOutgoingPlaybackUpdate.playState}|${normalizeUrl(pendingOutgoingPlaybackUpdate.url) ?? pendingOutgoingPlaybackUpdate.url}|confirm`,
+          )
+        ) {
+          diagnosticsController.log(
+            "background",
+            `Confirmed local playback:update actor=${pendingOutgoingPlaybackUpdate.actorId} pendingSeq=${pendingOutgoingPlaybackUpdate.seq} roomSeq=${message.payload.playback.seq} playState=${message.payload.playback.playState} t=${message.payload.playback.currentTime.toFixed(2)} rate=${message.payload.playback.playbackRate.toFixed(2)} intent=${message.payload.playback.syncIntent ?? "none"} ageMs=${ageMs}`,
+          );
+        }
         pendingOutgoingPlaybackUpdate = null;
       } else {
-        diagnosticsController.log(
-          "background",
-          `Pending local playback:update actor=${pendingOutgoingPlaybackUpdate.actorId} pendingSeq=${pendingOutgoingPlaybackUpdate.seq} pendingState=${pendingOutgoingPlaybackUpdate.playState} pendingT=${pendingOutgoingPlaybackUpdate.currentTime.toFixed(2)} pendingRate=${pendingOutgoingPlaybackUpdate.playbackRate.toFixed(2)} pendingIntent=${pendingOutgoingPlaybackUpdate.syncIntent ?? "none"} sawActor=${message.payload.playback.actorId} sawSeq=${message.payload.playback.seq} sawState=${message.payload.playback.playState} sawT=${message.payload.playback.currentTime.toFixed(2)} sawRate=${message.payload.playback.playbackRate.toFixed(2)} sawIntent=${message.payload.playback.syncIntent ?? "none"} ageMs=${ageMs}`,
-        );
+        if (
+          shouldLogPlaybackHeartbeat(
+            playbackUpdateLogState.pending,
+            `${pendingOutgoingPlaybackUpdate.playState}|${normalizeUrl(pendingOutgoingPlaybackUpdate.url) ?? pendingOutgoingPlaybackUpdate.url}|pending`,
+          )
+        ) {
+          diagnosticsController.log(
+            "background",
+            `Pending local playback:update actor=${pendingOutgoingPlaybackUpdate.actorId} pendingSeq=${pendingOutgoingPlaybackUpdate.seq} pendingState=${pendingOutgoingPlaybackUpdate.playState} pendingT=${pendingOutgoingPlaybackUpdate.currentTime.toFixed(2)} pendingRate=${pendingOutgoingPlaybackUpdate.playbackRate.toFixed(2)} pendingIntent=${pendingOutgoingPlaybackUpdate.syncIntent ?? "none"} sawActor=${message.payload.playback.actorId} sawSeq=${message.payload.playback.seq} sawState=${message.payload.playback.playState} sawT=${message.payload.playback.currentTime.toFixed(2)} sawRate=${message.payload.playback.playbackRate.toFixed(2)} sawIntent=${message.payload.playback.syncIntent ?? "none"} ageMs=${ageMs}`,
+          );
+        }
       }
     }
   } else if (diagnosticsController.shouldLogIncomingMessage(message.type)) {

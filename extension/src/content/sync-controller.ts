@@ -108,6 +108,11 @@ export function createSyncController(args: {
     deadlineAt: number;
   } | null = null;
   let activeSoftApplyTimer: number | null = null;
+  const broadcastTraceLogState = { key: null as string | null, at: 0 };
+  const ignoredRemotePlaybackLogState = { key: null as string | null, at: 0 };
+  const ignoredRoomStateLogState = { key: null as string | null, at: 0 };
+  const localEchoLogState = { key: null as string | null, at: 0 };
+  const dispatchPlaybackLogState = { key: null as string | null, at: 0 };
 
   function formatPlaybackDiagnostic(args: {
     actor?: string | null;
@@ -166,6 +171,36 @@ export function createSyncController(args: {
       `programmatic=${programmatic ? `${programmatic.playState}@${programmatic.url}` : "none"}@${args.runtimeState.programmaticApplyUntil}`,
       `pauseHoldUntil=${args.runtimeState.pauseHoldUntil}`,
     ].join(" ");
+  }
+
+  function logHeartbeatMessage(
+    state: { key: string | null; at: number },
+    key: string,
+    message: string,
+    now = nowOf(),
+  ): void {
+    if (args.shouldLogHeartbeat(state, key, now)) {
+      args.debugLog(message);
+    }
+  }
+
+  function logBroadcastTrace(
+    result: string,
+    eventSource: LocalPlaybackEventSource,
+    trace: string,
+    normalizedUrl: string | null,
+    now = nowOf(),
+  ): void {
+    if (eventSource !== "timeupdate") {
+      args.debugLog(`Broadcast trace result=${result} ${trace}`);
+      return;
+    }
+    logHeartbeatMessage(
+      broadcastTraceLogState,
+      `${result}|${normalizedUrl ?? "none"}`,
+      `Broadcast trace result=${result} ${trace}`,
+      now,
+    );
   }
 
   function activatePauseHold(durationMs = args.pauseHoldMs): void {
@@ -456,7 +491,9 @@ export function createSyncController(args: {
     result: string;
     extra?: string;
   }): void {
-    args.debugLog(
+    logHeartbeatMessage(
+      ignoredRemotePlaybackLogState,
+      `${argsForLog.playback.actorId}|${argsForLog.playback.playState}|${argsForLog.result}|${args.normalizeUrl(argsForLog.playback.url) ?? argsForLog.playback.url}`,
       `Ignored remote playback ${formatPlaybackDiagnostic({
         actor: argsForLog.playback.actorId,
         playState: argsForLog.playback.playState,
@@ -722,7 +759,9 @@ export function createSyncController(args: {
             args.runtimeState.suppressedRemotePlayback.currentTime,
         )
       : Infinity;
-    args.debugLog(
+    logHeartbeatMessage(
+      localEchoLogState,
+      `${decision.shouldSuppress ? "suppress" : "allow"}|${playState}|${args.normalizeUrl(currentVideo.url) ?? currentVideo.url}`,
       `${decision.shouldSuppress ? "Suppressed" : "Allowed"} local echo ${playState} ${currentVideo.url} delta=${delta.toFixed(2)} threshold=${threshold.toFixed(2)}`,
     );
     return decision.shouldSuppress;
@@ -898,15 +937,18 @@ export function createSyncController(args: {
     const now = nowOf();
     if (!args.runtimeState.hydrationReady) {
       args.debugLog("Skip broadcast before hydration ready");
-      args.debugLog(
-        `Broadcast trace result=before-hydration ${formatBroadcastTrace({
+      logBroadcastTrace(
+        "before-hydration",
+        eventSource,
+        formatBroadcastTrace({
           eventSource,
           currentVideoUrl: null,
           normalizedCurrentVideoUrl: null,
           playState: getPlayState(video, args.runtimeState.intendedPlayState),
           currentTime: video.currentTime,
           playbackRate: video.playbackRate,
-        })}`,
+        }),
+        null,
       );
       return;
     }
@@ -927,15 +969,19 @@ export function createSyncController(args: {
         args.debugLog(
           `Skip broadcast while waiting for initial room state of ${args.runtimeState.activeRoomCode ?? "unknown-room"}`,
         );
-        args.debugLog(
-          `Broadcast trace result=hydration-gate ${formatBroadcastTrace({
+        logBroadcastTrace(
+          "hydration-gate",
+          eventSource,
+          formatBroadcastTrace({
             eventSource,
             currentVideoUrl: null,
             normalizedCurrentVideoUrl: null,
             playState: getPlayState(video, args.runtimeState.intendedPlayState),
             currentTime: video.currentTime,
             playbackRate: video.playbackRate,
-          })}`,
+          }),
+          null,
+          now,
         );
         return;
       }
@@ -943,15 +989,19 @@ export function createSyncController(args: {
 
     const currentVideo = await args.getCurrentPlaybackVideo();
     if (!currentVideo) {
-      args.debugLog(
-        `Broadcast trace result=no-current-video ${formatBroadcastTrace({
+      logBroadcastTrace(
+        "no-current-video",
+        eventSource,
+        formatBroadcastTrace({
           eventSource,
           currentVideoUrl: null,
           normalizedCurrentVideoUrl: null,
           playState: getPlayState(video, args.runtimeState.intendedPlayState),
           currentTime: video.currentTime,
           playbackRate: video.playbackRate,
-        })}`,
+        }),
+        null,
+        now,
       );
       return;
     }
@@ -961,15 +1011,19 @@ export function createSyncController(args: {
       now - args.runtimeState.lastExplicitUserAction.at <
         args.userGestureGraceMs;
     const normalizedCurrentVideoUrl = args.normalizeUrl(currentVideo.url);
-    args.debugLog(
-      `Broadcast trace result=enter ${formatBroadcastTrace({
+    logBroadcastTrace(
+      "enter",
+      eventSource,
+      formatBroadcastTrace({
         eventSource,
         currentVideoUrl: currentVideo.url,
         normalizedCurrentVideoUrl,
         playState: getPlayState(video, args.runtimeState.intendedPlayState),
         currentTime: video.currentTime,
         playbackRate: video.playbackRate,
-      })}`,
+      }),
+      normalizedCurrentVideoUrl,
+      now,
     );
     if (
       args.runtimeState.activeRoomCode &&
@@ -998,15 +1052,19 @@ export function createSyncController(args: {
           }
         }, 0);
       }
-      args.debugLog(
-        `Broadcast trace result=non-shared-page ${formatBroadcastTrace({
+      logBroadcastTrace(
+        "non-shared-page",
+        eventSource,
+        formatBroadcastTrace({
           eventSource,
           currentVideoUrl: currentVideo.url,
           normalizedCurrentVideoUrl,
           playState: getPlayState(video, args.runtimeState.intendedPlayState),
           currentTime: video.currentTime,
           playbackRate: video.playbackRate,
-        })}`,
+        }),
+        normalizedCurrentVideoUrl,
+        now,
       );
       return;
     }
@@ -1045,15 +1103,19 @@ export function createSyncController(args: {
           result: `programmatic-${eventSource}`,
         })}`,
       );
-      args.debugLog(
-        `Broadcast trace result=programmatic-suppress ${formatBroadcastTrace({
+      logBroadcastTrace(
+        "programmatic-suppress",
+        eventSource,
+        formatBroadcastTrace({
           eventSource,
           currentVideoUrl: currentVideo.url,
           normalizedCurrentVideoUrl,
           playState,
           currentTime: video.currentTime,
           playbackRate: video.playbackRate,
-        })}`,
+        }),
+        normalizedCurrentVideoUrl,
+        now,
       );
       return;
     }
@@ -1080,15 +1142,19 @@ export function createSyncController(args: {
         now,
       })
     ) {
-      args.debugLog(
-        `Broadcast trace result=soft-apply-suppress ${formatBroadcastTrace({
+      logBroadcastTrace(
+        "soft-apply-suppress",
+        eventSource,
+        formatBroadcastTrace({
           eventSource,
           currentVideoUrl: currentVideo.url,
           normalizedCurrentVideoUrl,
           playState,
           currentTime: video.currentTime,
           playbackRate: video.playbackRate,
-        })}`,
+        }),
+        normalizedCurrentVideoUrl,
+        now,
       );
       return;
     }
@@ -1100,17 +1166,19 @@ export function createSyncController(args: {
         now,
       })
     ) {
-      args.debugLog(
-        `Broadcast trace result=unexpected-rate-suppress ${formatBroadcastTrace(
-          {
-            eventSource,
-            currentVideoUrl: currentVideo.url,
-            normalizedCurrentVideoUrl,
-            playState,
-            currentTime: video.currentTime,
-            playbackRate: video.playbackRate,
-          },
-        )}`,
+      logBroadcastTrace(
+        "unexpected-rate-suppress",
+        eventSource,
+        formatBroadcastTrace({
+          eventSource,
+          currentVideoUrl: currentVideo.url,
+          normalizedCurrentVideoUrl,
+          playState,
+          currentTime: video.currentTime,
+          playbackRate: video.playbackRate,
+        }),
+        normalizedCurrentVideoUrl,
+        now,
       );
       return;
     }
@@ -1139,15 +1207,19 @@ export function createSyncController(args: {
           result: `remote-follow-${eventSource}`,
         })}`,
       );
-      args.debugLog(
-        `Broadcast trace result=remote-follow-suppress ${formatBroadcastTrace({
+      logBroadcastTrace(
+        "remote-follow-suppress",
+        eventSource,
+        formatBroadcastTrace({
           eventSource,
           currentVideoUrl: currentVideo.url,
           normalizedCurrentVideoUrl,
           playState,
           currentTime: video.currentTime,
           playbackRate: video.playbackRate,
-        })}`,
+        }),
+        normalizedCurrentVideoUrl,
+        now,
       );
       return;
     }
@@ -1174,28 +1246,36 @@ export function createSyncController(args: {
           pauseVideo(video);
         }
       }, 0);
-      args.debugLog(
-        `Broadcast trace result=remote-stop-hold ${formatBroadcastTrace({
+      logBroadcastTrace(
+        "remote-stop-hold",
+        eventSource,
+        formatBroadcastTrace({
           eventSource,
           currentVideoUrl: currentVideo.url,
           normalizedCurrentVideoUrl,
           playState,
           currentTime: video.currentTime,
           playbackRate: video.playbackRate,
-        })}`,
+        }),
+        normalizedCurrentVideoUrl,
+        now,
       );
       return;
     }
     if (shouldSuppressLocalEcho(video, currentVideo, playState)) {
-      args.debugLog(
-        `Broadcast trace result=local-echo-suppress ${formatBroadcastTrace({
+      logBroadcastTrace(
+        "local-echo-suppress",
+        eventSource,
+        formatBroadcastTrace({
           eventSource,
           currentVideoUrl: currentVideo.url,
           normalizedCurrentVideoUrl,
           playState,
           currentTime: video.currentTime,
           playbackRate: video.playbackRate,
-        })}`,
+        }),
+        normalizedCurrentVideoUrl,
+        now,
       );
       return;
     }
@@ -1206,17 +1286,19 @@ export function createSyncController(args: {
         video.currentTime,
       )
     ) {
-      args.debugLog(
-        `Broadcast trace result=remote-play-transition-suppress ${formatBroadcastTrace(
-          {
-            eventSource,
-            currentVideoUrl: currentVideo.url,
-            normalizedCurrentVideoUrl,
-            playState,
-            currentTime: video.currentTime,
-            playbackRate: video.playbackRate,
-          },
-        )}`,
+      logBroadcastTrace(
+        "remote-play-transition-suppress",
+        eventSource,
+        formatBroadcastTrace({
+          eventSource,
+          currentVideoUrl: currentVideo.url,
+          normalizedCurrentVideoUrl,
+          playState,
+          currentTime: video.currentTime,
+          playbackRate: video.playbackRate,
+        }),
+        normalizedCurrentVideoUrl,
+        now,
       );
       return;
     }
@@ -1244,9 +1326,18 @@ export function createSyncController(args: {
     });
     rememberPendingLocalPlaybackOverride(payload, now);
 
-    args.debugLog(
-      `Dispatch playback update actor=${payload.actorId} playState=${payload.playState} url=${payload.url} delta=0.00 result=dispatch seq=${payload.seq} source=${eventSource} intent=${payload.syncIntent ?? "none"} rate=${payload.playbackRate.toFixed(2)}`,
-    );
+    if (eventSource === "timeupdate") {
+      logHeartbeatMessage(
+        dispatchPlaybackLogState,
+        `${payload.playState}|${args.normalizeUrl(payload.url) ?? payload.url}|dispatch`,
+        `Dispatch playback update actor=${payload.actorId} playState=${payload.playState} url=${payload.url} delta=0.00 result=dispatch seq=${payload.seq} source=${eventSource} intent=${payload.syncIntent ?? "none"} rate=${payload.playbackRate.toFixed(2)}`,
+        now,
+      );
+    } else {
+      args.debugLog(
+        `Dispatch playback update actor=${payload.actorId} playState=${payload.playState} url=${payload.url} delta=0.00 result=dispatch seq=${payload.seq} source=${eventSource} intent=${payload.syncIntent ?? "none"} rate=${payload.playbackRate.toFixed(2)}`,
+      );
+    }
 
     const response = await args.runtimeSendMessage({
       type: "content:playback-update",
@@ -1345,7 +1436,9 @@ export function createSyncController(args: {
 
     if (decision.kind === "ignore-non-shared") {
       cancelActiveSoftApply(args.getVideoElement(), "non-shared-page");
-      args.debugLog(
+      logHeartbeatMessage(
+        ignoredRoomStateLogState,
+        `${normalizedSharedUrl ?? "none"}|${normalizedCurrentUrl ?? "none"}`,
         `Ignored room state for ${state.sharedVideo?.url ?? "none"} on current page ${currentVideo?.url ?? "none"}`,
       );
       if (decision.acceptedHydration) {

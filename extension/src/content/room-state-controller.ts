@@ -33,6 +33,8 @@ export function createRoomStateController(args: {
   resetPlaybackSyncState: (reason: string) => void;
   scheduleHydrationRetry: (delayMs?: number) => void;
 }): RoomStateController {
+  let lastWaitingRoomStateLogRoomCode: string | null = null;
+
   function isCurrentPageShowingSharedVideo(state: RoomState): boolean {
     const currentVideo = args.getSharedVideo();
     if (!currentVideo || !state.sharedVideo) {
@@ -107,7 +109,10 @@ export function createRoomStateController(args: {
 
     if (payload.roomCode && !args.runtimeState.hasReceivedInitialRoomState) {
       args.runtimeState.pendingRoomStateHydration = true;
-      args.debugLog(`Waiting for initial room state of ${payload.roomCode}`);
+      if (lastWaitingRoomStateLogRoomCode !== payload.roomCode) {
+        args.debugLog(`Waiting for initial room state of ${payload.roomCode}`);
+        lastWaitingRoomStateLogRoomCode = payload.roomCode;
+      }
       args.scheduleHydrationRetry(150);
     }
 
@@ -119,6 +124,7 @@ export function createRoomStateController(args: {
       args.toastState.lastRoomState = null;
       args.runtimeState.pendingRoomStateHydration = false;
       args.runtimeState.hasReceivedInitialRoomState = false;
+      lastWaitingRoomStateLogRoomCode = null;
     }
   }
 
