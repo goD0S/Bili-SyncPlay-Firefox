@@ -2,7 +2,7 @@ import type { ServerMessage } from "@bili-syncplay/protocol";
 import type { WebSocket } from "ws";
 import { createAdminActionService } from "../admin/action-service.js";
 import { createAuditLogService } from "../admin/audit-log.js";
-import { createInMemoryAuthStore } from "../admin/auth-store.js";
+import { createInMemoryAdminSessionStore } from "../admin/auth-store.js";
 import { createAdminAuthService } from "../admin/auth-service.js";
 import { createAdminConfigService } from "../admin/config-service.js";
 import { createEventStore } from "../admin/event-store.js";
@@ -42,7 +42,7 @@ export function createAdminServices(args: {
   const authService = args.adminConfig
     ? createAdminAuthService(
         args.adminConfig,
-        createInMemoryAuthStore(),
+        createInMemoryAdminSessionStore(),
         args.now,
       )
     : undefined;

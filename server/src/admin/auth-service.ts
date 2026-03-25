@@ -5,7 +5,7 @@ import {
   scryptSync,
   timingSafeEqual,
 } from "node:crypto";
-import type { AuthStore } from "./auth-store.js";
+import type { AdminSessionStore } from "../admin-session-store.js";
 import type { AdminRole, AdminSession } from "./types.js";
 
 export type AdminAuthConfig = {
@@ -61,7 +61,7 @@ function tokenIdOf(secret: string, token: string): string {
 
 export function createAdminAuthService(
   config: AdminAuthConfig,
-  store: AuthStore,
+  store: AdminSessionStore,
   now: () => number = Date.now,
 ): AdminAuthService {
   return {
@@ -84,29 +84,29 @@ export function createAdminAuthService(
         expiresAt: currentTime + config.sessionTtlMs,
         lastSeenAt: currentTime,
       };
-      store.save(tokenIdOf(config.sessionSecret, token), session);
+      await store.save(tokenIdOf(config.sessionSecret, token), session);
       return { token, expiresAt: session.expiresAt, admin: session };
     },
     async authenticate(token) {
       const tokenId = tokenIdOf(config.sessionSecret, token);
-      const session = store.get(tokenId);
+      const session = await store.get(tokenId);
       if (!session) {
         return null;
       }
       const currentTime = now();
       if (session.expiresAt <= currentTime) {
-        store.delete(tokenId);
+        await store.delete(tokenId);
         return null;
       }
       const nextSession: AdminSession = {
         ...session,
         lastSeenAt: currentTime,
       };
-      store.save(tokenId, nextSession);
+      await store.save(tokenId, nextSession);
       return nextSession;
     },
     async logout(token) {
-      store.delete(tokenIdOf(config.sessionSecret, token));
+      await store.delete(tokenIdOf(config.sessionSecret, token));
     },
   };
 }

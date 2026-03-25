@@ -1,24 +1,23 @@
 import type { AdminSession } from "./types.js";
+import type { AdminSessionStore } from "../admin-session-store.js";
 
-export type AuthStore = {
-  save: (tokenId: string, session: AdminSession) => void;
-  get: (tokenId: string) => AdminSession | null;
-  delete: (tokenId: string) => void;
-};
+export type AuthStore = AdminSessionStore;
 
-export function createInMemoryAuthStore(): AuthStore {
+export function createInMemoryAdminSessionStore(): AuthStore {
   const sessions = new Map<string, AdminSession>();
 
   return {
-    save(tokenId, session) {
+    async save(tokenId, session) {
       sessions.set(tokenId, { ...session });
     },
-    get(tokenId) {
+    async get(tokenId) {
       const session = sessions.get(tokenId);
       return session ? { ...session } : null;
     },
-    delete(tokenId) {
+    async delete(tokenId) {
       sessions.delete(tokenId);
     },
   };
 }
+
+export const createInMemoryAuthStore = createInMemoryAdminSessionStore;
