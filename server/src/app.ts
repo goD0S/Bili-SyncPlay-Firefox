@@ -32,6 +32,13 @@ import { createRoomService } from "./room-service.js";
 import { createRuntimeIndexReaper } from "./runtime-index-reaper.js";
 import { createRedisRoomStore } from "./redis-room-store.js";
 import { createRedisRuntimeStore } from "./redis-runtime-store.js";
+import {
+  getRedisAdminCommandChannelPrefix,
+  getRedisAdminCommandResultChannelPrefix,
+  getRedisEventStreamKey,
+  getRedisRoomEventChannel,
+  getRedisRuntimeKeyPrefix,
+} from "./redis-namespace.js";
 import type { RoomEventBusMessage } from "./room-event-bus.js";
 import {
   createInMemoryRoomEventBus,
@@ -255,6 +262,7 @@ export function getDefaultPersistenceConfig(): PersistenceConfig {
     emptyRoomTtlMs: 15 * 60 * 1000,
     roomCleanupIntervalMs: 60 * 1000,
     redisUrl: "redis://localhost:6379",
+    redisNamespace: undefined,
     instanceId: "instance-1",
   };
 }
@@ -272,12 +280,19 @@ export async function createSyncServer(
   const roomStore =
     dependencies.roomStore ??
     (persistenceConfig.provider === "redis"
-      ? await createRedisRoomStore(persistenceConfig.redisUrl)
+      ? await createRedisRoomStore(persistenceConfig.redisUrl, {
+          namespace: persistenceConfig.redisNamespace,
+        })
       : createInMemoryRoomStore({ now }));
   const localRuntimeStore = createInMemoryRuntimeStore(now);
   const sharedRuntimeStore =
     persistenceConfig.runtimeStoreProvider === "redis"
-      ? await createRedisRuntimeStore(persistenceConfig.redisUrl, { now })
+      ? await createRedisRuntimeStore(persistenceConfig.redisUrl, {
+          now,
+          keyPrefix: getRedisRuntimeKeyPrefix(
+            persistenceConfig.redisNamespace,
+          ),
+        })
       : localRuntimeStore;
   const runtimeStore =
     sharedRuntimeStore === localRuntimeStore
@@ -285,13 +300,21 @@ export async function createSyncServer(
       : createMirroredRuntimeStore(localRuntimeStore, sharedRuntimeStore);
   const adminCommandBus =
     persistenceConfig.adminCommandBusProvider === "redis"
-      ? await createRedisAdminCommandBus(persistenceConfig.redisUrl)
+      ? await createRedisAdminCommandBus(persistenceConfig.redisUrl, {
+          commandChannelPrefix: getRedisAdminCommandChannelPrefix(
+            persistenceConfig.redisNamespace,
+          ),
+          resultChannelPrefix: getRedisAdminCommandResultChannelPrefix(
+            persistenceConfig.redisNamespace,
+          ),
+        })
       : persistenceConfig.adminCommandBusProvider === "none"
         ? createNoopAdminCommandBus()
         : createInMemoryAdminCommandBus();
   const roomEventBus =
     persistenceConfig.roomEventBusProvider === "redis"
       ? await createRedisRoomEventBus(persistenceConfig.redisUrl, {
+          channel: getRedisRoomEventChannel(persistenceConfig.redisNamespace),
           onConnectionError: (role, error) => {
             logEvent("room_event_bus_error", {
               busRole: role,
@@ -315,7 +338,9 @@ export async function createSyncServer(
         : createInMemoryRoomEventBus();
   const eventStore =
     dependencies.adminConfig?.eventStoreProvider === "redis"
-      ? await createRedisEventStore(persistenceConfig.redisUrl)
+      ? await createRedisEventStore(persistenceConfig.redisUrl, {
+          streamKey: getRedisEventStreamKey(persistenceConfig.redisNamespace),
+        })
       : createEventStore();
   const logEvent =
     dependencies.logEvent ??

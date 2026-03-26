@@ -1,5 +1,6 @@
 import { Redis } from "ioredis";
 import type { RoomListQuery } from "./admin/types.js";
+import { getRedisRoomStoreKeys } from "./redis-namespace.js";
 import {
   createPersistedRoom,
   type RoomStore,
@@ -7,9 +8,6 @@ import {
 } from "./room-store.js";
 import type { PersistedRoom } from "./types.js";
 
-const ROOM_KEY_PREFIX = "bsp:room:";
-const ROOM_EXPIRY_KEY = "bsp:room-expiry";
-const ROOM_INDEX_KEY = "bsp:room-index";
 const DELETE_EXPIRED_ROOMS_LUA = `
 local expiryKey = KEYS[1]
 local roomKeyPrefix = ARGV[1]
@@ -37,10 +35,6 @@ end
 
 return deletedCount
 `;
-
-function roomKey(code: string): string {
-  return `${ROOM_KEY_PREFIX}${code}`;
-}
 
 function serializeRoom(room: PersistedRoom): string {
   return JSON.stringify(room);
@@ -75,22 +69,34 @@ function matchesQuery(
 
 async function updateExpiryIndex(
   redis: Redis,
+  roomExpiryKey: string,
   room: PersistedRoom,
 ): Promise<void> {
   if (room.expiresAt === null) {
-    await redis.zrem(ROOM_EXPIRY_KEY, room.code);
+    await redis.zrem(roomExpiryKey, room.code);
     return;
   }
-  await redis.zadd(ROOM_EXPIRY_KEY, String(room.expiresAt), room.code);
+  await redis.zadd(roomExpiryKey, String(room.expiresAt), room.code);
 }
 
 export async function createRedisRoomStore(
   redisUrl: string,
+  options: {
+    namespace?: string;
+  } = {},
 ): Promise<RoomStore & { close: () => Promise<void> }> {
   const redis = new Redis(redisUrl, {
     lazyConnect: true,
     maxRetriesPerRequest: 1,
   });
+  const { roomKeyPrefix, roomExpiryKey, roomIndexKey } = getRedisRoomStoreKeys(
+    options.namespace,
+  );
+
+  function roomKey(code: string): string {
+    return `${roomKeyPrefix}${code}`;
+  }
+
   await redis.connect();
 
   async function fetchRooms(
@@ -105,16 +111,16 @@ export async function createRedisRoomStore(
     >,
   ) {
     const ascending = query.sortOrder === "asc";
-    const codes =
-      query.sortBy === "lastActiveAt"
-        ? ascending
-          ? await redis.zrange(ROOM_INDEX_KEY, 0, -1)
-          : await redis.zrevrange(ROOM_INDEX_KEY, 0, -1)
-        : await redis.keys(`${ROOM_KEY_PREFIX}*`);
+      const codes =
+        query.sortBy === "lastActiveAt"
+          ? ascending
+          ? await redis.zrange(roomIndexKey, 0, -1)
+          : await redis.zrevrange(roomIndexKey, 0, -1)
+        : await redis.keys(`${roomKeyPrefix}*`);
 
     const normalizedCodes =
       query.sortBy === "createdAt"
-        ? codes.map((key) => key.replace(ROOM_KEY_PREFIX, ""))
+        ? codes.map((key) => key.replace(roomKeyPrefix, ""))
         : codes;
     const rooms = (
       await Promise.all(
@@ -139,7 +145,7 @@ export async function createRedisRoomStore(
       const room = createPersistedRoom(input);
       const transaction = redis.multi();
       transaction.set(roomKey(room.code), serializeRoom(room), "NX");
-      transaction.zadd(ROOM_INDEX_KEY, String(room.lastActiveAt), room.code);
+      transaction.zadd(roomIndexKey, String(room.lastActiveAt), room.code);
       const [created] = (await transaction.exec()) ?? [];
       if (!created || created[1] !== "OK") {
         throw new Error(`Room ${room.code} already exists.`);
@@ -152,9 +158,9 @@ export async function createRedisRoomStore(
     async saveRoom(room) {
       const transaction = redis.multi();
       transaction.set(roomKey(room.code), serializeRoom(room));
-      transaction.zadd(ROOM_INDEX_KEY, String(room.lastActiveAt), room.code);
+      transaction.zadd(roomIndexKey, String(room.lastActiveAt), room.code);
       await transaction.exec();
-      await updateExpiryIndex(redis, room);
+      await updateExpiryIndex(redis, roomExpiryKey, room);
       return room;
     },
     async updateRoom(code, expectedVersion, patch): Promise<RoomUpdateResult> {
@@ -177,11 +183,11 @@ export async function createRedisRoomStore(
 
         const transaction = redis.multi();
         transaction.set(key, serializeRoom(nextRoom));
-        transaction.zadd(ROOM_INDEX_KEY, String(nextRoom.lastActiveAt), code);
+        transaction.zadd(roomIndexKey, String(nextRoom.lastActiveAt), code);
         if (nextRoom.expiresAt === null) {
-          transaction.zrem(ROOM_EXPIRY_KEY, code);
+          transaction.zrem(roomExpiryKey, code);
         } else {
-          transaction.zadd(ROOM_EXPIRY_KEY, String(nextRoom.expiresAt), code);
+          transaction.zadd(roomExpiryKey, String(nextRoom.expiresAt), code);
         }
         const result = await transaction.exec();
         if (result === null) {
@@ -195,16 +201,16 @@ export async function createRedisRoomStore(
     async deleteRoom(code) {
       const transaction = redis.multi();
       transaction.del(roomKey(code));
-      transaction.zrem(ROOM_EXPIRY_KEY, code);
-      transaction.zrem(ROOM_INDEX_KEY, code);
+      transaction.zrem(roomExpiryKey, code);
+      transaction.zrem(roomIndexKey, code);
       await transaction.exec();
     },
     async deleteExpiredRooms(now) {
       const deletedCount = await redis.eval(
         DELETE_EXPIRED_ROOMS_LUA,
         1,
-        ROOM_EXPIRY_KEY,
-        ROOM_KEY_PREFIX,
+        roomExpiryKey,
+        roomKeyPrefix,
         String(now),
       );
       return Number(deletedCount);

@@ -77,6 +77,7 @@ export type PersistenceConfig = {
   runtimeStoreProvider: "memory" | "redis";
   roomEventBusProvider: "none" | "memory" | "redis";
   adminCommandBusProvider: "none" | "memory" | "redis";
+  redisNamespace?: string;
   nodeHeartbeatEnabled: boolean;
   nodeHeartbeatIntervalMs: number;
   nodeHeartbeatTtlMs: number;

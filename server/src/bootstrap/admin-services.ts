@@ -16,6 +16,10 @@ import { createAdminRouter } from "../admin/router.js";
 import type { AdminSession } from "../admin/types.js";
 import type { AdminSessionStore } from "../admin-session-store.js";
 import { createRedisAdminSessionStore } from "../redis-admin-session-store.js";
+import {
+  getRedisAdminSessionKeyPrefix,
+  getRedisAuditStreamKey,
+} from "../redis-namespace.js";
 import { createRoomService } from "../room-service.js";
 import type { RoomEventBusMessage } from "../room-event-bus.js";
 import type { RoomStore } from "../room-store.js";
@@ -59,6 +63,11 @@ export function createAdminServices(args: {
       if (args.adminConfig.sessionStoreProvider === "redis") {
         const redisAdminSessionStore = await createRedisAdminSessionStore(
           args.persistenceConfig.redisUrl,
+          {
+            keyPrefix: getRedisAdminSessionKeyPrefix(
+              args.persistenceConfig.redisNamespace,
+            ),
+          },
         );
         adminSessionStore = redisAdminSessionStore;
         closeAdminSessionStore = redisAdminSessionStore.close;
@@ -69,6 +78,11 @@ export function createAdminServices(args: {
       if (args.adminConfig.auditStoreProvider === "redis") {
         const redisAuditStore = await createRedisAuditStore(
           args.persistenceConfig.redisUrl,
+          {
+            streamKey: getRedisAuditStreamKey(
+              args.persistenceConfig.redisNamespace,
+            ),
+          },
         );
         auditLogService = redisAuditStore;
         closeAuditLogService = redisAuditStore.close;
