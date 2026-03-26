@@ -17,6 +17,8 @@ import { createStructuredLogger } from "./logger.js";
 import { createMessageHandler } from "./message-handler.js";
 import { createNodeHeartbeat } from "./node-heartbeat.js";
 import { createSessionRateLimitState } from "./rate-limit.js";
+import { createRedisRoomEventBus } from "./redis-room-event-bus.js";
+import { createRoomEventConsumer } from "./room-event-consumer.js";
 import { createInMemoryRoomStore, type RoomStore } from "./room-store.js";
 import { createRoomReaper } from "./room-reaper.js";
 import { createRoomService } from "./room-service.js";
@@ -24,6 +26,11 @@ import { createRuntimeIndexReaper } from "./runtime-index-reaper.js";
 import { createRedisRoomStore } from "./redis-room-store.js";
 import { createRedisRuntimeStore } from "./redis-runtime-store.js";
 import type { RoomEventBusMessage } from "./room-event-bus.js";
+import {
+  createInMemoryRoomEventBus,
+  createNoopRoomEventBus,
+  type RoomEventBus,
+} from "./room-event-bus.js";
 import {
   createInMemoryRuntimeStore,
   type RuntimeStore,
@@ -233,6 +240,7 @@ export function getDefaultPersistenceConfig(): PersistenceConfig {
   return {
     provider: "memory",
     runtimeStoreProvider: "memory",
+    roomEventBusProvider: "memory",
     nodeHeartbeatEnabled: false,
     nodeHeartbeatIntervalMs: 15_000,
     nodeHeartbeatTtlMs: 45_000,
@@ -267,6 +275,12 @@ export async function createSyncServer(
     sharedRuntimeStore === localRuntimeStore
       ? localRuntimeStore
       : createMirroredRuntimeStore(localRuntimeStore, sharedRuntimeStore);
+  const roomEventBus =
+    persistenceConfig.roomEventBusProvider === "redis"
+      ? await createRedisRoomEventBus(persistenceConfig.redisUrl)
+      : persistenceConfig.roomEventBusProvider === "none"
+        ? createNoopRoomEventBus()
+        : createInMemoryRoomEventBus();
   const eventStore =
     dependencies.adminConfig?.eventStoreProvider === "redis"
       ? await createRedisEventStore(persistenceConfig.redisUrl)
@@ -287,22 +301,15 @@ export async function createSyncServer(
   });
 
   async function publishRoomEvent(message: RoomEventBusMessage): Promise<void> {
-    if (message.type === "room_deleted") {
-      return;
-    }
-
-    const state = await roomService.getRoomStateByCode(message.roomCode);
-    if (!state) {
-      return;
-    }
-
-    for (const session of runtimeStore.listSessionsByRoom(message.roomCode)) {
-      send(session.socket, {
-        type: "room:state",
-        payload: state,
-      });
-    }
+    await roomEventBus.publish(message);
   }
+
+  const roomEventConsumer = await createRoomEventConsumer({
+    roomEventBus,
+    getRoomStateByCode: (roomCode) => roomService.getRoomStateByCode(roomCode),
+    listLocalSessionsByRoom: (roomCode) => runtimeStore.listSessionsByRoom(roomCode),
+    send,
+  });
 
   const messageHandler = createMessageHandler({
     config: securityConfig,
@@ -600,6 +607,13 @@ export async function createSyncServer(
         if (typeof maybeClosableRuntimeStore.close === "function") {
           await maybeClosableRuntimeStore.close();
         }
+      }
+      await roomEventConsumer.close();
+      const maybeClosableRoomEventBus = roomEventBus as RoomEventBus & {
+        close?: () => Promise<void>;
+      };
+      if (typeof maybeClosableRoomEventBus.close === "function") {
+        await maybeClosableRoomEventBus.close();
       }
       await closeAdminServices();
     },

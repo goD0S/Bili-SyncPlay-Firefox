@@ -21,6 +21,22 @@ function parseProviderEnv(
   throw new Error(`Environment variable ${name} must be "memory" or "redis".`);
 }
 
+function parseRoomEventBusProviderEnv(
+  env: EnvSource,
+  fallback: PersistenceConfig["roomEventBusProvider"],
+): PersistenceConfig["roomEventBusProvider"] {
+  const rawValue = env.ROOM_EVENT_BUS_PROVIDER;
+  if (rawValue === undefined || rawValue === "") {
+    return fallback;
+  }
+  if (rawValue === "none" || rawValue === "memory" || rawValue === "redis") {
+    return rawValue;
+  }
+  throw new Error(
+    'Environment variable ROOM_EVENT_BUS_PROVIDER must be "none", "memory", or "redis".',
+  );
+}
+
 export function loadPersistenceConfig(
   env: EnvSource = process.env,
 ): PersistenceConfig {
@@ -35,10 +51,15 @@ export function loadPersistenceConfig(
     "RUNTIME_STORE_PROVIDER",
     provider === "redis" ? "redis" : defaults.runtimeStoreProvider,
   );
+  const roomEventBusProvider = parseRoomEventBusProviderEnv(
+    env,
+    runtimeStoreProvider === "redis" ? "redis" : defaults.roomEventBusProvider,
+  );
 
   return {
     provider,
     runtimeStoreProvider,
+    roomEventBusProvider,
     nodeHeartbeatEnabled: parseBooleanEnv(
       env,
       "NODE_HEARTBEAT_ENABLED",

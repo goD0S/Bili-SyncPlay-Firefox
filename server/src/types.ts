@@ -75,6 +75,7 @@ export type RequestContext = {
 export type PersistenceConfig = {
   provider: "memory" | "redis";
   runtimeStoreProvider: "memory" | "redis";
+  roomEventBusProvider: "none" | "memory" | "redis";
   nodeHeartbeatEnabled: boolean;
   nodeHeartbeatIntervalMs: number;
   nodeHeartbeatTtlMs: number;
