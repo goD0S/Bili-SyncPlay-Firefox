@@ -1143,3 +1143,29 @@ test("admin action endpoints return stale target errors when command routing is 
     await server.close();
   }
 });
+
+test("room node can disable admin routes while keeping health probes", async () => {
+  const server = await startAdminServer({
+    adminUiConfig: {
+      enabled: false,
+    },
+  });
+
+  try {
+    const adminPanel = await fetch(`${server.httpBaseUrl}/admin`);
+    assert.equal(adminPanel.status, 404);
+
+    const adminApi = await requestJson(server.httpBaseUrl, "/api/admin/me");
+    assert.equal(adminApi.status, 404);
+
+    const health = await requestJson(server.httpBaseUrl, "/healthz");
+    assert.equal(health.status, 200);
+    assert.equal((health.body.data as { status: string }).status, "healthy");
+
+    const ready = await requestJson(server.httpBaseUrl, "/readyz");
+    assert.equal(ready.status, 200);
+    assert.equal((ready.body.data as { status: string }).status, "ready");
+  } finally {
+    await server.close();
+  }
+});

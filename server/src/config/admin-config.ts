@@ -67,5 +67,6 @@ export function loadAdminUiConfig(env: EnvSource = process.env): AdminUiConfig {
   return {
     demoEnabled: parseBooleanEnv(env, "ADMIN_UI_DEMO_ENABLED", false),
     apiBaseUrl: apiBaseUrl && apiBaseUrl.length > 0 ? apiBaseUrl : undefined,
+    enabled: parseBooleanEnv(env, "GLOBAL_ADMIN_ENABLED", true),
   };
 }

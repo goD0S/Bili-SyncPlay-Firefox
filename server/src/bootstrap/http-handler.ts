@@ -18,6 +18,7 @@ export function createHttpRequestHandler(args: {
     response: ServerResponse,
   ): Promise<void> => {
     const pathname = new URL(request.url ?? "/", "http://localhost").pathname;
+    const adminUiEnabled = args.adminUiConfig?.enabled !== false;
     if (pathname === "/api/connection-check") {
       const originHeader = request.headers.origin;
       const origin = typeof originHeader === "string" ? originHeader : null;
@@ -61,8 +62,32 @@ export function createHttpRequestHandler(args: {
     }
 
     try {
-      const handled = await args.adminRouter.handle(request, response);
+      const handled =
+        adminUiEnabled ||
+        pathname === "/healthz" ||
+        pathname === "/readyz"
+          ? await args.adminRouter.handle(request, response)
+          : false;
       if (handled) {
+        return;
+      }
+
+      if (
+        !adminUiEnabled &&
+        (pathname === "/admin" ||
+          pathname.startsWith("/admin/") ||
+          pathname.startsWith("/api/admin/"))
+      ) {
+        response.writeHead(404, { "content-type": "application/json" });
+        response.end(
+          JSON.stringify({
+            ok: false,
+            error: {
+              code: "not_found",
+              message: "Not found.",
+            },
+          }),
+        );
         return;
       }
 

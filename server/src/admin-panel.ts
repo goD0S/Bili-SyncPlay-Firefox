@@ -11,6 +11,7 @@ const adminUiDir = path.resolve(
 const defaultAdminUiConfig: AdminUiConfig = {
   demoEnabled: false,
   apiBaseUrl: undefined,
+  enabled: true,
 };
 
 const assetTypes = new Map<string, string>([
@@ -24,6 +25,10 @@ export async function tryHandleAdminPanel(
   response: ServerResponse,
   adminUiConfig: AdminUiConfig = defaultAdminUiConfig,
 ): Promise<boolean> {
+  if (adminUiConfig.enabled === false) {
+    return false;
+  }
+
   if (request.method !== "GET" && request.method !== "HEAD") {
     return false;
   }
@@ -82,6 +87,7 @@ export async function tryHandleAdminPanel(
             adminUiConfig.apiBaseUrl.length > 0
               ? adminUiConfig.apiBaseUrl
               : undefined,
+          enabled: adminUiConfig.enabled ?? true,
         }),
       );
       response.end(html);

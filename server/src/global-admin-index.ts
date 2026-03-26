@@ -19,7 +19,10 @@ const { httpServer } = await createGlobalAdminServer(
   persistenceConfig,
   {
     adminConfig,
-    adminUiConfig,
+    adminUiConfig: {
+      ...adminUiConfig,
+      enabled: true,
+    },
   },
 );
 httpServer.listen(port, () => {
