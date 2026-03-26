@@ -20,6 +20,7 @@ export class AdminActionError extends Error {
     readonly statusCode: number,
     readonly code: string,
     message: string,
+    readonly details?: Record<string, unknown>,
   ) {
     super(message);
   }
@@ -148,6 +149,70 @@ export function createAdminActionService(options: {
           return { session, targetInstanceId, result };
         }),
       );
+      const failedCommands = disconnectResults.filter(
+        (
+          entry,
+        ): entry is {
+          session: (typeof disconnectResults)[number]["session"];
+          targetInstanceId: string;
+          result: Exclude<AdminCommandResult, { status: "ok" }>;
+        } => entry.result.status !== "ok",
+      );
+      if (failedCommands.length > 0) {
+        const commandFailureCount = failedCommands.length;
+        const failureCodes = Array.from(
+          new Set(failedCommands.map(({ result }) => result.code)),
+        ).sort();
+        const failedSessions = failedCommands.map(
+          ({ session, result, targetInstanceId }) => ({
+            sessionId: session.id,
+            roomCode: session.roomCode,
+            memberId: session.memberId,
+            targetInstanceId,
+            commandStatus: result.status,
+            commandCode: result.code,
+            message: result.message,
+          }),
+        );
+
+        options.logEvent("admin_room_close_rejected", {
+          roomCode,
+          sessionCount: sessions.length,
+          disconnectedSessionCount: sessions.length - commandFailureCount,
+          commandFailureCount,
+          failureCodes,
+          result: "rejected",
+          actor: actor.username,
+        });
+        writeAudit(
+          actor,
+          "close_room",
+          "room",
+          roomCode,
+          {
+            reason,
+            commandFailureCount,
+            failureCodes,
+            failedSessions,
+          },
+          "rejected",
+          "command_failed",
+        );
+        throw new AdminActionError(
+          failedCommands.some(({ result }) => result.status === "error")
+            ? 502
+            : failedCommands.some(({ result }) => result.status === "not_found")
+              ? 404
+              : 409,
+          failedCommands[0]?.result.code ?? "close_room_failed",
+          "Failed to close room because one or more member sessions could not be disconnected.",
+          {
+            roomCode,
+            commandFailureCount,
+            failedSessions,
+          },
+        );
+      }
 
       await options.roomStore.deleteRoom(roomCode);
       options.runtimeStore.deleteRoom(roomCode);
@@ -155,15 +220,12 @@ export function createAdminActionService(options: {
       const disconnectedSessionCount = disconnectResults.filter(
         ({ result }) => result.status === "ok",
       ).length;
-      const commandFailureCount = disconnectResults.filter(
-        ({ result }) => result.status !== "ok",
-      ).length;
 
       options.logEvent("admin_room_closed", {
         roomCode,
         sessionCount: sessions.length,
         disconnectedSessionCount,
-        commandFailureCount,
+        commandFailureCount: 0,
         result: "ok",
         actor: actor.username,
       });
@@ -175,7 +237,7 @@ export function createAdminActionService(options: {
     },
 
     async expireRoom(actor: AdminSession, roomCode: string, reason?: string) {
-      const sessions = options.runtimeStore.listSessionsByRoom(roomCode);
+      const sessions = await options.listClusterSessionsByRoom(roomCode);
       if (sessions.length > 0) {
         throw new AdminActionError(409, "room_active", ROOM_ACTIVE_MESSAGE);
       }

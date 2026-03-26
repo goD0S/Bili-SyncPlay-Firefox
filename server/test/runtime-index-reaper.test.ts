@@ -90,6 +90,11 @@ test("runtime index reaper clears sessions left behind by offline nodes", async 
     assert.equal(await runtimeStore.countClusterActiveRooms(), 1);
 
     currentTime += 200;
+    const offlineStatuses = await runtimeStore.listNodeStatuses(currentTime);
+    assert.equal(offlineStatuses.length, 1);
+    assert.equal(offlineStatuses[0]?.instanceId, "offline-node");
+    assert.equal(offlineStatuses[0]?.health, "offline");
+
     const cleanedSessions = await reaper.sweep();
     assert.equal(cleanedSessions, 1);
 
@@ -107,6 +112,19 @@ test("runtime index reaper clears sessions left behind by offline nodes", async 
     assert.equal(remainingSessions, 0);
     assert.equal(remainingRooms, 0);
     assert.equal(await runtimeStore.getRoom("ROOM01"), null);
+
+    let remainingStatuses: Awaited<
+      ReturnType<typeof runtimeStore.listNodeStatuses>
+    > = [];
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      await reaper.sweep();
+      remainingStatuses = await runtimeStore.listNodeStatuses(currentTime);
+      if (remainingStatuses.length === 0) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    assert.deepEqual(remainingStatuses, []);
   } finally {
     await reaper.stop();
     await runtimeStore.close();

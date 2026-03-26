@@ -933,3 +933,115 @@ test("room service accepts a legal cross-actor playback update after authority e
   assert.equal(finalState.playback?.playState, "playing");
   assert.equal(finalState.playback?.actorId, guest.memberId);
 });
+
+test("room service consults shared kick blocks when rejoining through another node", async () => {
+  const roomStore = createInMemoryRoomStore({ now: () => 1_000 });
+  const service = createRoomService({
+    config: getDefaultSecurityConfig(),
+    persistence: getDefaultPersistenceConfig(),
+    roomStore,
+    activeRooms: createActiveRoomRegistry(),
+    generateToken: (() => {
+      let id = 0;
+      return () => `token-${++id}`.padEnd(16, "x");
+    })(),
+    logEvent: (() => undefined) satisfies LogEvent,
+    now: () => 1_000,
+    createRoomCode: () => "ROOM10",
+    resolveBlockedMemberToken: async (_roomCode, memberToken) =>
+      memberToken === "kicked-token",
+  });
+
+  const owner = createSession("owner");
+  const created = await service.createRoomForSession(owner, "Alice");
+  const joiner = createSession("joiner");
+
+  await assert.rejects(
+    service.joinRoomForSession(
+      joiner,
+      created.room.code,
+      created.room.joinToken,
+      "Bob",
+      "kicked-token",
+    ),
+    /You were removed from the room by an admin/,
+  );
+});
+
+test("room service reuses shared member identity during reconnect checks", async () => {
+  const roomStore = createInMemoryRoomStore({ now: () => 1_000 });
+  const service = createRoomService({
+    config: getDefaultSecurityConfig(),
+    persistence: getDefaultPersistenceConfig(),
+    roomStore,
+    activeRooms: createActiveRoomRegistry(),
+    generateToken: (() => {
+      let id = 0;
+      return () => `token-${++id}`.padEnd(16, "x");
+    })(),
+    logEvent: (() => undefined) satisfies LogEvent,
+    now: () => 1_000,
+    createRoomCode: () => "ROOM11",
+    resolveActiveRoom: async () => ({
+      code: "ROOM11",
+      members: new Map(),
+      memberTokens: new Map([["shared-member", "shared-token"]]),
+    }),
+    resolveMemberIdByToken: async (_roomCode, memberToken) =>
+      memberToken === "shared-token" ? "shared-member" : null,
+  });
+
+  const owner = createSession("owner");
+  const created = await service.createRoomForSession(owner, "Alice");
+  const reconnecting = createSession("reconnect");
+  const joined = await service.joinRoomForSession(
+    reconnecting,
+    created.room.code,
+    created.room.joinToken,
+    "Alice",
+    "shared-token",
+  );
+
+  assert.equal(reconnecting.memberId, "shared-member");
+  assert.equal(joined.memberToken, "shared-token");
+});
+
+test("room service enforces room capacity from shared room membership", async () => {
+  const config = {
+    ...getDefaultSecurityConfig(),
+    maxMembersPerRoom: 1,
+  };
+  const roomStore = createInMemoryRoomStore({ now: () => 1_000 });
+  const service = createRoomService({
+    config,
+    persistence: getDefaultPersistenceConfig(),
+    roomStore,
+    activeRooms: createActiveRoomRegistry(),
+    generateToken: (() => {
+      let id = 0;
+      return () => `token-${++id}`.padEnd(16, "x");
+    })(),
+    logEvent: (() => undefined) satisfies LogEvent,
+    now: () => 1_000,
+    createRoomCode: () => "ROOM12",
+    resolveActiveRoom: async () => ({
+      code: "ROOM12",
+      members: new Map([["member-a", createSession("member-a")]]),
+      memberTokens: new Map([["member-a", "token-a"]]),
+    }),
+  });
+
+  const owner = createSession("owner");
+  const created = await service.createRoomForSession(owner, "Alice");
+  const joiner = createSession("joiner");
+
+  await assert.rejects(
+    service.joinRoomForSession(
+      joiner,
+      created.room.code,
+      created.room.joinToken,
+      "Bob",
+    ),
+    /Room is full/,
+  );
+});

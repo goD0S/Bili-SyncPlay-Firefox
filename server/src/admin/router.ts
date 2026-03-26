@@ -101,7 +101,13 @@ export function createAdminRouter(options: AdminRouterOptions) {
           return true;
         }
         if (error instanceof AdminActionError) {
-          sendError(response, error.statusCode, error.code, error.message);
+          sendError(
+            response,
+            error.statusCode,
+            error.code,
+            error.message,
+            error.details,
+          );
           return true;
         }
         sendError(

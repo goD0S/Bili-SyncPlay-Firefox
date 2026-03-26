@@ -1143,6 +1143,33 @@ test("admin action endpoints return stale target errors when command routing is 
         code: "command_bus_disabled",
         message: "Admin command bus is disabled.",
       });
+
+      const closeRoom = await requestJson(
+        server.httpBaseUrl,
+        `/api/admin/rooms/${roomCode}/close`,
+        {
+          method: "POST",
+          token,
+          body: { reason: "simulate stale target" },
+        },
+      );
+      assert.equal(closeRoom.status, 409);
+      assert.equal(closeRoom.body.error.code, "command_bus_disabled");
+      assert.equal(
+        (
+          closeRoom.body.error as {
+            details?: { commandFailureCount?: number };
+          }
+        ).details?.commandFailureCount,
+        1,
+      );
+
+      const roomStillExists = await requestJson(
+        server.httpBaseUrl,
+        `/api/admin/rooms/${roomCode}`,
+        { token },
+      );
+      assert.equal(roomStillExists.status, 200);
     } finally {
       await closeClient(owner);
     }

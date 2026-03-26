@@ -197,6 +197,10 @@ function createMirroredRuntimeStore(
     listNodeStatuses(currentTime) {
       return sharedRuntimeStore.listNodeStatuses(currentTime);
     },
+    purgeNodeStatus(instanceId) {
+      void localRuntimeStore.purgeNodeStatus(instanceId);
+      return sharedRuntimeStore.purgeNodeStatus(instanceId);
+    },
     countClusterActiveRooms() {
       return sharedRuntimeStore.countClusterActiveRooms();
     },
@@ -359,6 +363,20 @@ export async function createSyncServer(
     persistence: persistenceConfig,
     roomStore,
     runtimeStore,
+    resolveActiveRoom: (roomCode) =>
+      Promise.resolve(sharedRuntimeStore.getRoom(roomCode)),
+    resolveMemberIdByToken: (roomCode, memberToken) =>
+      Promise.resolve(
+        sharedRuntimeStore.findMemberIdByToken(roomCode, memberToken),
+      ),
+    resolveBlockedMemberToken: (roomCode, memberToken, currentTime) =>
+      Promise.resolve(
+        sharedRuntimeStore.isMemberTokenBlocked(
+          roomCode,
+          memberToken,
+          currentTime,
+        ),
+      ),
     generateToken,
     logEvent,
     now,
@@ -391,7 +409,7 @@ export async function createSyncServer(
     roomEventBus,
     getRoomStateByCode: (roomCode) => roomService.getRoomStateByCode(roomCode),
     listLocalSessionsByRoom: (roomCode) =>
-      runtimeStore.listSessionsByRoom(roomCode),
+      localRuntimeStore.listSessionsByRoom(roomCode),
     send,
     instanceId: persistenceConfig.instanceId,
     logEvent,
@@ -440,11 +458,17 @@ export async function createSyncServer(
     logEvent,
     now,
   });
+  const nodeHeartbeatRuntimeStore = {
+    ...localRuntimeStore,
+    heartbeatNode: (
+      status: Awaited<ReturnType<RuntimeStore["listNodeStatuses"]>>[number],
+    ) => sharedRuntimeStore.heartbeatNode(status),
+  } satisfies RuntimeStore;
   const nodeHeartbeat = createNodeHeartbeat({
     enabled: persistenceConfig.nodeHeartbeatEnabled,
     instanceId: persistenceConfig.instanceId,
     serviceVersion,
-    runtimeStore,
+    runtimeStore: nodeHeartbeatRuntimeStore,
     intervalMs: persistenceConfig.nodeHeartbeatIntervalMs,
     ttlMs: persistenceConfig.nodeHeartbeatTtlMs,
     now,

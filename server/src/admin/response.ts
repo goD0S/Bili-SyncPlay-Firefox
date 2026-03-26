@@ -25,9 +25,10 @@ export function sendError(
   statusCode: number,
   code: string,
   message: string,
+  details?: Record<string, unknown>,
 ): void {
   sendJson(response, statusCode, {
     ok: false,
-    error: { code, message },
+    error: { code, message, details },
   });
 }

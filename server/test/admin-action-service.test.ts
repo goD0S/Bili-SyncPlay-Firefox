@@ -68,7 +68,12 @@ function createService(options: {
   requestAdminCommand: Parameters<
     typeof createAdminActionService
   >[0]["requestAdminCommand"];
+  deleteRoom?: (roomCode: string) => Promise<void>;
+  deleteRuntimeRoom?: (roomCode: string) => void;
+  publishRoomDeleted?: (roomCode: string) => Promise<void>;
+  auditLogService?: ReturnType<typeof createAuditLogService>;
 }) {
+  const auditLogService = options.auditLogService ?? createAuditLogService();
   return createAdminActionService({
     instanceId: "instance-1",
     roomStore: {
@@ -76,7 +81,7 @@ function createService(options: {
       updateRoom: async () => {
         throw new Error("updateRoom should not be called in this test");
       },
-      deleteRoom: async () => {},
+      deleteRoom: options.deleteRoom ?? (async () => {}),
       listRooms: async () => ({ items: [], total: 0 }),
       isReady: async () => true,
       close: async () => {},
@@ -87,14 +92,15 @@ function createService(options: {
     runtimeStore: {
       listSessionsByRoom: () => options.sessionsByRoom ?? [],
       getSession: () => options.session ?? null,
+      deleteRoom: options.deleteRuntimeRoom ?? (() => {}),
     },
     listClusterSessions: async () => (options.session ? [options.session] : []),
     listClusterSessionsByRoom: async () => options.sessionsByRoom ?? [],
     requestAdminCommand: options.requestAdminCommand,
-    auditLogService: createAuditLogService(),
+    auditLogService,
     getRoomStateByCode: async () => null,
     publishRoomStateUpdate: async () => {},
-    disconnectSessionSocket: () => {},
+    publishRoomDeleted: options.publishRoomDeleted ?? (async () => {}),
     logEvent: () => {},
     now: () => 10_000,
   });
@@ -179,4 +185,58 @@ test("admin action service maps error command results to 502", async () => {
       return true;
     },
   );
+});
+
+test("admin action service keeps room state when closeRoom cannot disconnect every session", async () => {
+  let deletedPersistedRoom = false;
+  let deletedRuntimeRoom = false;
+  let publishedDeleted = false;
+  const session = createSession();
+  const auditLogService = createAuditLogService();
+  const service = createService({
+    sessionsByRoom: [session],
+    requestAdminCommand: async () => ({
+      requestId: "req-close-1",
+      targetInstanceId: "node-a",
+      executorInstanceId: "node-a",
+      status: "stale_target",
+      code: "stale_target",
+      message: "Target instance is unavailable.",
+      completedAt: 10_004,
+    }),
+    deleteRoom: async () => {
+      deletedPersistedRoom = true;
+    },
+    deleteRuntimeRoom: () => {
+      deletedRuntimeRoom = true;
+    },
+    publishRoomDeleted: async () => {
+      publishedDeleted = true;
+    },
+    auditLogService,
+  });
+
+  await assert.rejects(
+    () => service.closeRoom(ACTOR, "ROOM01", "shutdown"),
+    (error: unknown) => {
+      assert.ok(error instanceof AdminActionError);
+      assert.equal(error.statusCode, 409);
+      assert.equal(error.code, "stale_target");
+      assert.equal(error.details?.commandFailureCount, 1);
+      return true;
+    },
+  );
+
+  assert.equal(deletedPersistedRoom, false);
+  assert.equal(deletedRuntimeRoom, false);
+  assert.equal(publishedDeleted, false);
+
+  const auditLogs = await auditLogService.query({
+    action: "close_room",
+    page: 1,
+    pageSize: 10,
+  });
+  assert.equal(auditLogs.total, 1);
+  assert.equal(auditLogs.items[0]?.result, "rejected");
+  assert.equal(auditLogs.items[0]?.reason, "command_failed");
 });

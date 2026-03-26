@@ -423,10 +423,6 @@ export async function createRedisRuntimeStore(
           activeRoomCount: String(status.activeRoomCount),
           activeMemberCount: String(status.activeMemberCount),
         })
-        .pexpire(
-          nodeStatusKey(keyPrefix, status.instanceId),
-          Math.max(1, status.expiresAt - status.lastHeartbeatAt),
-        )
         .exec();
     },
     async listNodeStatuses(currentTime = now()) {
@@ -437,7 +433,6 @@ export async function createRedisRuntimeStore(
             nodeStatusKey(keyPrefix, instanceId),
           );
           if (Object.keys(fields).length === 0) {
-            await redis.srem(nodesKey(keyPrefix), instanceId);
             return null;
           }
 
@@ -467,6 +462,14 @@ export async function createRedisRuntimeStore(
       return statuses
         .filter((status): status is ClusterNodeStatus => status !== null)
         .sort((left, right) => left.instanceId.localeCompare(right.instanceId));
+    },
+    async purgeNodeStatus(instanceId: string) {
+      await localRuntimeStore.purgeNodeStatus(instanceId);
+      await redis
+        .multi()
+        .del(nodeStatusKey(keyPrefix, instanceId))
+        .srem(nodesKey(keyPrefix), instanceId)
+        .exec();
     },
     async countClusterActiveRooms() {
       return redis.scard(`${keyPrefix}rooms`);

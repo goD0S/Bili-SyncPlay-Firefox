@@ -50,9 +50,25 @@ export function createRuntimeIndexReaper(options: {
       cleanedSessions += 1;
     }
 
+    const remainingSessions = await options.runtimeStore.listClusterSessions();
+    const activeInstanceIds = new Set(
+      remainingSessions
+        .map((session) => session.instanceId)
+        .filter((instanceId): instanceId is string => Boolean(instanceId)),
+    );
+    const purgedInstanceIds: string[] = [];
+    for (const instanceId of offlineInstanceIds) {
+      if (activeInstanceIds.has(instanceId)) {
+        continue;
+      }
+      await options.runtimeStore.purgeNodeStatus(instanceId);
+      purgedInstanceIds.push(instanceId);
+    }
+
     if (cleanedSessions > 0) {
       options.logEvent?.("runtime_index_sessions_reaped", {
         offlineInstanceIds: Array.from(offlineInstanceIds).sort(),
+        purgedInstanceIds,
         cleanedSessions,
         result: "ok",
       });

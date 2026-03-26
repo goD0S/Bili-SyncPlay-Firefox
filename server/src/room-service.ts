@@ -25,6 +25,7 @@ import {
 } from "./room-store.js";
 import type { RuntimeStore } from "./runtime-store.js";
 import type {
+  ActiveRoom,
   LogEvent,
   PlaybackAuthority,
   PersistenceConfig,
@@ -72,6 +73,16 @@ export function createRoomService(options: {
   generateToken: () => string;
   logEvent: LogEvent;
   now?: () => number;
+  resolveActiveRoom?: (roomCode: string) => Promise<ActiveRoom | null>;
+  resolveMemberIdByToken?: (
+    roomCode: string,
+    memberToken: string,
+  ) => Promise<string | null>;
+  resolveBlockedMemberToken?: (
+    roomCode: string,
+    memberToken: string,
+    currentTime: number,
+  ) => Promise<boolean>;
 }): {
   createRoomForSession: (
     session: Session,
@@ -125,6 +136,19 @@ export function createRoomService(options: {
     throw new Error("RuntimeStore is required");
   }
   const runtimeStore: RuntimeStore = runtimeStoreOption;
+  const resolveActiveRoom =
+    options.resolveActiveRoom ??
+    ((roomCode: string) => Promise.resolve(runtimeStore.getRoom(roomCode)));
+  const resolveMemberIdByToken =
+    options.resolveMemberIdByToken ??
+    ((roomCode: string, memberToken: string) =>
+      Promise.resolve(runtimeStore.findMemberIdByToken(roomCode, memberToken)));
+  const resolveBlockedMemberToken =
+    options.resolveBlockedMemberToken ??
+    ((roomCode: string, memberToken: string, currentTime: number) =>
+      Promise.resolve(
+        runtimeStore.isMemberTokenBlocked(roomCode, memberToken, currentTime),
+      ));
 
   function setSessionDisplayName(session: Session, displayName?: string): void {
     session.displayName = displayName?.trim() || session.displayName;
@@ -481,11 +505,11 @@ export function createRoomService(options: {
 
         if (
           previousMemberToken &&
-          runtimeStore.isMemberTokenBlocked(
+          (await resolveBlockedMemberToken(
             roomCode,
             previousMemberToken,
             now(),
-          )
+          ))
         ) {
           logEvent("auth_failed", {
             sessionId: session.id,
@@ -503,10 +527,10 @@ export function createRoomService(options: {
           );
         }
 
-        const activeRoom = runtimeStore.getRoom(roomCode);
+        const activeRoom = await resolveActiveRoom(roomCode);
         const reconnectMemberId =
           previousMemberToken && activeRoom
-            ? runtimeStore.findMemberIdByToken(roomCode, previousMemberToken)
+            ? await resolveMemberIdByToken(roomCode, previousMemberToken)
             : null;
         const activeMemberCount = activeRoom?.members.size ?? 0;
         if (
@@ -539,7 +563,7 @@ export function createRoomService(options: {
       }
 
       const reconnectMemberId = previousMemberToken
-        ? runtimeStore.findMemberIdByToken(joinedRoom.code, previousMemberToken)
+        ? await resolveMemberIdByToken(joinedRoom.code, previousMemberToken)
         : null;
       const memberId = reconnectMemberId ?? session.id;
       const memberToken =
