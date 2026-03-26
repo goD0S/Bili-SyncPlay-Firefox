@@ -23,12 +23,21 @@ let dialogEventsBound = false;
 
 function normalizeAdminUiConfig(value) {
   if (!value || typeof value !== "object") {
-    return { demoEnabled: false };
+    return { demoEnabled: false, apiBaseUrl: "" };
   }
 
   return {
     demoEnabled: value.demoEnabled === true,
+    apiBaseUrl:
+      typeof value.apiBaseUrl === "string"
+        ? value.apiBaseUrl.replace(/\/+$/, "")
+        : "",
   };
+}
+
+function resolveApiPath(path) {
+  const baseUrl = ADMIN_UI_CONFIG.apiBaseUrl || "";
+  return `${baseUrl}${path}`;
 }
 
 const routeMeta = {
@@ -2065,7 +2074,7 @@ const api = {
       return mockApiRequest(path, options);
     }
 
-    const response = await fetch(path, {
+    const response = await fetch(resolveApiPath(path), {
       method: options.method || "GET",
       headers: {
         ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}),

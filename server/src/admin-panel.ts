@@ -10,6 +10,7 @@ const adminUiDir = path.resolve(
 );
 const defaultAdminUiConfig: AdminUiConfig = {
   demoEnabled: false,
+  apiBaseUrl: undefined,
 };
 
 const assetTypes = new Map<string, string>([
@@ -76,6 +77,11 @@ export async function tryHandleAdminPanel(
         '"__ADMIN_UI_CONFIG__"',
         JSON.stringify({
           demoEnabled: adminUiConfig.demoEnabled === true,
+          apiBaseUrl:
+            typeof adminUiConfig.apiBaseUrl === "string" &&
+            adminUiConfig.apiBaseUrl.length > 0
+              ? adminUiConfig.apiBaseUrl
+              : undefined,
         }),
       );
       response.end(html);

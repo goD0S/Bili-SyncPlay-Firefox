@@ -63,7 +63,9 @@ export function loadAdminConfig(env: EnvSource = process.env): AdminConfig {
 }
 
 export function loadAdminUiConfig(env: EnvSource = process.env): AdminUiConfig {
+  const apiBaseUrl = readTrimmedEnv(env, "GLOBAL_ADMIN_API_BASE_URL");
   return {
     demoEnabled: parseBooleanEnv(env, "ADMIN_UI_DEMO_ENABLED", false),
+    apiBaseUrl: apiBaseUrl && apiBaseUrl.length > 0 ? apiBaseUrl : undefined,
   };
 }

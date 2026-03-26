@@ -472,6 +472,7 @@ test("admin demo mode stays disabled by default and only enables when explicitly
   const enabledServer = await startAdminServer({
     adminUiConfig: {
       demoEnabled: true,
+      apiBaseUrl: "https://admin.example.com",
     },
   });
 
@@ -482,6 +483,10 @@ test("admin demo mode stays disabled by default and only enables when explicitly
     );
     assert.equal(enabledHtml.status, 200);
     assert.equal(enabledHtml.body.includes('"demoEnabled":true'), true);
+    assert.equal(
+      enabledHtml.body.includes('"apiBaseUrl":"https://admin.example.com"'),
+      true,
+    );
   } finally {
     await enabledServer.close();
   }

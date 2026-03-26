@@ -83,9 +83,16 @@ test("admin config parses role and session ttl", () => {
 });
 
 test("admin ui config parses demo flag", () => {
-  assert.deepEqual(loadAdminUiConfig({ ADMIN_UI_DEMO_ENABLED: "true" }), {
-    demoEnabled: true,
-  });
+  assert.deepEqual(
+    loadAdminUiConfig({
+      ADMIN_UI_DEMO_ENABLED: "true",
+      GLOBAL_ADMIN_API_BASE_URL: " https://admin.example.com ",
+    }),
+    {
+      demoEnabled: true,
+      apiBaseUrl: "https://admin.example.com",
+    },
+  );
 });
 
 test("env helpers keep integer and boolean validation semantics", () => {

@@ -114,6 +114,7 @@ export type AdminConfig = {
 
 export type AdminUiConfig = {
   demoEnabled: boolean;
+  apiBaseUrl?: string;
 };
 
 export type SecurityConfig = {
