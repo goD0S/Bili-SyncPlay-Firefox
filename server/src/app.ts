@@ -23,6 +23,7 @@ import { createRoomService } from "./room-service.js";
 import { createRuntimeIndexReaper } from "./runtime-index-reaper.js";
 import { createRedisRoomStore } from "./redis-room-store.js";
 import { createRedisRuntimeStore } from "./redis-runtime-store.js";
+import type { RoomEventBusMessage } from "./room-event-bus.js";
 import {
   createInMemoryRuntimeStore,
   type RuntimeStore,
@@ -285,12 +286,32 @@ export async function createSyncServer(
     now,
   });
 
+  async function publishRoomEvent(message: RoomEventBusMessage): Promise<void> {
+    if (message.type === "room_deleted") {
+      return;
+    }
+
+    const state = await roomService.getRoomStateByCode(message.roomCode);
+    if (!state) {
+      return;
+    }
+
+    for (const session of runtimeStore.listSessionsByRoom(message.roomCode)) {
+      send(session.socket, {
+        type: "room:state",
+        payload: state,
+      });
+    }
+  }
+
   const messageHandler = createMessageHandler({
     config: securityConfig,
     roomService,
     logEvent,
     send,
     sendError,
+    publishRoomEvent,
+    instanceId: persistenceConfig.instanceId,
     onRoomJoined: (session, roomCode) => {
       runtimeStore.registerSession(session);
       runtimeStore.markSessionJoinedRoom(session.id, roomCode);
@@ -337,6 +358,7 @@ export async function createSyncServer(
     eventStore,
     roomService,
     send,
+    publishRoomEvent,
     logEvent,
     now,
     adminConfig: dependencies.adminConfig,

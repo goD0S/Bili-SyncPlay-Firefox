@@ -16,6 +16,7 @@ import type { AdminSession } from "../admin/types.js";
 import type { AdminSessionStore } from "../admin-session-store.js";
 import { createRedisAdminSessionStore } from "../redis-admin-session-store.js";
 import { createRoomService } from "../room-service.js";
+import type { RoomEventBusMessage } from "../room-event-bus.js";
 import type { RoomStore } from "../room-store.js";
 import type { RuntimeStore } from "../runtime-store.js";
 import type {
@@ -34,6 +35,7 @@ export function createAdminServices(args: {
   eventStore: GlobalEventStore;
   roomService: ReturnType<typeof createRoomService>;
   send: (socket: WebSocket, message: ServerMessage) => void;
+  publishRoomEvent: (message: RoomEventBusMessage) => Promise<void>;
   logEvent: LogEvent;
   now: () => number;
   adminConfig?: AdminConfig;
@@ -98,17 +100,13 @@ export function createAdminServices(args: {
       securityConfig: args.securityConfig,
     });
 
-    async function broadcastRoomState(roomCode: string): Promise<void> {
-      const state = await args.roomService.getRoomStateByCode(roomCode);
-      if (!state) {
-        return;
-      }
-      for (const session of args.runtimeStore.listSessionsByRoom(roomCode)) {
-        args.send(session.socket, {
-          type: "room:state",
-          payload: state,
-        });
-      }
+    async function publishRoomStateUpdate(roomCode: string): Promise<void> {
+      await args.publishRoomEvent({
+        type: "room_state_updated",
+        roomCode,
+        sourceInstanceId: args.persistenceConfig.instanceId,
+        emittedAt: args.now(),
+      });
     }
 
     function disconnectSessionSocket(session: Session, reason: string): void {
@@ -126,7 +124,7 @@ export function createAdminServices(args: {
       auditLogService,
       getRoomStateByCode: (roomCode) =>
         args.roomService.getRoomStateByCode(roomCode),
-      broadcastRoomState,
+      publishRoomStateUpdate,
       disconnectSessionSocket,
       blockMemberToken: (roomCode, memberToken, expiresAt) =>
         args.runtimeStore.blockMemberToken(roomCode, memberToken, expiresAt),

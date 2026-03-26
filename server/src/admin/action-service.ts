@@ -29,7 +29,7 @@ export function createAdminActionService(options: {
   runtimeStore: RuntimeStore;
   auditLogService: GlobalAuditStore;
   getRoomStateByCode: (roomCode: string) => Promise<unknown | null>;
-  broadcastRoomState: (roomCode: string) => Promise<void>;
+  publishRoomStateUpdate: (roomCode: string) => Promise<void>;
   disconnectSessionSocket: (session: Session, reason: string) => void;
   blockMemberToken: (
     roomCode: string,
@@ -158,7 +158,7 @@ export function createAdminActionService(options: {
             lastActiveAt: now(),
           }),
       );
-      await options.broadcastRoomState(roomCode);
+      await options.publishRoomStateUpdate(roomCode);
       options.logEvent("admin_room_video_cleared", {
         roomCode,
         result: "ok",

@@ -9,8 +9,8 @@ import {
   MEMBER_TOKEN_INVALID_MESSAGE,
   RATE_LIMITED_MESSAGE,
 } from "./messages.js";
-import { roomStateOf } from "./room-store.js";
 import { RoomServiceError } from "./room-service.js";
+import type { RoomEventBusMessage } from "./room-event-bus.js";
 import type { LogEvent, SendError, SendMessage, Session } from "./types.js";
 
 export function createMessageHandler(options: {
@@ -75,14 +75,13 @@ export function createMessageHandler(options: {
       session: Session,
       memberToken: string,
       messageType: ClientMessage["type"],
-    ) => Promise<ReturnType<typeof roomStateOf>>;
-    getActiveRoom: (
-      roomCode: string,
-    ) => { members: Map<string, Session> } | null;
+    ) => Promise<import("./types.js").RoomStoreRoomState>;
   };
   logEvent: LogEvent;
   send: SendMessage;
   sendError: SendError;
+  publishRoomEvent: (message: RoomEventBusMessage) => Promise<void>;
+  instanceId: string;
   onRoomJoined?: (
     session: Session,
     roomCode: string,
@@ -100,30 +99,16 @@ export function createMessageHandler(options: {
   const { config, roomService, logEvent, send, sendError } = options;
   const now = options.now ?? Date.now;
 
-  async function broadcastRoomState(roomCode: string): Promise<void> {
-    const activeRoom = roomService.getActiveRoom(roomCode);
-    if (!activeRoom || activeRoom.members.size === 0) {
-      return;
-    }
-
-    const firstMember = activeRoom.members.values().next().value as
-      | Session
-      | undefined;
-    if (!firstMember?.memberToken) {
-      return;
-    }
-
-    const roomState = await roomService.getRoomStateForSession(
-      firstMember,
-      firstMember.memberToken,
-      "sync:request",
-    );
-    for (const member of activeRoom.members.values()) {
-      send(member.socket, {
-        type: "room:state",
-        payload: roomState,
-      });
-    }
+  async function publishRoomEvent(
+    type: RoomEventBusMessage["type"],
+    roomCode: string,
+  ): Promise<void> {
+    await options.publishRoomEvent({
+      type,
+      roomCode,
+      sourceInstanceId: options.instanceId,
+      emittedAt: now(),
+    });
   }
 
   async function leaveRoom(session: Session): Promise<void> {
@@ -134,7 +119,7 @@ export function createMessageHandler(options: {
     }
     options.onRoomLeft?.(session, roomCode);
 
-    await broadcastRoomState(roomCode);
+    await publishRoomEvent("room_member_changed", roomCode);
   }
 
   function handleRateLimitedMessage(
@@ -191,7 +176,7 @@ export function createMessageHandler(options: {
               memberToken,
             },
           });
-          await broadcastRoomState(room.code);
+          await publishRoomEvent("room_member_changed", room.code);
           logEvent("room_created", {
             sessionId: session.id,
             roomCode: room.code,
@@ -235,7 +220,7 @@ export function createMessageHandler(options: {
               memberToken,
             },
           });
-          await broadcastRoomState(room.code);
+          await publishRoomEvent("room_member_changed", room.code);
           logEvent("room_joined", {
             sessionId: session.id,
             roomCode: room.code,
@@ -267,7 +252,7 @@ export function createMessageHandler(options: {
             message.payload.memberToken,
             message.payload.displayName,
           );
-          await broadcastRoomState(room.code);
+          await publishRoomEvent("room_state_updated", room.code);
           return;
         }
         case "video:share": {
@@ -290,7 +275,7 @@ export function createMessageHandler(options: {
             message.payload.video,
             message.payload.playback,
           );
-          await broadcastRoomState(room.code);
+          await publishRoomEvent("room_state_updated", room.code);
           return;
         }
         case "playback:update": {
@@ -312,7 +297,7 @@ export function createMessageHandler(options: {
             message.payload.playback,
           );
           if (!result.ignored && result.room) {
-            await broadcastRoomState(result.room.code);
+            await publishRoomEvent("room_state_updated", result.room.code);
           }
           return;
         }
