@@ -76,6 +76,7 @@ export type PersistenceConfig = {
   provider: "memory" | "redis";
   runtimeStoreProvider: "memory" | "redis";
   roomEventBusProvider: "none" | "memory" | "redis";
+  adminCommandBusProvider: "none" | "memory" | "redis";
   nodeHeartbeatEnabled: boolean;
   nodeHeartbeatIntervalMs: number;
   nodeHeartbeatTtlMs: number;

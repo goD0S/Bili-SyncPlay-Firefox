@@ -14,9 +14,16 @@ import { createRedisEventStore } from "./admin/redis-event-store.js";
 import { createAdminServices } from "./bootstrap/admin-services.js";
 import { createHttpRequestHandler } from "./bootstrap/http-handler.js";
 import { createStructuredLogger } from "./logger.js";
+import {
+  createInMemoryAdminCommandBus,
+  createNoopAdminCommandBus,
+  type AdminCommandBus,
+} from "./admin-command-bus.js";
+import { createAdminCommandConsumer } from "./admin-command-consumer.js";
 import { createMessageHandler } from "./message-handler.js";
 import { createNodeHeartbeat } from "./node-heartbeat.js";
 import { createSessionRateLimitState } from "./rate-limit.js";
+import { createRedisAdminCommandBus } from "./redis-admin-command-bus.js";
 import { createRedisRoomEventBus } from "./redis-room-event-bus.js";
 import { createRoomEventConsumer } from "./room-event-consumer.js";
 import { createInMemoryRoomStore, type RoomStore } from "./room-store.js";
@@ -241,6 +248,7 @@ export function getDefaultPersistenceConfig(): PersistenceConfig {
     provider: "memory",
     runtimeStoreProvider: "memory",
     roomEventBusProvider: "memory",
+    adminCommandBusProvider: "memory",
     nodeHeartbeatEnabled: false,
     nodeHeartbeatIntervalMs: 15_000,
     nodeHeartbeatTtlMs: 45_000,
@@ -275,6 +283,12 @@ export async function createSyncServer(
     sharedRuntimeStore === localRuntimeStore
       ? localRuntimeStore
       : createMirroredRuntimeStore(localRuntimeStore, sharedRuntimeStore);
+  const adminCommandBus =
+    persistenceConfig.adminCommandBusProvider === "redis"
+      ? await createRedisAdminCommandBus(persistenceConfig.redisUrl)
+      : persistenceConfig.adminCommandBusProvider === "none"
+        ? createNoopAdminCommandBus()
+        : createInMemoryAdminCommandBus();
   const roomEventBus =
     persistenceConfig.roomEventBusProvider === "redis"
       ? await createRedisRoomEventBus(persistenceConfig.redisUrl, {
@@ -347,6 +361,23 @@ export async function createSyncServer(
     listLocalSessionsByRoom: (roomCode) => runtimeStore.listSessionsByRoom(roomCode),
     send,
     instanceId: persistenceConfig.instanceId,
+    logEvent,
+  });
+  const adminCommandConsumer = await createAdminCommandConsumer({
+    instanceId: persistenceConfig.instanceId,
+    adminCommandBus,
+    getLocalSession: (sessionId) => localRuntimeStore.getSession(sessionId),
+    listLocalSessionsByRoom: (roomCode) => localRuntimeStore.listSessionsByRoom(roomCode),
+    blockMemberToken: (roomCode, memberToken, expiresAt) =>
+      runtimeStore.blockMemberToken(roomCode, memberToken, expiresAt),
+    disconnectSessionSocket: (session, reason) => {
+      if (session.socket.readyState === session.socket.OPEN) {
+        session.socket.close(1000, reason);
+        return;
+      }
+      session.socket.terminate();
+    },
+    now,
     logEvent,
   });
 
@@ -646,6 +677,13 @@ export async function createSyncServer(
         if (typeof maybeClosableRuntimeStore.close === "function") {
           await maybeClosableRuntimeStore.close();
         }
+      }
+      await adminCommandConsumer.close();
+      const maybeClosableAdminCommandBus = adminCommandBus as AdminCommandBus & {
+        close?: () => Promise<void>;
+      };
+      if (typeof maybeClosableAdminCommandBus.close === "function") {
+        await maybeClosableAdminCommandBus.close();
       }
       await roomEventConsumer.close();
       const maybeClosableRoomEventBus = roomEventBus as RoomEventBus & {

@@ -29,6 +29,7 @@ test("persistence config validates provider and trims string env values", () => 
     ROOM_STORE_PROVIDER: "redis",
     RUNTIME_STORE_PROVIDER: "redis",
     ROOM_EVENT_BUS_PROVIDER: "redis",
+    ADMIN_COMMAND_BUS_PROVIDER: "redis",
     NODE_HEARTBEAT_ENABLED: "true",
     NODE_HEARTBEAT_INTERVAL_MS: "5000",
     NODE_HEARTBEAT_TTL_MS: "15000",
@@ -39,6 +40,7 @@ test("persistence config validates provider and trims string env values", () => 
   assert.equal(config.provider, "redis");
   assert.equal(config.runtimeStoreProvider, "redis");
   assert.equal(config.roomEventBusProvider, "redis");
+  assert.equal(config.adminCommandBusProvider, "redis");
   assert.equal(config.nodeHeartbeatEnabled, true);
   assert.equal(config.nodeHeartbeatIntervalMs, 5000);
   assert.equal(config.nodeHeartbeatTtlMs, 15000);

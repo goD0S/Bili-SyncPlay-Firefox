@@ -37,6 +37,22 @@ function parseRoomEventBusProviderEnv(
   );
 }
 
+function parseAdminCommandBusProviderEnv(
+  env: EnvSource,
+  fallback: PersistenceConfig["adminCommandBusProvider"],
+): PersistenceConfig["adminCommandBusProvider"] {
+  const rawValue = env.ADMIN_COMMAND_BUS_PROVIDER;
+  if (rawValue === undefined || rawValue === "") {
+    return fallback;
+  }
+  if (rawValue === "none" || rawValue === "memory" || rawValue === "redis") {
+    return rawValue;
+  }
+  throw new Error(
+    'Environment variable ADMIN_COMMAND_BUS_PROVIDER must be "none", "memory", or "redis".',
+  );
+}
+
 export function loadPersistenceConfig(
   env: EnvSource = process.env,
 ): PersistenceConfig {
@@ -55,11 +71,18 @@ export function loadPersistenceConfig(
     env,
     runtimeStoreProvider === "redis" ? "redis" : defaults.roomEventBusProvider,
   );
+  const adminCommandBusProvider = parseAdminCommandBusProviderEnv(
+    env,
+    runtimeStoreProvider === "redis"
+      ? "redis"
+      : defaults.adminCommandBusProvider,
+  );
 
   return {
     provider,
     runtimeStoreProvider,
     roomEventBusProvider,
+    adminCommandBusProvider,
     nodeHeartbeatEnabled: parseBooleanEnv(
       env,
       "NODE_HEARTBEAT_ENABLED",
