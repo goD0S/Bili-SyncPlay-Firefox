@@ -392,9 +392,50 @@ When the environment variable is unset, the build output still uses `ws://localh
 
 For local unpacked-extension development, `ALLOWED_ORIGINS` must include the current `chrome-extension://<extension-id>` or the server will reject the WebSocket handshake with `origin_not_allowed`.
 
+The server now also supports an optional JSON config file. Resolution order is:
+
+- built-in defaults
+- `server.config.json` in the current working directory, or the path from `BILI_SYNCPLAY_CONFIG`
+- environment variables
+
+This keeps the existing env-only startup flow fully compatible while allowing production deployments to move shared non-secret settings into a file.
+
+Example `server.config.json`:
+
+```json
+{
+  "port": 8787,
+  "globalAdminPort": 8788,
+  "security": {
+    "allowedOrigins": [
+      "chrome-extension://<extension-id>",
+      "https://sync.example.com"
+    ],
+    "trustProxyHeaders": true
+  },
+  "persistence": {
+    "provider": "redis",
+    "runtimeStoreProvider": "redis",
+    "roomEventBusProvider": "redis",
+    "adminCommandBusProvider": "redis",
+    "nodeHeartbeatEnabled": true,
+    "redisUrl": "redis://127.0.0.1:6379"
+  },
+  "adminUi": {
+    "enabled": false
+  }
+}
+```
+
+Sensitive admin secrets remain env-only:
+
+- `ADMIN_USERNAME`
+- `ADMIN_PASSWORD_HASH`
+- `ADMIN_SESSION_SECRET`
+
 The current server implementation:
 
-- listens on `PORT` only, defaulting to `8787`
+- listens on `PORT` or `server.config.json#port`, defaulting to `8787`
 - serves WebSocket traffic and a simple health check on the same port
 - returns `{"ok":true,"service":"bili-syncplay-server"}` on `GET /`
 - exposes the admin control panel and APIs on the same port: `/admin`, `/healthz`, `/readyz`, `/api/admin/*`
@@ -430,36 +471,26 @@ Recommended provider settings for a full multi-node rollout:
 Room node example:
 
 ```bash
+BILI_SYNCPLAY_CONFIG=/etc/bili-syncplay/server.config.json \
 PORT=8787 \
 INSTANCE_ID=room-node-a \
-ROOM_STORE_PROVIDER=redis \
 ADMIN_SESSION_STORE_PROVIDER=redis \
 ADMIN_EVENT_STORE_PROVIDER=redis \
 ADMIN_AUDIT_STORE_PROVIDER=redis \
-RUNTIME_STORE_PROVIDER=redis \
-ROOM_EVENT_BUS_PROVIDER=redis \
-ADMIN_COMMAND_BUS_PROVIDER=redis \
-NODE_HEARTBEAT_ENABLED=true \
 GLOBAL_ADMIN_ENABLED=false \
-REDIS_URL=redis://127.0.0.1:6379 \
 node server/dist/index.js
 ```
 
 Dedicated global admin example:
 
 ```bash
+BILI_SYNCPLAY_CONFIG=/etc/bili-syncplay/server.config.json \
 GLOBAL_ADMIN_PORT=8788 \
 INSTANCE_ID=global-admin \
-ROOM_STORE_PROVIDER=redis \
 ADMIN_SESSION_STORE_PROVIDER=redis \
 ADMIN_EVENT_STORE_PROVIDER=redis \
 ADMIN_AUDIT_STORE_PROVIDER=redis \
-RUNTIME_STORE_PROVIDER=redis \
-ROOM_EVENT_BUS_PROVIDER=redis \
-ADMIN_COMMAND_BUS_PROVIDER=redis \
-NODE_HEARTBEAT_ENABLED=true \
 GLOBAL_ADMIN_ENABLED=true \
-REDIS_URL=redis://127.0.0.1:6379 \
 node server/dist/global-admin-index.js
 ```
 
@@ -479,6 +510,7 @@ Redis key families used by the multi-node control plane:
 
 The server accepts the following environment variables. Safe defaults are built in, but production should set them explicitly:
 
+- `BILI_SYNCPLAY_CONFIG`: optional path to a JSON config file; when unset, the server looks for `server.config.json` in the current working directory
 - `ALLOWED_ORIGINS`: comma-separated WebSocket `Origin` allowlist
 - if `ALLOWED_ORIGINS` is empty, the server rejects all explicit `Origin` values by default
 - `ALLOW_MISSING_ORIGIN_IN_DEV`: allow missing `Origin` headers when set to `true`
@@ -696,21 +728,16 @@ Type=simple
 User=bili-syncplay
 Group=bili-syncplay
 WorkingDirectory=/opt/bili-syncplay
+Environment=BILI_SYNCPLAY_CONFIG=/etc/bili-syncplay/server.config.json
 Environment=PORT=8787
 Environment=INSTANCE_ID=room-node-a
-Environment=ALLOWED_ORIGINS=chrome-extension://<extension-id>,https://sync.example.com
-Environment=ROOM_STORE_PROVIDER=redis
 Environment=ADMIN_SESSION_STORE_PROVIDER=redis
 Environment=ADMIN_EVENT_STORE_PROVIDER=redis
 Environment=ADMIN_AUDIT_STORE_PROVIDER=redis
-Environment=RUNTIME_STORE_PROVIDER=redis
-Environment=ROOM_EVENT_BUS_PROVIDER=redis
-Environment=ADMIN_COMMAND_BUS_PROVIDER=redis
-Environment=NODE_HEARTBEAT_ENABLED=true
 Environment=GLOBAL_ADMIN_ENABLED=false
-Environment=REDIS_URL=redis://127.0.0.1:6379
-Environment=EMPTY_ROOM_TTL_MS=900000
-Environment=ROOM_CLEANUP_INTERVAL_MS=60000
+Environment=ADMIN_USERNAME=admin
+Environment=ADMIN_PASSWORD_HASH=sha256:<hex-password-hash>
+Environment=ADMIN_SESSION_SECRET=<random-secret>
 ExecStart=/usr/bin/node /opt/bili-syncplay/server/dist/index.js
 Restart=always
 RestartSec=3
@@ -731,24 +758,46 @@ Type=simple
 User=bili-syncplay
 Group=bili-syncplay
 WorkingDirectory=/opt/bili-syncplay
+Environment=BILI_SYNCPLAY_CONFIG=/etc/bili-syncplay/server.config.json
 Environment=GLOBAL_ADMIN_PORT=8788
 Environment=INSTANCE_ID=global-admin
-Environment=ROOM_STORE_PROVIDER=redis
 Environment=ADMIN_SESSION_STORE_PROVIDER=redis
 Environment=ADMIN_EVENT_STORE_PROVIDER=redis
 Environment=ADMIN_AUDIT_STORE_PROVIDER=redis
-Environment=RUNTIME_STORE_PROVIDER=redis
-Environment=ROOM_EVENT_BUS_PROVIDER=redis
-Environment=ADMIN_COMMAND_BUS_PROVIDER=redis
-Environment=NODE_HEARTBEAT_ENABLED=true
 Environment=GLOBAL_ADMIN_ENABLED=true
-Environment=REDIS_URL=redis://127.0.0.1:6379
+Environment=ADMIN_USERNAME=admin
+Environment=ADMIN_PASSWORD_HASH=sha256:<hex-password-hash>
+Environment=ADMIN_SESSION_SECRET=<random-secret>
 ExecStart=/usr/bin/node /opt/bili-syncplay/server/dist/global-admin-index.js
 Restart=always
 RestartSec=3
 
 [Install]
 WantedBy=multi-user.target
+```
+
+Create `/etc/bili-syncplay/server.config.json` for shared non-secret settings:
+
+```json
+{
+  "security": {
+    "allowedOrigins": [
+      "chrome-extension://<extension-id>",
+      "https://sync.example.com"
+    ],
+    "trustProxyHeaders": true
+  },
+  "persistence": {
+    "provider": "redis",
+    "runtimeStoreProvider": "redis",
+    "roomEventBusProvider": "redis",
+    "adminCommandBusProvider": "redis",
+    "nodeHeartbeatEnabled": true,
+    "redisUrl": "redis://127.0.0.1:6379",
+    "emptyRoomTtlMs": 900000,
+    "roomCleanupIntervalMs": 60000
+  }
+}
 ```
 
 Enable and start them:

@@ -1,14 +1,8 @@
 import { createSyncServer } from "./app.js";
-import { loadAdminConfig, loadAdminUiConfig } from "./config/admin-config.js";
-import { parseIntegerEnv } from "./config/env.js";
-import { loadPersistenceConfig } from "./config/persistence-config.js";
-import { loadSecurityConfig } from "./config/security-config.js";
+import { loadRuntimeConfig } from "./config/runtime-config.js";
 
-const port = parseIntegerEnv(process.env, "PORT", 8787);
-const securityConfig = loadSecurityConfig();
-const persistenceConfig = loadPersistenceConfig();
-const adminConfig = loadAdminConfig();
-const adminUiConfig = loadAdminUiConfig();
+const { port, securityConfig, persistenceConfig, adminConfig, adminUiConfig } =
+  await loadRuntimeConfig();
 
 const { httpServer } = await createSyncServer(
   securityConfig,

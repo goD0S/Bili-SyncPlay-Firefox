@@ -392,9 +392,50 @@ npm run build:release
 
 本地开发时，`ALLOWED_ORIGINS` 必须包含当前 `chrome-extension://<extension-id>`，否则服务端会以 `origin_not_allowed` 拒绝 WebSocket 握手。
 
+服务端现在也支持可选的 JSON 配置文件。加载优先级为：
+
+- 内置默认值
+- 当前工作目录下的 `server.config.json`，或 `BILI_SYNCPLAY_CONFIG` 指定的文件
+- 环境变量
+
+这样可以在保持现有纯环境变量启动方式完全兼容的前提下，把生产环境里稳定的非敏感配置收敛到文件中。
+
+`server.config.json` 示例：
+
+```json
+{
+  "port": 8787,
+  "globalAdminPort": 8788,
+  "security": {
+    "allowedOrigins": [
+      "chrome-extension://<extension-id>",
+      "https://sync.example.com"
+    ],
+    "trustProxyHeaders": true
+  },
+  "persistence": {
+    "provider": "redis",
+    "runtimeStoreProvider": "redis",
+    "roomEventBusProvider": "redis",
+    "adminCommandBusProvider": "redis",
+    "nodeHeartbeatEnabled": true,
+    "redisUrl": "redis://127.0.0.1:6379"
+  },
+  "adminUi": {
+    "enabled": false
+  }
+}
+```
+
+以下管理后台敏感字段仍然只支持环境变量：
+
+- `ADMIN_USERNAME`
+- `ADMIN_PASSWORD_HASH`
+- `ADMIN_SESSION_SECRET`
+
 当前服务器实现：
 
-- 仅监听 `PORT`，默认值为 `8787`
+- 监听 `PORT` 或 `server.config.json` 中的 `port`，默认值为 `8787`
 - 在同一个端口上同时提供 WebSocket 流量和简单健康检查
 - 对 `GET /` 返回 `{"ok":true,"service":"bili-syncplay-server"}`
 - 在同一个端口上暴露管理控制面板和后台接口：`/admin`、`/healthz`、`/readyz`、`/api/admin/*`
@@ -430,36 +471,26 @@ npm run build:release
 Room Node 示例：
 
 ```bash
+BILI_SYNCPLAY_CONFIG=/etc/bili-syncplay/server.config.json \
 PORT=8787 \
 INSTANCE_ID=room-node-a \
-ROOM_STORE_PROVIDER=redis \
 ADMIN_SESSION_STORE_PROVIDER=redis \
 ADMIN_EVENT_STORE_PROVIDER=redis \
 ADMIN_AUDIT_STORE_PROVIDER=redis \
-RUNTIME_STORE_PROVIDER=redis \
-ROOM_EVENT_BUS_PROVIDER=redis \
-ADMIN_COMMAND_BUS_PROVIDER=redis \
-NODE_HEARTBEAT_ENABLED=true \
 GLOBAL_ADMIN_ENABLED=false \
-REDIS_URL=redis://127.0.0.1:6379 \
 node server/dist/index.js
 ```
 
 独立 Global Admin 示例：
 
 ```bash
+BILI_SYNCPLAY_CONFIG=/etc/bili-syncplay/server.config.json \
 GLOBAL_ADMIN_PORT=8788 \
 INSTANCE_ID=global-admin \
-ROOM_STORE_PROVIDER=redis \
 ADMIN_SESSION_STORE_PROVIDER=redis \
 ADMIN_EVENT_STORE_PROVIDER=redis \
 ADMIN_AUDIT_STORE_PROVIDER=redis \
-RUNTIME_STORE_PROVIDER=redis \
-ROOM_EVENT_BUS_PROVIDER=redis \
-ADMIN_COMMAND_BUS_PROVIDER=redis \
-NODE_HEARTBEAT_ENABLED=true \
 GLOBAL_ADMIN_ENABLED=true \
-REDIS_URL=redis://127.0.0.1:6379 \
 node server/dist/global-admin-index.js
 ```
 
@@ -479,6 +510,7 @@ node server/dist/global-admin-index.js
 
 服务器支持以下环境变量。虽然内置了安全默认值，但生产环境应显式设置：
 
+- `BILI_SYNCPLAY_CONFIG`：可选的 JSON 配置文件路径；未设置时会优先查找当前工作目录下的 `server.config.json`
 - `ALLOWED_ORIGINS`：逗号分隔的 WebSocket `Origin` 白名单
 - 如果 `ALLOWED_ORIGINS` 为空，服务器默认拒绝所有显式 `Origin`
 - `ALLOW_MISSING_ORIGIN_IN_DEV`：设为 `true` 时允许缺失 `Origin` 头
@@ -696,21 +728,16 @@ Type=simple
 User=bili-syncplay
 Group=bili-syncplay
 WorkingDirectory=/opt/bili-syncplay
+Environment=BILI_SYNCPLAY_CONFIG=/etc/bili-syncplay/server.config.json
 Environment=PORT=8787
 Environment=INSTANCE_ID=room-node-a
-Environment=ALLOWED_ORIGINS=chrome-extension://<extension-id>,https://sync.example.com
-Environment=ROOM_STORE_PROVIDER=redis
 Environment=ADMIN_SESSION_STORE_PROVIDER=redis
 Environment=ADMIN_EVENT_STORE_PROVIDER=redis
 Environment=ADMIN_AUDIT_STORE_PROVIDER=redis
-Environment=RUNTIME_STORE_PROVIDER=redis
-Environment=ROOM_EVENT_BUS_PROVIDER=redis
-Environment=ADMIN_COMMAND_BUS_PROVIDER=redis
-Environment=NODE_HEARTBEAT_ENABLED=true
 Environment=GLOBAL_ADMIN_ENABLED=false
-Environment=REDIS_URL=redis://127.0.0.1:6379
-Environment=EMPTY_ROOM_TTL_MS=900000
-Environment=ROOM_CLEANUP_INTERVAL_MS=60000
+Environment=ADMIN_USERNAME=admin
+Environment=ADMIN_PASSWORD_HASH=sha256:<hex-password-hash>
+Environment=ADMIN_SESSION_SECRET=<random-secret>
 ExecStart=/usr/bin/node /opt/bili-syncplay/server/dist/index.js
 Restart=always
 RestartSec=3
@@ -731,24 +758,46 @@ Type=simple
 User=bili-syncplay
 Group=bili-syncplay
 WorkingDirectory=/opt/bili-syncplay
+Environment=BILI_SYNCPLAY_CONFIG=/etc/bili-syncplay/server.config.json
 Environment=GLOBAL_ADMIN_PORT=8788
 Environment=INSTANCE_ID=global-admin
-Environment=ROOM_STORE_PROVIDER=redis
 Environment=ADMIN_SESSION_STORE_PROVIDER=redis
 Environment=ADMIN_EVENT_STORE_PROVIDER=redis
 Environment=ADMIN_AUDIT_STORE_PROVIDER=redis
-Environment=RUNTIME_STORE_PROVIDER=redis
-Environment=ROOM_EVENT_BUS_PROVIDER=redis
-Environment=ADMIN_COMMAND_BUS_PROVIDER=redis
-Environment=NODE_HEARTBEAT_ENABLED=true
 Environment=GLOBAL_ADMIN_ENABLED=true
-Environment=REDIS_URL=redis://127.0.0.1:6379
+Environment=ADMIN_USERNAME=admin
+Environment=ADMIN_PASSWORD_HASH=sha256:<hex-password-hash>
+Environment=ADMIN_SESSION_SECRET=<random-secret>
 ExecStart=/usr/bin/node /opt/bili-syncplay/server/dist/global-admin-index.js
 Restart=always
 RestartSec=3
 
 [Install]
 WantedBy=multi-user.target
+```
+
+把公共的非敏感配置写入 `/etc/bili-syncplay/server.config.json`：
+
+```json
+{
+  "security": {
+    "allowedOrigins": [
+      "chrome-extension://<extension-id>",
+      "https://sync.example.com"
+    ],
+    "trustProxyHeaders": true
+  },
+  "persistence": {
+    "provider": "redis",
+    "runtimeStoreProvider": "redis",
+    "roomEventBusProvider": "redis",
+    "adminCommandBusProvider": "redis",
+    "nodeHeartbeatEnabled": true,
+    "redisUrl": "redis://127.0.0.1:6379",
+    "emptyRoomTtlMs": 900000,
+    "roomCleanupIntervalMs": 60000
+  }
+}
 ```
 
 启用并启动它们：
