@@ -1,6 +1,6 @@
 {
   "name": "@bili-syncplay/server",
-  "version": "0.9.0",
+  "version": "9.1.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -13,7 +13,7 @@
     "test:redis": "node scripts/run-redis-test.mjs"
   },
   "dependencies": {
-    "@bili-syncplay/protocol": "0.9.0",
+    "@bili-syncplay/protocol": "9.1.0",
     "ioredis": "^5.10.0",
     "ws": "^8.18.3"
   },

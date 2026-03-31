@@ -1,6 +1,6 @@
 {
   "name": "bili-syncplay",
-  "version": "0.9.0",
+  "version": "9.1.0",
   "private": true,
   "workspaces": [
     "packages/*",
