@@ -44,8 +44,8 @@ test("structured logger excludes successful node heartbeats from event storage",
   assert.equal(writtenLines.length, 2);
   assert.equal(appendedEvents.length, 1);
   assert.equal(appendedEvents[0]?.event, "room_created");
-  assert.deepEqual(
-    Object.keys(runtimeStore.getLifetimeEventCounts()),
-    ["node_heartbeat_sent", "room_created"],
-  );
+  assert.deepEqual(Object.keys(runtimeStore.getLifetimeEventCounts()), [
+    "node_heartbeat_sent",
+    "room_created",
+  ]);
 });
