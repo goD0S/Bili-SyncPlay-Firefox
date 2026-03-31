@@ -221,7 +221,23 @@ const messageController = createMessageController({
   notifyAll,
 });
 
-bootstrap().catch(console.error);
+const BOOTSTRAP_PENDING_MESSAGE = "Extension is still initializing.";
+const BOOTSTRAP_FAILED_MESSAGE =
+  "Extension initialization failed. Reload the extension and try again.";
+let bootstrapStatus: "pending" | "ready" | "failed" = "pending";
+
+void bootstrap().catch((error) => {
+  bootstrapStatus = "failed";
+  connectionState.connected = false;
+  connectionState.lastError = BOOTSTRAP_FAILED_MESSAGE;
+  clockController.stopClockSyncTimer();
+  shareController.clearPendingLocalShare("bootstrap failed");
+  diagnosticsController.log(
+    "background",
+    `Bootstrap failed: ${formatBootstrapError(error)}`,
+  );
+  notifyAll();
+});
 
 async function bootstrap(): Promise<void> {
   await bootstrapBackground({
@@ -291,6 +307,14 @@ async function bootstrap(): Promise<void> {
       chrome.tabs.onRemoved.addListener(listener);
     },
   });
+  bootstrapStatus = "ready";
+}
+
+function formatBootstrapError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
 }
 
 function formatAdminSessionResetReason(reason: string): string {
@@ -457,6 +481,18 @@ chrome.runtime.onMessage.addListener(
     sender,
     sendResponse,
   ) => {
+    if (bootstrapStatus !== "ready") {
+      const error =
+        bootstrapStatus === "failed"
+          ? BOOTSTRAP_FAILED_MESSAGE
+          : BOOTSTRAP_PENDING_MESSAGE;
+      if (message.type === "popup:get-state") {
+        sendResponse(popupStateController.popupState());
+      } else {
+        sendResponse({ ok: false, error });
+      }
+      return true;
+    }
     void messageController.handleRuntimeMessage(message, sender, sendResponse);
 
     return true;
