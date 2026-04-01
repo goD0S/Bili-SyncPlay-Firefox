@@ -1180,11 +1180,17 @@ test("admin exposes metrics and config summary", async () => {
     const configData = config.body.data as {
       instanceId: string;
       persistence: { provider: string; redisConfigured: boolean };
+      security: {
+        allowedOrigins: string[];
+        trustedProxyAddresses: string[];
+      };
       admin: { configured: boolean; username: string; role: string };
     };
     assert.equal(configData.instanceId, "instance-1");
     assert.equal(configData.persistence.provider, "memory");
     assert.equal(configData.persistence.redisConfigured, false);
+    assert.deepEqual(configData.security.allowedOrigins, [ALLOWED_ORIGIN]);
+    assert.deepEqual(configData.security.trustedProxyAddresses, []);
     assert.equal(configData.admin.configured, true);
     assert.equal(configData.admin.username, "admin");
     assert.equal(configData.admin.role, "admin");

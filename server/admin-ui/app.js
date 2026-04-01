@@ -1487,8 +1487,10 @@ async function renderConfigPage() {
             <dt>允许的 Origin</dt>
             <dd>
               ${
-                config.security.allowedOrigins.length
-                  ? `<div class="config-origin-list">${config.security.allowedOrigins
+                (config.security.allowedOrigins ?? []).length
+                  ? `<div class="config-origin-list">${(
+                      config.security.allowedOrigins ?? []
+                    )
                       .map(
                         (item) =>
                           `<span class="config-origin code">${escapeHtml(item)}</span>`,
@@ -1499,8 +1501,10 @@ async function renderConfigPage() {
             </dd>
             <dt>开发环境允许缺省 Origin</dt><dd>${renderStatus(config.security.allowMissingOriginInDev ? "warning" : "neutral", config.security.allowMissingOriginInDev ? "是" : "否")}</dd>
             <dt>受信代理地址</dt><dd>${
-              config.security.trustedProxyAddresses.length > 0
-                ? `<div class="config-origin-list">${config.security.trustedProxyAddresses
+              (config.security.trustedProxyAddresses ?? []).length > 0
+                ? `<div class="config-origin-list">${(
+                    config.security.trustedProxyAddresses ?? []
+                  )
                     .map(
                       (item) =>
                         `<span class="config-origin code">${escapeHtml(item)}</span>`,

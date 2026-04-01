@@ -21,10 +21,11 @@ export function createAdminConfigService(options: {
           redisConfigured: options.persistenceConfig.provider === "redis",
         },
         security: {
-          allowedOrigins: options.securityConfig.allowedOrigins,
+          allowedOrigins: options.securityConfig.allowedOrigins ?? [],
           allowMissingOriginInDev:
             options.securityConfig.allowMissingOriginInDev,
-          trustedProxyAddresses: options.securityConfig.trustedProxyAddresses,
+          trustedProxyAddresses:
+            options.securityConfig.trustedProxyAddresses ?? [],
           maxConnectionsPerIp: options.securityConfig.maxConnectionsPerIp,
           connectionAttemptsPerMinute:
             options.securityConfig.connectionAttemptsPerMinute,
