@@ -21,6 +21,7 @@ import {
 } from "./admin-command-bus.js";
 import { createAdminCommandConsumer } from "./admin-command-consumer.js";
 import { createMessageHandler } from "./message-handler.js";
+import { createMirroredRuntimeStore } from "./mirrored-runtime-store.js";
 import { createNodeHeartbeat } from "./node-heartbeat.js";
 import { createSessionRateLimitState } from "./rate-limit.js";
 import { createRedisAdminCommandBus } from "./redis-admin-command-bus.js";
@@ -168,122 +169,6 @@ export async function cleanupSessionAfterClose(options: {
     code: options.code,
     reason: decodedReason,
   });
-}
-
-function createMirroredRuntimeStore(
-  localRuntimeStore: RuntimeStore,
-  sharedRuntimeStore: RuntimeStore,
-): RuntimeStore {
-  return {
-    registerSession(session) {
-      localRuntimeStore.registerSession(session);
-      sharedRuntimeStore.registerSession(session);
-    },
-    flush() {
-      return sharedRuntimeStore.flush?.() ?? Promise.resolve();
-    },
-    unregisterSession(sessionId) {
-      localRuntimeStore.unregisterSession(sessionId);
-      sharedRuntimeStore.unregisterSession(sessionId);
-    },
-    markSessionJoinedRoom(sessionId, roomCode) {
-      localRuntimeStore.markSessionJoinedRoom(sessionId, roomCode);
-      sharedRuntimeStore.markSessionJoinedRoom(sessionId, roomCode);
-    },
-    markSessionLeftRoom(sessionId, roomCode) {
-      localRuntimeStore.markSessionLeftRoom(sessionId, roomCode);
-      sharedRuntimeStore.markSessionLeftRoom(sessionId, roomCode);
-    },
-    recordEvent(event, timestamp) {
-      localRuntimeStore.recordEvent(event, timestamp);
-      sharedRuntimeStore.recordEvent(event, timestamp);
-    },
-    getSession(sessionId) {
-      return localRuntimeStore.getSession(sessionId);
-    },
-    listSessionsByRoom(roomCode) {
-      return localRuntimeStore.listSessionsByRoom(roomCode);
-    },
-    getConnectionCount() {
-      return localRuntimeStore.getConnectionCount();
-    },
-    getActiveRoomCount() {
-      return localRuntimeStore.getActiveRoomCount();
-    },
-    getActiveMemberCount() {
-      return localRuntimeStore.getActiveMemberCount();
-    },
-    getStartedAt() {
-      return localRuntimeStore.getStartedAt();
-    },
-    getRecentEventCounts(currentTime) {
-      return localRuntimeStore.getRecentEventCounts(currentTime);
-    },
-    getLifetimeEventCounts() {
-      return localRuntimeStore.getLifetimeEventCounts();
-    },
-    getActiveRoomCodes() {
-      return localRuntimeStore.getActiveRoomCodes();
-    },
-    getRoom(code) {
-      return localRuntimeStore.getRoom(code);
-    },
-    getOrCreateRoom(code) {
-      return localRuntimeStore.getOrCreateRoom(code);
-    },
-    addMember(code, memberId, session, memberToken) {
-      const room = localRuntimeStore.addMember(
-        code,
-        memberId,
-        session,
-        memberToken,
-      );
-      sharedRuntimeStore.addMember(code, memberId, session, memberToken);
-      return room;
-    },
-    findMemberIdByToken(code, memberToken) {
-      return localRuntimeStore.findMemberIdByToken(code, memberToken);
-    },
-    blockMemberToken(code, memberToken, expiresAt) {
-      localRuntimeStore.blockMemberToken(code, memberToken, expiresAt);
-      sharedRuntimeStore.blockMemberToken(code, memberToken, expiresAt);
-    },
-    isMemberTokenBlocked(code, memberToken, currentTime) {
-      return localRuntimeStore.isMemberTokenBlocked(
-        code,
-        memberToken,
-        currentTime,
-      );
-    },
-    removeMember(code, memberId, session) {
-      const removal = localRuntimeStore.removeMember(code, memberId, session);
-      void sharedRuntimeStore.removeMember(code, memberId, session);
-      return removal;
-    },
-    deleteRoom(code) {
-      localRuntimeStore.deleteRoom(code);
-      sharedRuntimeStore.deleteRoom(code);
-    },
-    heartbeatNode(status) {
-      return sharedRuntimeStore.heartbeatNode(status);
-    },
-    listNodeStatuses(currentTime) {
-      return sharedRuntimeStore.listNodeStatuses(currentTime);
-    },
-    purgeNodeStatus(instanceId) {
-      void localRuntimeStore.purgeNodeStatus(instanceId);
-      return sharedRuntimeStore.purgeNodeStatus(instanceId);
-    },
-    countClusterActiveRooms() {
-      return sharedRuntimeStore.countClusterActiveRooms();
-    },
-    listClusterSessionsByRoom(roomCode) {
-      return sharedRuntimeStore.listClusterSessionsByRoom(roomCode);
-    },
-    listClusterSessions() {
-      return sharedRuntimeStore.listClusterSessions();
-    },
-  };
 }
 
 async function resolveServiceVersion(): Promise<string> {
