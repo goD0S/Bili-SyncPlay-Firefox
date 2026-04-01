@@ -119,3 +119,91 @@ test("admin command consumer blocks token and disconnects a kicked member", asyn
     await consumer.close();
   }
 });
+
+test("admin command consumer does not disconnect a member when token blocking fails", async () => {
+  const bus = createInMemoryAdminCommandBus(() => 4_000);
+  const session = createSession("session-c", "ROOM03", "member-c");
+  let disconnected = false;
+
+  const consumer = await createAdminCommandConsumer({
+    instanceId: "node-a",
+    adminCommandBus: bus,
+    getLocalSession() {
+      return null;
+    },
+    listLocalSessionsByRoom(roomCode) {
+      return roomCode === "ROOM03" ? [session] : [];
+    },
+    blockMemberToken() {
+      throw new Error("block failed");
+    },
+    disconnectSessionSocket() {
+      disconnected = true;
+    },
+    now: () => 4_000,
+  });
+
+  try {
+    const result = await bus.request({
+      kind: "kick_member",
+      requestId: "req-3",
+      targetInstanceId: "node-a",
+      roomCode: "ROOM03",
+      memberId: "member-c",
+      requestedAt: 3_000,
+    });
+
+    assert.equal(result.status, "error");
+    if (result.status === "ok") {
+      throw new Error("Expected kick_member to fail.");
+    }
+    assert.equal(result.code, "block_failed");
+    assert.equal(disconnected, false);
+  } finally {
+    await consumer.close();
+  }
+});
+
+test("admin command consumer keeps a kick block when disconnect fails", async () => {
+  const bus = createInMemoryAdminCommandBus(() => 5_000);
+  const session = createSession("session-d", "ROOM04", "member-d");
+  const blocked: string[] = [];
+
+  const consumer = await createAdminCommandConsumer({
+    instanceId: "node-a",
+    adminCommandBus: bus,
+    getLocalSession() {
+      return null;
+    },
+    listLocalSessionsByRoom(roomCode) {
+      return roomCode === "ROOM04" ? [session] : [];
+    },
+    blockMemberToken(_roomCode, token) {
+      blocked.push(token);
+    },
+    disconnectSessionSocket() {
+      throw new Error("disconnect failed");
+    },
+    now: () => 5_000,
+  });
+
+  try {
+    const result = await bus.request({
+      kind: "kick_member",
+      requestId: "req-4",
+      targetInstanceId: "node-a",
+      roomCode: "ROOM04",
+      memberId: "member-d",
+      requestedAt: 4_000,
+    });
+
+    assert.equal(result.status, "error");
+    if (result.status === "ok") {
+      throw new Error("Expected kick_member to fail.");
+    }
+    assert.equal(result.code, "disconnect_failed");
+    assert.deepEqual(blocked, ["token-member-d"]);
+  } finally {
+    await consumer.close();
+  }
+});

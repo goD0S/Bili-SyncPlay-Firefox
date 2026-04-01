@@ -14,12 +14,31 @@ export async function createAdminCommandConsumer(options: {
     roomCode: string,
     memberToken: string,
     expiresAt: number,
-  ) => void;
-  disconnectSessionSocket: (session: Session, reason: string) => void;
+  ) => void | Promise<void>;
+  disconnectSessionSocket: (
+    session: Session,
+    reason: string,
+  ) => void | Promise<void>;
   now?: () => number;
   logEvent?: LogEvent;
 }): Promise<{ close: () => Promise<void> }> {
   const now = options.now ?? Date.now;
+
+  function buildErrorResult(
+    command: AdminCommand,
+    code: string,
+    message: string,
+  ): AdminCommandResult {
+    return {
+      requestId: command.requestId,
+      targetInstanceId: command.targetInstanceId,
+      executorInstanceId: options.instanceId,
+      status: "error",
+      code,
+      message,
+      completedAt: now(),
+    };
+  }
 
   async function handleCommand(
     command: AdminCommand,
@@ -39,7 +58,27 @@ export async function createAdminCommandConsumer(options: {
           };
         }
 
-        options.disconnectSessionSocket(session, "Admin disconnected session");
+        try {
+          await options.disconnectSessionSocket(
+            session,
+            "Admin disconnected session",
+          );
+        } catch (error) {
+          options.logEvent?.("admin_command_executed", {
+            commandType: command.kind,
+            targetInstanceId: command.targetInstanceId,
+            executorInstanceId: options.instanceId,
+            sessionId: command.sessionId,
+            result: "error",
+            error:
+              error instanceof Error ? error.message : "disconnect_failed",
+          });
+          return buildErrorResult(
+            command,
+            "disconnect_failed",
+            "Failed to disconnect session.",
+          );
+        }
         options.logEvent?.("admin_command_executed", {
           commandType: command.kind,
           targetInstanceId: command.targetInstanceId,
@@ -73,14 +112,53 @@ export async function createAdminCommandConsumer(options: {
           };
         }
 
-        if (session.memberToken) {
-          options.blockMemberToken(
-            command.roomCode,
-            session.memberToken,
-            now() + 60_000,
+        try {
+          if (session.memberToken) {
+            await options.blockMemberToken(
+              command.roomCode,
+              session.memberToken,
+              now() + 60_000,
+            );
+          }
+        } catch (error) {
+          options.logEvent?.("admin_command_executed", {
+            commandType: command.kind,
+            targetInstanceId: command.targetInstanceId,
+            executorInstanceId: options.instanceId,
+            roomCode: command.roomCode,
+            memberId: command.memberId,
+            sessionId: session.id,
+            result: "error",
+            error: error instanceof Error ? error.message : "block_failed",
+          });
+          return buildErrorResult(
+            command,
+            "block_failed",
+            "Failed to block member token.",
           );
         }
-        options.disconnectSessionSocket(session, "Admin kicked member");
+
+        try {
+          await options.disconnectSessionSocket(session, "Admin kicked member");
+        } catch (error) {
+          options.logEvent?.("admin_command_executed", {
+            commandType: command.kind,
+            targetInstanceId: command.targetInstanceId,
+            executorInstanceId: options.instanceId,
+            roomCode: command.roomCode,
+            memberId: command.memberId,
+            sessionId: session.id,
+            result: "error",
+            error:
+              error instanceof Error ? error.message : "disconnect_failed",
+            blockApplied: Boolean(session.memberToken),
+          });
+          return buildErrorResult(
+            command,
+            "disconnect_failed",
+            "Member token was blocked but the session disconnect failed.",
+          );
+        }
         options.logEvent?.("admin_command_executed", {
           commandType: command.kind,
           targetInstanceId: command.targetInstanceId,
