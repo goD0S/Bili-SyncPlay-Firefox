@@ -1,74 +1,63 @@
-const STORAGE_KEY = "bili-syncplay-admin-token";
-const AUTO_REFRESH_MS = 15000;
-const DEMO_QUERY_KEY = "demo";
-const DEMO_TOKEN = "demo-token";
-const ADMIN_UI_CONFIG = normalizeAdminUiConfig(window.__ADMIN_UI_CONFIG__);
-
-const state = {
-  demo:
-    ADMIN_UI_CONFIG.demoEnabled &&
-    new URLSearchParams(location.search).get(DEMO_QUERY_KEY) === "1",
-  token: localStorage.getItem(STORAGE_KEY) || "",
-  me: null,
-  currentRoute: "/overview",
-  notice: null,
-  dialog: null,
-  refreshHandle: null,
-  lastOverviewData: null,
-  instanceId: "",
-  overviewAutoRefresh: true,
-};
+import { createAdminApi } from "./api.js";
+import {
+  AUTO_REFRESH_MS,
+  clearAuth as clearAuthState,
+  clearNotice as clearNoticeState,
+  clearRefreshTimer as clearRefreshTimerState,
+  DEMO_QUERY_KEY,
+  DEMO_TOKEN,
+  normalizePath,
+  routeHref,
+  routeMeta,
+  setToken as setTokenState,
+  showNotice as showNoticeState,
+  state,
+  withDemoQuery,
+} from "./state.js";
+import {
+  renderDialog as renderDialogTemplate,
+  renderLoginScreen as renderLoginTemplate,
+  renderNavLink as renderNavLinkTemplate,
+} from "./templates.js";
 
 let dialogEventsBound = false;
 
-function normalizeAdminUiConfig(value) {
-  if (!value || typeof value !== "object") {
-    return { demoEnabled: false, apiBaseUrl: "" };
-  }
-
-  return {
-    demoEnabled: value.demoEnabled === true,
-    apiBaseUrl:
-      typeof value.apiBaseUrl === "string"
-        ? value.apiBaseUrl.replace(/\/+$/, "")
-        : "",
-  };
-}
-
-function resolveApiPath(path) {
-  const baseUrl = ADMIN_UI_CONFIG.apiBaseUrl || "";
-  return `${baseUrl}${path}`;
-}
-
-const routeMeta = {
-  "/overview": {
-    title: "概览",
-    description: "服务、存储、运行态与近期事件的快速视图。",
-  },
-  "/rooms": {
-    title: "房间管理",
-    description: "筛选房间、查看详情并执行治理动作。",
-  },
-  "/events": { title: "运行事件", description: "按条件检索近期运行事件。" },
-  "/audit-logs": {
-    title: "审计日志",
-    description: "查看管理员操作留痕和请求参数。",
-  },
-  "/config": {
-    title: "配置摘要",
-    description: "核对当前实例运行配置，不暴露敏感信息。",
-  },
-};
-
 const appRoot = document.querySelector("#app");
+const api = createAdminApi({
+  state,
+  serializeQuery,
+  clearAuth,
+  navigate,
+  mockRequest: mockApiRequest,
+});
+
+function clearRefreshTimer() {
+  clearRefreshTimerState(state);
+}
+
+function clearAuth() {
+  clearAuthState(state);
+}
+
+function showNotice(type, message) {
+  showNoticeState(state, type, message);
+}
+
+function clearNotice() {
+  clearNoticeState(state);
+}
+
+function setToken(token) {
+  setTokenState(state, token);
+}
 
 async function bootstrap() {
   bindDialogEvents();
   state.currentRoute = normalizePath(location.pathname);
 
   if (state.demo) {
-    state.token = DEMO_TOKEN;
-    state.me = demoAdminSession();
+    state.token = "demo-token";
+    state.me = { id: "admin-demo", username: "demo-admin", role: "admin" };
     await render();
     return;
   }
@@ -97,63 +86,10 @@ async function bootstrap() {
   await render();
 }
 
-function normalizePath(pathname) {
-  if (!pathname.startsWith("/admin")) {
-    return "/login";
-  }
-
-  const path = pathname.slice("/admin".length) || "/overview";
-  if (path === "/") {
-    return state.token ? "/overview" : "/login";
-  }
-  return path;
-}
-
-function routeHref(path) {
-  return `/admin${path}`;
-}
-
-function withDemoQuery(url) {
-  if (!state.demo) {
-    return url;
-  }
-
-  const resolved = new URL(url, location.origin);
-  resolved.searchParams.set(DEMO_QUERY_KEY, "1");
-  return `${resolved.pathname}${resolved.search}`;
-}
-
 function canManage() {
   return (
     state.me && (state.me.role === "operator" || state.me.role === "admin")
   );
-}
-
-function clearRefreshTimer() {
-  if (state.refreshHandle) {
-    clearInterval(state.refreshHandle);
-    state.refreshHandle = null;
-  }
-}
-
-function clearAuth() {
-  state.token = "";
-  state.me = null;
-  localStorage.removeItem(STORAGE_KEY);
-  clearRefreshTimer();
-}
-
-function showNotice(type, message) {
-  state.notice = { type, message };
-}
-
-function clearNotice() {
-  state.notice = null;
-}
-
-function setToken(token) {
-  state.token = token;
-  localStorage.setItem(STORAGE_KEY, token);
 }
 
 function navigate(path, replace = false) {
@@ -542,13 +478,12 @@ async function render() {
 }
 
 function renderNavLink(path, label) {
-  const active = state.currentRoute === path;
-  return `
-    <a class="nav-link ${active ? "active" : ""}" href="${withDemoQuery(routeHref(path))}" data-nav="${escapeHtml(path)}">
-      <span>${escapeHtml(label)}</span>
-      <span class="nav-link-mark" aria-hidden="true">${active ? "●" : "·"}</span>
-    </a>
-  `;
+  return renderNavLinkTemplate({
+    active: state.currentRoute === path,
+    href: withDemoQuery(routeHref(path)),
+    label,
+    path,
+  });
 }
 
 async function ensureInstanceId() {
@@ -561,33 +496,7 @@ async function ensureInstanceId() {
 }
 
 function renderDialog() {
-  if (!state.dialog) {
-    return `<div class="dialog-root" hidden></div>`;
-  }
-
-  const isJsonPreview = state.dialog.mode === "json-preview";
-  return `
-    <div class="dialog-root">
-      <form class="dialog-card ${isJsonPreview ? "json-preview-dialog" : ""}" id="confirm-dialog">
-        <h3>${escapeHtml(state.dialog.title)}</h3>
-        <p>${escapeHtml(state.dialog.description)}</p>
-        ${
-          isJsonPreview
-            ? `<pre class="pre">${formatJson(state.dialog.payload)}</pre>`
-            : `
-              <div class="field">
-                <label for="dialog-reason">操作原因</label>
-                <textarea id="dialog-reason" name="reason" placeholder="可选，建议填写便于审计追溯。">${escapeHtml(state.dialog.defaultReason || "")}</textarea>
-              </div>
-            `
-        }
-        <div class="dialog-actions">
-          <button type="button" class="button ghost" data-dialog-close>${isJsonPreview ? "关闭" : "取消"}</button>
-          ${isJsonPreview ? "" : `<button type="submit" class="button primary">${escapeHtml(state.dialog.confirmLabel || "确认")}</button>`}
-        </div>
-      </form>
-    </div>
-  `;
+  return renderDialogTemplate(state.dialog, formatJson);
 }
 
 function bindCommonEvents(page) {
@@ -639,31 +548,7 @@ function bindCommonEvents(page) {
 }
 
 function renderLogin() {
-  appRoot.innerHTML = `
-    <div class="login-shell">
-      <div class="login-layout">
-        <form class="login-card" id="login-form">
-          <span class="brand-eyebrow">Admin Login</span>
-          <h2>登录后台</h2>
-          <p>使用服务端配置的管理员账号进入管理控制面板。</p>
-          ${state.notice ? `<div class="notice ${escapeHtml(state.notice.type)}">${escapeHtml(state.notice.message)}</div>` : ""}
-          <div class="login-fields">
-            <div class="field">
-              <label for="username">用户名</label>
-              <input id="username" name="username" autocomplete="username" required />
-            </div>
-            <div class="field">
-              <label for="password">密码</label>
-              <input id="password" name="password" type="password" autocomplete="current-password" required />
-            </div>
-          </div>
-          <div class="actions login-actions">
-            <button class="button primary" type="submit">登录</button>
-          </div>
-        </form>
-      </div>
-    </div>
-  `;
+  appRoot.innerHTML = renderLoginTemplate(state.notice);
 }
 
 function bindLoginEvents() {
@@ -2067,115 +1952,6 @@ async function mockApiRequest(path, _options = {}) {
 
   throw { code: "request_failed", message: `未实现的 demo 接口：${pathname}` };
 }
-
-const api = {
-  async request(path, options = {}) {
-    if (state.demo) {
-      return mockApiRequest(path, options);
-    }
-
-    const response = await fetch(resolveApiPath(path), {
-      method: options.method || "GET",
-      headers: {
-        ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}),
-        ...(options.body ? { "content-type": "application/json" } : {}),
-      },
-      body: options.body ? JSON.stringify(options.body) : undefined,
-    });
-
-    const contentType = response.headers.get("content-type") || "";
-    const payload = contentType.includes("application/json")
-      ? await response.json()
-      : null;
-
-    if (response.status === 401) {
-      clearAuth();
-      navigate("/login", true);
-      throw { code: "unauthorized", message: "登录已失效，请重新登录。" };
-    }
-
-    if (!response.ok || !payload?.ok) {
-      throw {
-        code: payload?.error?.code || "request_failed",
-        message: payload?.error?.message || "请求失败。",
-      };
-    }
-
-    return payload.data;
-  },
-  login(payload) {
-    return this.request("/api/admin/auth/login", {
-      method: "POST",
-      body: payload,
-    });
-  },
-  logout() {
-    return this.request("/api/admin/auth/logout", { method: "POST" });
-  },
-  getMe() {
-    return this.request("/api/admin/me");
-  },
-  getHealth() {
-    return this.request("/healthz");
-  },
-  getReady() {
-    return this.request("/readyz");
-  },
-  getOverview() {
-    return this.request("/api/admin/overview");
-  },
-  listRooms(query) {
-    return this.request(`/api/admin/rooms${serializeQuery(query)}`);
-  },
-  getRoomDetail(roomCode) {
-    return this.request(`/api/admin/rooms/${encodeURIComponent(roomCode)}`);
-  },
-  closeRoom(roomCode, reason) {
-    return this.request(
-      `/api/admin/rooms/${encodeURIComponent(roomCode)}/close`,
-      { method: "POST", body: { reason } },
-    );
-  },
-  expireRoom(roomCode, reason) {
-    return this.request(
-      `/api/admin/rooms/${encodeURIComponent(roomCode)}/expire`,
-      { method: "POST", body: { reason } },
-    );
-  },
-  clearRoomVideo(roomCode, reason) {
-    return this.request(
-      `/api/admin/rooms/${encodeURIComponent(roomCode)}/clear-video`,
-      { method: "POST", body: { reason } },
-    );
-  },
-  kickMember(roomCode, memberId, reason) {
-    return this.request(
-      `/api/admin/rooms/${encodeURIComponent(roomCode)}/members/${encodeURIComponent(memberId)}/kick`,
-      {
-        method: "POST",
-        body: { reason },
-      },
-    );
-  },
-  disconnectSession(sessionId, reason) {
-    return this.request(
-      `/api/admin/sessions/${encodeURIComponent(sessionId)}/disconnect`,
-      {
-        method: "POST",
-        body: { reason },
-      },
-    );
-  },
-  listEvents(query) {
-    return this.request(`/api/admin/events${serializeQuery(query)}`);
-  },
-  listAuditLogs(query) {
-    return this.request(`/api/admin/audit-logs${serializeQuery(query)}`);
-  },
-  getConfig() {
-    return this.request("/api/admin/config");
-  },
-};
 
 window.addEventListener("popstate", () => {
   state.currentRoute = normalizePath(location.pathname);
