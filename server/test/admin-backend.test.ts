@@ -564,6 +564,40 @@ test("admin auth routes reject oversized credentials and tokens", async () => {
   }
 });
 
+test("admin auth routes accept credentials at the configured max length boundary", async () => {
+  const username = "u".repeat(128);
+  const password = "p".repeat(512);
+  const server = await startAdminServer({
+    adminConfig: {
+      username,
+      passwordHash: `sha256:${sha256Hex(password)}`,
+      sessionSecret: "session-secret-123",
+      sessionTtlMs: 60_000,
+      role: "admin",
+      sessionStoreProvider: "memory",
+      eventStoreProvider: "memory",
+      auditStoreProvider: "memory",
+    },
+  });
+
+  try {
+    const token = await login(server.httpBaseUrl, username, password);
+    assert.ok(token);
+
+    const logout = await requestJson(
+      server.httpBaseUrl,
+      "/api/admin/auth/logout",
+      {
+        method: "POST",
+        token,
+      },
+    );
+    assert.equal(logout.status, 200);
+  } finally {
+    await server.close();
+  }
+});
+
 test("admin action routes reject invalid path params with 400", async () => {
   const server = await startAdminServer();
 
@@ -600,6 +634,22 @@ test("admin action routes reject invalid path params with 400", async () => {
       code: "invalid_path_param",
       message: "Invalid sessionId.",
       details: { name: "sessionId" },
+    });
+
+    const kickMember = await requestJson(
+      server.httpBaseUrl,
+      "/api/admin/rooms/ROOM01/members/%20/kick",
+      {
+        method: "POST",
+        token,
+        body: { reason: "invalid member" },
+      },
+    );
+    assert.equal(kickMember.status, 400);
+    assert.deepEqual(kickMember.body.error, {
+      code: "invalid_path_param",
+      message: "Invalid memberId.",
+      details: { name: "memberId" },
     });
   } finally {
     await server.close();

@@ -208,6 +208,34 @@ test("accepts video:share with an initial playback state", () => {
   );
 });
 
+test("accepts video:share with a bangumi video id and valid actor identifiers", () => {
+  assert.equal(
+    isClientMessage({
+      type: "video:share",
+      payload: {
+        memberToken: VALID_TOKEN,
+        video: {
+          videoId: "ep508404:p2",
+          url: "https://www.bilibili.com/bangumi/play/ep508404?p=2",
+          title: "Bangumi",
+          sharedByMemberId: "member_01:host",
+        },
+        playback: {
+          url: "https://www.bilibili.com/bangumi/play/ep508404?p=2",
+          currentTime: 12,
+          playState: "playing",
+          playbackRate: 1,
+          updatedAt: 1,
+          serverTime: 0,
+          actorId: "member_01:host",
+          seq: 1,
+        },
+      },
+    }),
+    true,
+  );
+});
+
 test("rejects playback:update with an invalid play state", () => {
   assert.equal(
     isClientMessage({
@@ -344,6 +372,41 @@ test("rejects playback:update with an invalid actorId format", () => {
           serverTime: 1,
           actorId: "member 1",
           seq: 1,
+        },
+      },
+    }),
+    false,
+  );
+});
+
+test("rejects video:share with an invalid sharedByMemberId format", () => {
+  assert.equal(
+    isClientMessage({
+      type: "video:share",
+      payload: {
+        memberToken: VALID_TOKEN,
+        video: {
+          videoId: "BV1xx411c7mD",
+          url: "https://www.bilibili.com/video/BV1xx411c7mD",
+          title: "Video",
+          sharedByMemberId: "member 1",
+        },
+      },
+    }),
+    false,
+  );
+});
+
+test("rejects video:share with an invalid paged videoId format", () => {
+  assert.equal(
+    isClientMessage({
+      type: "video:share",
+      payload: {
+        memberToken: VALID_TOKEN,
+        video: {
+          videoId: "BV1xx411c7mD:p0",
+          url: "https://www.bilibili.com/video/BV1xx411c7mD?p=1",
+          title: "Video",
         },
       },
     }),

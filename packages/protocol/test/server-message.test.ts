@@ -111,6 +111,20 @@ test("accepts room:state when playback sync intent is explicit-ratechange", () =
   );
 });
 
+test("accepts room:joined when memberId uses max-compatible actor format", () => {
+  assert.equal(
+    isServerMessage({
+      type: "room:joined",
+      payload: {
+        roomCode: "ABC123",
+        memberId: "member_01:host",
+        memberToken: VALID_TOKEN,
+      },
+    }),
+    true,
+  );
+});
+
 test("rejects room:created when memberId format is invalid", () => {
   assert.equal(
     isServerMessage({
@@ -148,6 +162,26 @@ test("rejects room:state when playback sync intent is invalid", () => {
           actorId: "member-1",
           seq: 1,
         },
+        members: [{ id: "member-1", name: "Alice" }],
+      },
+    }),
+    false,
+  );
+});
+
+test("rejects room:state when sharedByMemberId format is invalid", () => {
+  assert.equal(
+    isServerMessage({
+      type: "room:state",
+      payload: {
+        roomCode: "ABC123",
+        sharedVideo: {
+          videoId: "BV1xx411c7mD",
+          url: "https://www.bilibili.com/video/BV1xx411c7mD",
+          title: "Video",
+          sharedByMemberId: "member 1",
+        },
+        playback: null,
         members: [{ id: "member-1", name: "Alice" }],
       },
     }),
