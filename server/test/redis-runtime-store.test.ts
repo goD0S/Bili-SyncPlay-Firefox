@@ -136,3 +136,39 @@ test("redis runtime store updates session display names when the session is re-r
     await storeB.close();
   }
 });
+
+test("redis runtime store keeps only the latest room membership after rapid room switches", async (t) => {
+  if (!REDIS_URL) {
+    t.skip("REDIS_URL is not configured.");
+    return;
+  }
+
+  const keyPrefix = createKeyPrefix();
+  const store = await createRedisRuntimeStore(REDIS_URL, {
+    keyPrefix,
+  });
+  const observer = await createRedisRuntimeStore(REDIS_URL, {
+    keyPrefix,
+  });
+  const session = createSession("session-race");
+
+  try {
+    store.registerSession(session);
+    store.markSessionJoinedRoom(session.id, "ROOMA1");
+    store.markSessionJoinedRoom(session.id, "ROOMB1");
+    await store.flush?.();
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    const roomA = await observer.listClusterSessionsByRoom("ROOMA1");
+    const roomB = await observer.listClusterSessionsByRoom("ROOMB1");
+    const clusterSessions = await observer.listClusterSessions();
+    const storedSession = clusterSessions.find((entry) => entry.id === session.id);
+
+    assert.deepEqual(roomA.map((entry) => entry.id), []);
+    assert.deepEqual(roomB.map((entry) => entry.id), [session.id]);
+    assert.equal(storedSession?.roomCode, "ROOMB1");
+  } finally {
+    await store.close();
+    await observer.close();
+  }
+});

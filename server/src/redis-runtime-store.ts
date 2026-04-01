@@ -147,6 +147,7 @@ export async function createRedisRuntimeStore(
   const now = options.now ?? Date.now;
   const localRuntimeStore = createInMemoryRuntimeStore(now);
   const pendingOperations = new Set<Promise<unknown>>();
+  const sessionOperationChains = new Map<string, Promise<void>>();
 
   await redis.connect();
 
@@ -155,6 +156,23 @@ export async function createRedisRuntimeStore(
     void operation.finally(() => {
       pendingOperations.delete(operation);
     });
+  }
+
+  function queueSessionOperation(
+    sessionId: string,
+    operation: () => Promise<void>,
+  ): void {
+    const previous = sessionOperationChains.get(sessionId) ?? Promise.resolve();
+    const next = previous
+      .catch(() => {})
+      .then(operation)
+      .finally(() => {
+        if (sessionOperationChains.get(sessionId) === next) {
+          sessionOperationChains.delete(sessionId);
+        }
+      });
+    sessionOperationChains.set(sessionId, next);
+    trackOperation(next);
   }
 
   const store = {
@@ -187,68 +205,57 @@ export async function createRedisRuntimeStore(
     unregisterSession(sessionId: string) {
       const session = localRuntimeStore.getSession(sessionId);
       localRuntimeStore.unregisterSession(sessionId);
-      trackOperation(
-        (async () => {
-          const roomCode =
-            session?.roomCode ??
-            (await loadSession(redis, keyPrefix, sessionId))?.roomCode;
-          const transaction = redis.multi();
-          transaction.srem(`${keyPrefix}sessions`, sessionId);
-          transaction.del(sessionKey(keyPrefix, sessionId));
-          if (roomCode) {
-            transaction.srem(roomSessionsKey(keyPrefix, roomCode), sessionId);
-          }
-          await transaction.exec();
-          if (roomCode) {
-            await cleanupEmptyRoomIndex(redis, keyPrefix, roomCode);
-          }
-        })(),
-      );
+      queueSessionOperation(sessionId, async () => {
+        const roomCode =
+          session?.roomCode ?? (await loadSession(redis, keyPrefix, sessionId))?.roomCode;
+        const transaction = redis.multi();
+        transaction.srem(`${keyPrefix}sessions`, sessionId);
+        transaction.del(sessionKey(keyPrefix, sessionId));
+        if (roomCode) {
+          transaction.srem(roomSessionsKey(keyPrefix, roomCode), sessionId);
+        }
+        await transaction.exec();
+        if (roomCode) {
+          await cleanupEmptyRoomIndex(redis, keyPrefix, roomCode);
+        }
+      });
     },
     markSessionJoinedRoom(sessionId: string, roomCode: string) {
-      const previousRoomCode =
-        localRuntimeStore.getSession(sessionId)?.roomCode;
       localRuntimeStore.markSessionJoinedRoom(sessionId, roomCode);
-      trackOperation(
-        (async () => {
-          const transaction = redis.multi();
-          if (previousRoomCode && previousRoomCode !== roomCode) {
-            transaction.srem(
-              roomSessionsKey(keyPrefix, previousRoomCode),
-              sessionId,
-            );
-          }
-          transaction.hset(
-            sessionKey(keyPrefix, sessionId),
-            "roomCode",
-            roomCode,
+      queueSessionOperation(sessionId, async () => {
+        const previousRoomCode =
+          (await loadSession(redis, keyPrefix, sessionId))?.roomCode ?? null;
+        const transaction = redis.multi();
+        if (previousRoomCode && previousRoomCode !== roomCode) {
+          transaction.srem(
+            roomSessionsKey(keyPrefix, previousRoomCode),
+            sessionId,
           );
-          transaction.sadd(roomSessionsKey(keyPrefix, roomCode), sessionId);
-          transaction.sadd(`${keyPrefix}rooms`, roomCode);
-          await transaction.exec();
-          if (previousRoomCode && previousRoomCode !== roomCode) {
-            await cleanupEmptyRoomIndex(redis, keyPrefix, previousRoomCode);
-          }
-        })(),
-      );
+        }
+        transaction.hset(sessionKey(keyPrefix, sessionId), "roomCode", roomCode);
+        transaction.sadd(roomSessionsKey(keyPrefix, roomCode), sessionId);
+        transaction.sadd(`${keyPrefix}rooms`, roomCode);
+        await transaction.exec();
+        if (previousRoomCode && previousRoomCode !== roomCode) {
+          await cleanupEmptyRoomIndex(redis, keyPrefix, previousRoomCode);
+        }
+      });
     },
     markSessionLeftRoom(sessionId: string, roomCode?: string | null) {
-      const targetRoomCode =
-        roomCode ?? localRuntimeStore.getSession(sessionId)?.roomCode ?? null;
       localRuntimeStore.markSessionLeftRoom(sessionId, roomCode);
-      if (!targetRoomCode) {
-        return;
-      }
-      trackOperation(
-        (async () => {
-          await redis
-            .multi()
-            .hset(sessionKey(keyPrefix, sessionId), "roomCode", "")
-            .srem(roomSessionsKey(keyPrefix, targetRoomCode), sessionId)
-            .exec();
-          await cleanupEmptyRoomIndex(redis, keyPrefix, targetRoomCode);
-        })(),
-      );
+      queueSessionOperation(sessionId, async () => {
+        const targetRoomCode =
+          roomCode ?? (await loadSession(redis, keyPrefix, sessionId))?.roomCode ?? null;
+        if (!targetRoomCode) {
+          return;
+        }
+        await redis
+          .multi()
+          .hset(sessionKey(keyPrefix, sessionId), "roomCode", "")
+          .srem(roomSessionsKey(keyPrefix, targetRoomCode), sessionId)
+          .exec();
+        await cleanupEmptyRoomIndex(redis, keyPrefix, targetRoomCode);
+      });
     },
     recordEvent(event: string, timestamp?: number) {
       localRuntimeStore.recordEvent(event, timestamp);
