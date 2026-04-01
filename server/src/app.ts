@@ -103,6 +103,10 @@ export type SyncServerDependencies = {
   serviceVersion?: string;
 };
 
+type Closeable = {
+  close: () => Promise<void>;
+};
+
 type ShutdownStep = {
   name: string;
   run: () => Promise<void> | void;
@@ -145,6 +149,10 @@ export async function runShutdownSteps(
       }
     }
   }
+}
+
+function hasClose(value: object | null | undefined): value is Closeable {
+  return typeof value === "object" && value !== null && "close" in value;
 }
 
 export async function cleanupSessionAfterClose(options: {
@@ -563,7 +571,7 @@ export async function createSyncServer(
   }
 
   function parseIncomingMessage(raw: RawData): unknown {
-    return JSON.parse(raw.toString()) as unknown;
+    return JSON.parse(raw.toString());
   }
 
   function decodeCloseReason(reason: Buffer): string {
@@ -740,25 +748,8 @@ export async function createSyncServer(
   return {
     httpServer,
     close: async () => {
-      const maybeClosableStore = roomStore as RoomStore & {
-        close?: () => Promise<void>;
-      };
-      const maybeClosableEventStore = eventStore as GlobalEventStore & {
-        close?: () => Promise<void>;
-      };
-      const maybeClosableAdminCommandBus =
-        adminCommandBus as AdminCommandBus & {
-          close?: () => Promise<void>;
-        };
-      const maybeClosableRoomEventBus = roomEventBus as RoomEventBus & {
-        close?: () => Promise<void>;
-      };
       const maybeClosableRuntimeStore =
-        sharedRuntimeStore === localRuntimeStore
-          ? null
-          : (sharedRuntimeStore as typeof sharedRuntimeStore & {
-              close?: () => Promise<void>;
-            });
+        sharedRuntimeStore === localRuntimeStore ? null : sharedRuntimeStore;
 
       await runShutdownSteps(
         [
@@ -809,15 +800,18 @@ export async function createSyncServer(
           },
           {
             name: "close_room_store",
-            run: () => maybeClosableStore.close?.(),
+            run: () => (hasClose(roomStore) ? roomStore.close() : undefined),
           },
           {
             name: "close_event_store",
-            run: () => maybeClosableEventStore.close?.(),
+            run: () => (hasClose(eventStore) ? eventStore.close() : undefined),
           },
           {
             name: "close_shared_runtime_store",
-            run: () => maybeClosableRuntimeStore?.close?.(),
+            run: () =>
+              hasClose(maybeClosableRuntimeStore)
+                ? maybeClosableRuntimeStore.close()
+                : undefined,
           },
           {
             name: "close_admin_command_consumer",
@@ -825,7 +819,8 @@ export async function createSyncServer(
           },
           {
             name: "close_admin_command_bus",
-            run: () => maybeClosableAdminCommandBus.close?.(),
+            run: () =>
+              hasClose(adminCommandBus) ? adminCommandBus.close() : undefined,
           },
           {
             name: "close_room_event_consumer",
@@ -833,7 +828,8 @@ export async function createSyncServer(
           },
           {
             name: "close_room_event_bus",
-            run: () => maybeClosableRoomEventBus.close?.(),
+            run: () =>
+              hasClose(roomEventBus) ? roomEventBus.close() : undefined,
           },
           {
             name: "close_admin_services",

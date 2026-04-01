@@ -66,6 +66,51 @@ type RuntimeStoreOptions = {
   ) => void;
 };
 
+const RUNTIME_STORE_METHOD_NAMES = [
+  "registerSession",
+  "flush",
+  "unregisterSession",
+  "markSessionJoinedRoom",
+  "markSessionLeftRoom",
+  "recordEvent",
+  "getSession",
+  "listSessionsByRoom",
+  "getConnectionCount",
+  "getActiveRoomCount",
+  "getActiveMemberCount",
+  "getStartedAt",
+  "getRecentEventCounts",
+  "getLifetimeEventCounts",
+  "getActiveRoomCodes",
+  "getRoom",
+  "getOrCreateRoom",
+  "addMember",
+  "findMemberIdByToken",
+  "isMemberTokenBlocked",
+  "blockMemberToken",
+  "removeMember",
+  "deleteRoom",
+  "heartbeatNode",
+  "listNodeStatuses",
+  "purgeNodeStatus",
+  "countClusterActiveRooms",
+  "listClusterSessionsByRoom",
+  "listClusterSessions",
+  "close",
+] as const;
+
+function assertRuntimeStoreShape(
+  value: object,
+): asserts value is RuntimeStore & { close: () => Promise<void> } {
+  for (const methodName of RUNTIME_STORE_METHOD_NAMES) {
+    if (typeof Reflect.get(value, methodName) !== "function") {
+      throw new TypeError(
+        `Redis runtime store is missing method: ${methodName}`,
+      );
+    }
+  }
+}
+
 function normalizeNullable(value: string | undefined): string | null {
   return value && value.length > 0 ? value : null;
 }
@@ -651,5 +696,6 @@ export async function createRedisRuntimeStore(
     },
   };
 
-  return store as unknown as RuntimeStore & { close: () => Promise<void> };
+  assertRuntimeStoreShape(store);
+  return store;
 }
