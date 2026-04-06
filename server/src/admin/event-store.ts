@@ -11,6 +11,7 @@ export type EventStoreQuery = GlobalEventStoreQuery;
 
 export function createEventStore(capacity = 1_000): EventStore {
   const events: RuntimeEvent[] = [];
+  const cumulativeCounts = new Map<string, number>();
 
   function eventTime(event: RuntimeEvent): number {
     return Date.parse(event.timestamp);
@@ -40,6 +41,10 @@ export function createEventStore(capacity = 1_000): EventStore {
       };
 
       events.push(event);
+      cumulativeCounts.set(
+        event.event,
+        (cumulativeCounts.get(event.event) ?? 0) + 1,
+      );
       if (events.length > capacity) {
         events.shift();
       }
@@ -89,6 +94,11 @@ export function createEventStore(capacity = 1_000): EventStore {
         items: filtered.slice(start, start + query.pageSize),
         total: filtered.length,
       };
+    },
+    totalCountsByEvent(eventNames) {
+      return Object.fromEntries(
+        eventNames.map((name) => [name, cumulativeCounts.get(name) ?? 0]),
+      );
     },
   };
 }

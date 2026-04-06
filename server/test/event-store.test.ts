@@ -63,6 +63,51 @@ test("in-memory event store keeps query semantics through the global interface",
   assert.notEqual(created.id, joined.id);
 });
 
+test("totalCountsByEvent persists counts after events are evicted from the ring buffer", async () => {
+  const store = createEventStore(2);
+
+  await store.append({
+    event: "room_created",
+    timestamp: "2026-03-26T10:00:00.000Z",
+    data: { roomCode: "ROOM01", result: "ok" },
+  });
+  await store.append({
+    event: "room_created",
+    timestamp: "2026-03-26T10:00:01.000Z",
+    data: { roomCode: "ROOM02", result: "ok" },
+  });
+
+  const midCounts = await store.totalCountsByEvent(["room_created"]);
+  assert.equal(midCounts.room_created, 2);
+
+  await store.append({
+    event: "room_joined",
+    timestamp: "2026-03-26T10:00:02.000Z",
+    data: { roomCode: "ROOM01", result: "ok" },
+  });
+  await store.append({
+    event: "room_joined",
+    timestamp: "2026-03-26T10:00:03.000Z",
+    data: { roomCode: "ROOM02", result: "ok" },
+  });
+
+  const queryResult = await store.query({
+    event: "room_created",
+    page: 1,
+    pageSize: 10,
+  });
+  assert.equal(queryResult.total, 0);
+
+  const counts = await store.totalCountsByEvent([
+    "room_created",
+    "room_joined",
+    "nonexistent",
+  ]);
+  assert.equal(counts.room_created, 2);
+  assert.equal(counts.room_joined, 2);
+  assert.equal(counts.nonexistent, 0);
+});
+
 test("in-memory event store hides system events by default and can include them on demand", async () => {
   const store = createEventStore();
 

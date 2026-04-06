@@ -10,6 +10,7 @@ import type {
 import type { RuntimeEvent } from "./types.js";
 
 const DEFAULT_EVENT_STREAM_KEY = "bsp:events";
+const DEFAULT_EVENT_COUNTS_KEY = "bsp:event_counts";
 const DEFAULT_EVENT_STREAM_MAX_LEN = 1_000;
 
 function normalizeNullable(value: string | undefined): string | null {
@@ -87,6 +88,7 @@ export async function createRedisEventStore(
   redisUrl: string,
   options: {
     streamKey?: string;
+    countsKey?: string;
     maxLen?: number;
   } = {},
 ): Promise<GlobalEventStore & { close: () => Promise<void> }> {
@@ -95,11 +97,37 @@ export async function createRedisEventStore(
     maxRetriesPerRequest: 1,
   });
   const streamKey = options.streamKey ?? DEFAULT_EVENT_STREAM_KEY;
+  const countsKey = options.countsKey ?? DEFAULT_EVENT_COUNTS_KEY;
   const maxLen = options.maxLen ?? DEFAULT_EVENT_STREAM_MAX_LEN;
   let closing = false;
   let pendingAppend = Promise.resolve();
 
   await redis.connect();
+
+  // Backfill cumulative counts from existing stream entries if the hash
+  // does not exist yet (first startup after upgrade).
+  const hashExists = await redis.exists(countsKey);
+  if (!hashExists) {
+    const allEntries = await redis.xrange(streamKey, "-", "+");
+    if (allEntries.length > 0) {
+      const counts = new Map<string, number>();
+      for (const [, fieldValues] of allEntries) {
+        for (let i = 0; i < fieldValues.length; i += 2) {
+          if (fieldValues[i] === "event" && fieldValues[i + 1]) {
+            const name = fieldValues[i + 1];
+            counts.set(name, (counts.get(name) ?? 0) + 1);
+          }
+        }
+      }
+      if (counts.size > 0) {
+        const args: string[] = [];
+        for (const [name, count] of counts) {
+          args.push(name, String(count));
+        }
+        await redis.hset(countsKey, ...args);
+      }
+    }
+  }
 
   async function queryEvents(
     query: GlobalEventStoreQuery,
@@ -199,7 +227,10 @@ export async function createRedisEventStore(
             "Redis did not return a stream id for appended event.",
           );
         }
-        await redis.xtrim(streamKey, "MAXLEN", "=", maxLen);
+        await Promise.all([
+          redis.xtrim(streamKey, "MAXLEN", "=", maxLen),
+          redis.hincrby(countsKey, input.event, 1),
+        ]);
 
         return {
           ...runtimeEvent,
@@ -216,6 +247,19 @@ export async function createRedisEventStore(
     },
     async query(query) {
       return await queryEvents(query);
+    },
+    async totalCountsByEvent(eventNames: readonly string[]) {
+      if (eventNames.length === 0) {
+        return {};
+      }
+      await pendingAppend;
+      const values = await redis.hmget(countsKey, ...eventNames);
+      return Object.fromEntries(
+        eventNames.map((name, i) => [
+          name,
+          values[i] ? parseInt(values[i], 10) : 0,
+        ]),
+      );
     },
     async close() {
       closing = true;

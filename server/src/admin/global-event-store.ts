@@ -32,4 +32,7 @@ export type GlobalEventStore = {
   query: (
     query: GlobalEventStoreQuery,
   ) => GlobalEventStoreQueryResult | Promise<GlobalEventStoreQueryResult>;
+  totalCountsByEvent: (
+    eventNames: readonly string[],
+  ) => Record<string, number> | Promise<Record<string, number>>;
 };

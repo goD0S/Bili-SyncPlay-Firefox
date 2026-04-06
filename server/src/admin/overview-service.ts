@@ -22,25 +22,14 @@ export function createAdminOverviewService(options: {
 }) {
   const now = options.now ?? Date.now;
 
-  async function getEventCounts(
-    query: {
-      from?: number;
-      to?: number;
-    } = {},
+  async function collectEventCounts(
+    fetcher: (eventName: string) => Promise<number>,
   ): Promise<Record<(typeof OVERVIEW_EVENT_NAMES)[number], number>> {
     const results = await Promise.all(
-      OVERVIEW_EVENT_NAMES.map(async (eventName) => {
-        const result = await options.eventStore.query({
-          event: eventName,
-          from: query.from,
-          to: query.to,
-          page: 1,
-          pageSize: 1,
-        });
-        return [eventName, result.total] as const;
-      }),
+      OVERVIEW_EVENT_NAMES.map(
+        async (name) => [name, await fetcher(name)] as const,
+      ),
     );
-
     return Object.fromEntries(results) as Record<
       (typeof OVERVIEW_EVENT_NAMES)[number],
       number
@@ -51,8 +40,19 @@ export function createAdminOverviewService(options: {
     async getOverview() {
       const currentTime = now();
       const [lastMinuteEventCounts, totalEventCounts] = await Promise.all([
-        getEventCounts({ from: currentTime - 60_000, to: currentTime }),
-        getEventCounts(),
+        collectEventCounts(async (name) => {
+          const result = await options.eventStore.query({
+            event: name,
+            from: currentTime - 60_000,
+            to: currentTime,
+            page: 1,
+            pageSize: 1,
+          });
+          return result.total;
+        }),
+        options.eventStore.totalCountsByEvent(OVERVIEW_EVENT_NAMES) as Promise<
+          Record<(typeof OVERVIEW_EVENT_NAMES)[number], number>
+        >,
       ]);
       const totalNonExpired = await options.roomStore.countRooms({
         keyword: undefined,
