@@ -104,6 +104,42 @@ export function createRoomStateApplyController(args: {
   const ignoredRoomStateLogState = { key: null as string | null, at: 0 };
   const nowOf = () => args.getNow?.() ?? Date.now();
 
+  /**
+   * When hydrating an empty room, suppress autoplay only if the video was not
+   * already intentionally playing. This distinguishes two scenarios:
+   *
+   * - **In-room navigation**: the navigation controller sets
+   *   `intendedPlayState = "paused"` before hydration, so autoplay from the
+   *   browser's SPA transition is correctly suppressed.
+   * - **Room creation on an already-playing page**: `intendedPlayState` is
+   *   `"playing"` (updated by broadcast logic), so we skip suppression to
+   *   avoid interrupting the user's active playback.
+   *
+   * The `lastUserGestureAt` check is retained here (unlike the simplified
+   * `sync-guards` path) because the navigation controller already resets
+   * gesture timestamps via `resetUserGestureState` on navigation — so this
+   * check only has practical effect in non-navigation contexts where a genuine
+   * recent gesture should be respected.
+   */
+  function maybeSuppressAutoplayForEmptyRoom(roomCode: string): void {
+    const wasAlreadyIntendedPlaying =
+      args.runtimeState.intendedPlayState === "playing";
+    if (wasAlreadyIntendedPlaying) {
+      return;
+    }
+    args.runtimeState.intendedPlayState = "paused";
+    args.activatePauseHold(args.initialRoomStatePauseHoldMs);
+    const video = args.getVideoElement();
+    if (
+      video &&
+      !video.paused &&
+      nowOf() - args.runtimeState.lastUserGestureAt >= args.userGestureGraceMs
+    ) {
+      args.debugLog(`Suppressed autoplay for empty room ${roomCode}`);
+      pauseVideo(video);
+    }
+  }
+
   function scheduleHydrationRetry(delayMs = 350): void {
     if (args.getHydrateRetryTimer() !== null) {
       return;
@@ -153,24 +189,7 @@ export function createRoomStateApplyController(args: {
       args.clearRemoteFollowPlayingWindow();
       if (decision.acceptedHydration) {
         args.debugLog(`Accepted empty room state for ${state.roomCode}`);
-        const wasAlreadyIntendedPlaying =
-          args.runtimeState.intendedPlayState === "playing";
-        if (!wasAlreadyIntendedPlaying) {
-          args.runtimeState.intendedPlayState = "paused";
-          args.activatePauseHold(args.initialRoomStatePauseHoldMs);
-          const video = args.getVideoElement();
-          if (
-            video &&
-            !video.paused &&
-            nowOf() - args.runtimeState.lastUserGestureAt >=
-              args.userGestureGraceMs
-          ) {
-            args.debugLog(
-              `Suppressed autoplay for empty room ${state.roomCode}`,
-            );
-            pauseVideo(video);
-          }
-        }
+        maybeSuppressAutoplayForEmptyRoom(state.roomCode);
         args.acceptInitialRoomStateHydration();
       }
       return;

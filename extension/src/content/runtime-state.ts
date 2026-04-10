@@ -96,6 +96,19 @@ export interface ContentRuntimeState {
   festivalSnapshot: FestivalVideoSnapshot | null;
 }
 
+/**
+ * Clear stale user gesture and explicit action state.
+ *
+ * Call this when the playback context changes (e.g. in-room SPA navigation)
+ * so that timestamps from the previous page cannot trick autoplay detection
+ * into treating browser-initiated playback as a user action.
+ */
+export function resetUserGestureState(state: ContentRuntimeState): void {
+  state.lastUserGestureAt = 0;
+  state.lastExplicitPlaybackAction = null;
+  state.lastExplicitUserAction = null;
+}
+
 export function createContentRuntimeState(): ContentRuntimeState {
   return {
     localMemberId: null,
