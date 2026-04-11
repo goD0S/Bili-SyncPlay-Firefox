@@ -90,6 +90,30 @@ test("returns null for invalid or unsupported URLs", () => {
   );
 });
 
+test("parses a video URL with cid and preserves it", () => {
+  assert.deepEqual(
+    parseBilibiliVideoRef(
+      "https://www.bilibili.com/video/BV1ab411c7mD?cid=987654",
+    ),
+    {
+      videoId: "BV1ab411c7mD:987654",
+      normalizedUrl: "https://www.bilibili.com/video/BV1ab411c7mD?cid=987654",
+    },
+  );
+});
+
+test("normalization is idempotent for festival URLs with cid", () => {
+  const festivalUrl =
+    "https://www.bilibili.com/festival/demo?bvid=BV1ab411c7mD&cid=987654";
+  const firstPass = normalizeBilibiliUrl(festivalUrl);
+  assert.equal(
+    firstPass,
+    "https://www.bilibili.com/video/BV1ab411c7mD?cid=987654",
+  );
+  const secondPass = normalizeBilibiliUrl(firstPass);
+  assert.equal(secondPass, firstPass);
+});
+
 test("normalizes supported URLs and rejects unsupported ones", () => {
   assert.equal(
     normalizeBilibiliUrl(

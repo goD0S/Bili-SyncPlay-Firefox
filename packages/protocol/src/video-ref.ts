@@ -79,12 +79,20 @@ export function parseBilibiliVideoRef(
     }
 
     const p = parsed.searchParams.get("p");
-    return {
-      videoId: p ? `${supportedPath.id}:p${p}` : supportedPath.id,
-      normalizedUrl: p
-        ? `${parsed.origin}${parsed.pathname.replace(/\/+$/, "")}?p=${p}`
-        : `${parsed.origin}${parsed.pathname.replace(/\/+$/, "")}`,
-    };
+    const cid =
+      supportedPath.kind === "video" ? parsed.searchParams.get("cid") : null;
+    const basePath = `${parsed.origin}${parsed.pathname.replace(/\/+$/, "")}`;
+    const videoId = cid
+      ? `${supportedPath.id}:${cid}`
+      : p
+        ? `${supportedPath.id}:p${p}`
+        : supportedPath.id;
+    const normalizedUrl = cid
+      ? `${basePath}?cid=${cid}`
+      : p
+        ? `${basePath}?p=${p}`
+        : basePath;
+    return { videoId, normalizedUrl };
   } catch {
     return null;
   }

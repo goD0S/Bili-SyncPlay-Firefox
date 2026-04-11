@@ -247,7 +247,9 @@ export function createRoomSessionController(args: {
     }
 
     if (isSharedVideoChange(decision.previousSharedUrl, nextState)) {
-      args.shareState.lastOpenedSharedUrl = null;
+      if (!decision.confirmedPendingLocalShare) {
+        args.shareState.lastOpenedSharedUrl = null;
+      }
       args.log(
         "background",
         `Shared video switched to ${nextState.sharedVideo?.url ?? "none"}`,
