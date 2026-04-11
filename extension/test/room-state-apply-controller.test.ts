@@ -156,6 +156,28 @@ test("skips pauseVideo when a recent user gesture is within the grace window", a
 
   await harness.controller.applyRoomState(createEmptyRoomState());
 
+  assert.equal(harness.runtimeState.intendedPlayState, "paused");
   assert.equal(harness.pauseHoldActivated, true);
+  assert.equal(harness.acceptedHydration, true);
   assert.equal(video.paused, false);
+});
+
+test("pauses video when gesture age exactly equals the grace window boundary", async () => {
+  const video = createStubVideo(false);
+  const harness = createController({
+    video,
+    now: 10_000,
+    userGestureGraceMs: 1_200,
+  });
+
+  harness.runtimeState.pendingRoomStateHydration = true;
+  harness.runtimeState.intendedPlayState = "paused";
+  harness.runtimeState.lastUserGestureAt = 8_800;
+
+  await harness.controller.applyRoomState(createEmptyRoomState());
+
+  assert.equal(harness.runtimeState.intendedPlayState, "paused");
+  assert.equal(harness.pauseHoldActivated, true);
+  assert.equal(harness.acceptedHydration, true);
+  assert.equal(video.paused, true);
 });
