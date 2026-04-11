@@ -103,6 +103,7 @@ test("suppresses autoplay for empty room when intendedPlayState is paused", asyn
   assert.equal(harness.runtimeState.intendedPlayState, "paused");
   assert.equal(harness.pauseHoldActivated, true);
   assert.equal(harness.acceptedHydration, true);
+  assert.equal(video.paused, true);
 });
 
 test("does not suppress playback for empty room when intendedPlayState is playing", async () => {
@@ -117,6 +118,7 @@ test("does not suppress playback for empty room when intendedPlayState is playin
   assert.equal(harness.runtimeState.intendedPlayState, "playing");
   assert.equal(harness.pauseHoldActivated, false);
   assert.equal(harness.acceptedHydration, true);
+  assert.equal(video.paused, false);
 });
 
 test("suppresses autoplay for empty room after navigation resets gesture state", async () => {
@@ -137,4 +139,23 @@ test("suppresses autoplay for empty room after navigation resets gesture state",
 
   assert.equal(harness.runtimeState.intendedPlayState, "paused");
   assert.equal(harness.pauseHoldActivated, true);
+  assert.equal(video.paused, true);
+});
+
+test("skips pauseVideo when a recent user gesture is within the grace window", async () => {
+  const video = createStubVideo(false);
+  const harness = createController({
+    video,
+    now: 10_000,
+    userGestureGraceMs: 1_200,
+  });
+
+  harness.runtimeState.pendingRoomStateHydration = true;
+  harness.runtimeState.intendedPlayState = "paused";
+  harness.runtimeState.lastUserGestureAt = 9_500;
+
+  await harness.controller.applyRoomState(createEmptyRoomState());
+
+  assert.equal(harness.pauseHoldActivated, true);
+  assert.equal(video.paused, false);
 });
