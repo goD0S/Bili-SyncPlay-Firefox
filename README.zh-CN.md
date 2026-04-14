@@ -209,6 +209,8 @@ node -e "const { createHash } = require('node:crypto'); const password = 'secret
 npm install
 ```
 
+在本地运行仓库级检查前，请先执行 `npm install` 安装依赖；CI 中则统一使用 `npm ci` 基于锁文件做干净安装，然后再执行同一套检查。
+
 推荐直接使用根工作区命令：
 
 ```bash
@@ -233,6 +235,7 @@ npm test
 开发约定：
 
 - 保持入口文件轻量化，并且让共享规则维持单一来源。
+- 本地检查前先执行 `npm install` 安装依赖；CI 中统一先执行 `npm ci`，再跑同一套校验流程。
 - 提交前执行 `npm run lint`、`npm run format:check`、`npm run typecheck`、`npm run build`、`npm test`。
 - 完整贡献约束见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
 

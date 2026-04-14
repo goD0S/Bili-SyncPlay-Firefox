@@ -209,6 +209,8 @@ Install dependencies:
 npm install
 ```
 
+Before running repository checks locally, make sure dependencies have been installed with `npm install`. In CI, use `npm ci` for a clean lockfile-based install before running the same checks.
+
 Recommended root workspace commands:
 
 ```bash
@@ -233,6 +235,7 @@ Useful command matrix:
 Development constraints:
 
 - Keep entry files thin and keep shared rules in a single source of truth.
+- Install dependencies with `npm install` before running local checks; use `npm ci` in CI before the same verification flow.
 - Run `npm run lint`, `npm run format:check`, `npm run typecheck`, `npm run build`, and `npm test` before committing changes.
 - See [CONTRIBUTING.md](./CONTRIBUTING.md) for the full contribution and refactoring constraints.
 
