@@ -32,7 +32,17 @@ type RedisClient = {
   srem: (key: string, ...members: string[]) => Promise<unknown>;
   zadd: (key: string, score: string, member: string) => Promise<unknown>;
   zremrangebyscore: (key: string, min: number, max: number) => Promise<unknown>;
+  zrange: (key: string, start: number, stop: number) => Promise<string[]>;
+  zrem: (key: string, ...members: string[]) => Promise<unknown>;
   zscore: (key: string, member: string) => Promise<string | null>;
+  set: (
+    key: string,
+    value: string,
+    nx: "NX",
+    px: "PX",
+    milliseconds: number,
+  ) => Promise<string | null>;
+  del: (...keys: string[]) => Promise<unknown>;
 };
 
 type PendingOperationLogContext = {
@@ -88,6 +98,8 @@ const RUNTIME_STORE_METHOD_NAMES = [
   "findMemberIdByToken",
   "isMemberTokenBlocked",
   "blockMemberToken",
+  "tryClaimMessageSlot",
+  "releaseMessageSlot",
   "removeMember",
   "deleteRoom",
   "heartbeatNode",
@@ -138,6 +150,14 @@ function roomMemberTokensKey(prefix: string, roomCode: string): string {
 
 function blockedTokensKey(prefix: string, roomCode: string): string {
   return `${prefix}room:${roomCode}:blocked-member-tokens`;
+}
+
+function dedupSlotKey(prefix: string, roomCode: string, key: string): string {
+  return `${prefix}room:${roomCode}:dedup:${key}`;
+}
+
+function dedupTrackingZsetKey(prefix: string, roomCode: string): string {
+  return `${prefix}room:${roomCode}:dedup-slots`;
 }
 
 function nodesKey(prefix: string): string {
@@ -625,6 +645,36 @@ export async function createRedisRuntimeStore(
         currentTime,
       );
     },
+    async tryClaimMessageSlot(
+      roomCode: string,
+      key: string,
+      expiresAt: number,
+    ) {
+      const ttlMs = Math.max(0, expiresAt - now());
+      if (ttlMs === 0) return true;
+      const slotKey = dedupSlotKey(keyPrefix, roomCode, key);
+      const result = await redis.set(slotKey, "1", "NX", "PX", ttlMs);
+      if (result !== null) {
+        const trackingKey = dedupTrackingZsetKey(keyPrefix, roomCode);
+        try {
+          // Await so deleteRoom's ZRANGE always sees this entry.
+          // If tracking fails, the slot still expires via its TTL.
+          await Promise.all([
+            redis.zadd(trackingKey, String(expiresAt), slotKey),
+            redis.zremrangebyscore(trackingKey, 0, now() - 1),
+          ]);
+        } catch {
+          // Tracking write failed; deleteRoom may miss this slot in ZRANGE,
+          // but the slot will expire on its own within the TTL window.
+        }
+      }
+      return result !== null;
+    },
+    async releaseMessageSlot(roomCode: string, key: string) {
+      const slotKey = dedupSlotKey(keyPrefix, roomCode, key);
+      const trackingKey = dedupTrackingZsetKey(keyPrefix, roomCode);
+      await Promise.all([redis.del(slotKey), redis.zrem(trackingKey, slotKey)]);
+    },
     removeMember(code: string, memberId: string, session?: Session) {
       ensurePendingCapacity("remove_member");
       const removal = localRuntimeStore.removeMember(code, memberId, session);
@@ -651,14 +701,22 @@ export async function createRedisRuntimeStore(
       localRuntimeStore.deleteRoom(code);
       void trackOperation(
         "delete_room",
-        redis
-          .multi()
-          .del(roomMembersKey(keyPrefix, code))
-          .del(roomMemberTokensKey(keyPrefix, code))
-          .del(blockedTokensKey(keyPrefix, code))
-          .del(roomSessionsKey(keyPrefix, code))
-          .srem(`${keyPrefix}rooms`, code)
-          .exec(),
+        (async () => {
+          const trackingKey = dedupTrackingZsetKey(keyPrefix, code);
+          const dedupKeys = await redis.zrange(trackingKey, 0, -1);
+          const multi = redis
+            .multi()
+            .del(roomMembersKey(keyPrefix, code))
+            .del(roomMemberTokensKey(keyPrefix, code))
+            .del(blockedTokensKey(keyPrefix, code))
+            .del(roomSessionsKey(keyPrefix, code))
+            .del(trackingKey)
+            .srem(`${keyPrefix}rooms`, code);
+          if (dedupKeys.length > 0) {
+            multi.del(...dedupKeys);
+          }
+          return multi.exec();
+        })(),
       );
     },
     async close() {

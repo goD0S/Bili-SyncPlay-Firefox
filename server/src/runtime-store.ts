@@ -66,6 +66,12 @@ export type RuntimeStore = {
   listClusterActiveRoomCodes: () => Promise<string[]>;
   listClusterSessionsByRoom: (roomCode: string) => Promise<Session[]>;
   listClusterSessions: () => Promise<Session[]>;
+  tryClaimMessageSlot: (
+    roomCode: string,
+    key: string,
+    expiresAt: number,
+  ) => Promise<boolean>;
+  releaseMessageSlot: (roomCode: string, key: string) => Promise<void>;
 };
 
 export function createInMemoryRuntimeStore(
@@ -79,6 +85,7 @@ export function createInMemoryRuntimeStore(
   const lifetimeEventCounts: Record<string, number> = {};
   const rooms = new Map<string, ActiveRoom>();
   const blockedMemberTokensByRoom = new Map<string, KickedMemberBlock[]>();
+  const claimedSlotsByRoom = new Map<string, Map<string, number>>();
   const nodeStatuses = new Map<string, ClusterNodeStatus>();
 
   function pruneEvents(currentTime: number): void {
@@ -243,6 +250,24 @@ export function createInMemoryRuntimeStore(
       const activeEntries = pruneBlockedMemberTokens(code, currentTime);
       return activeEntries.some((entry) => entry.memberToken === memberToken);
     },
+    tryClaimMessageSlot(roomCode, key, expiresAt) {
+      const currentTime = now();
+      const roomSlots =
+        claimedSlotsByRoom.get(roomCode) ?? new Map<string, number>();
+      for (const [k, exp] of roomSlots) {
+        if (exp <= currentTime) roomSlots.delete(k);
+      }
+      if (roomSlots.has(key)) {
+        return Promise.resolve(false);
+      }
+      roomSlots.set(key, expiresAt);
+      claimedSlotsByRoom.set(roomCode, roomSlots);
+      return Promise.resolve(true);
+    },
+    releaseMessageSlot(roomCode, key) {
+      claimedSlotsByRoom.get(roomCode)?.delete(key);
+      return Promise.resolve();
+    },
     removeMember(code, memberId, session) {
       return removeMemberFromRoom(rooms, code, memberId, session);
     },
@@ -250,6 +275,7 @@ export function createInMemoryRuntimeStore(
       rooms.delete(code);
       roomSessionIds.delete(code);
       blockedMemberTokensByRoom.delete(code);
+      claimedSlotsByRoom.delete(code);
     },
     async heartbeatNode(status) {
       nodeStatuses.set(status.instanceId, { ...status });

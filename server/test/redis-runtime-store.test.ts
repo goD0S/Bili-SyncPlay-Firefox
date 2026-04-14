@@ -106,7 +106,19 @@ function createFakeRedisClient(execPromises: Promise<unknown>[]) {
     async zremrangebyscore() {
       return null;
     },
+    async zrange() {
+      return [];
+    },
+    async zrem() {
+      return null;
+    },
     async zscore() {
+      return null;
+    },
+    async set() {
+      return "OK";
+    },
+    async del() {
       return null;
     },
   };
