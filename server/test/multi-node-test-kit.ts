@@ -197,7 +197,7 @@ export async function createMultiNodeTestKit(
     nodeHeartbeatIntervalMs: 200,
     nodeHeartbeatTtlMs: 600,
   };
-  const securityConfig = {
+  const securityConfig = options.securityConfig ?? {
     ...getDefaultSecurityConfig(),
     ...options.securityConfig,
     allowedOrigins: [MULTI_NODE_ALLOWED_ORIGIN],
