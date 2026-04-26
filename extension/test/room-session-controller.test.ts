@@ -377,6 +377,74 @@ test("room session controller replays member deltas received before bootstrap st
   assert.equal(harness.notifyContentMessages.length, 1);
 });
 
+test("room session controller queues reconnect deltas until fresh bootstrap state", async () => {
+  const harness = createControllerHarness();
+  harness.runtimeState.room.roomCode = "ROOM04";
+  harness.runtimeState.room.roomState = {
+    roomCode: "ROOM04",
+    sharedVideo: {
+      videoId: "BV1old",
+      url: "https://www.bilibili.com/video/BV1old",
+      title: "Old Video",
+      sharedByMemberId: "member-1",
+    },
+    playback: null,
+    members: [{ id: "member-1", name: "Alice" }],
+  };
+
+  await harness.controller.handleServerMessage({
+    type: "room:joined",
+    payload: {
+      roomCode: "ROOM04",
+      memberToken: "member-token-1",
+      memberId: "member-1",
+    },
+  } satisfies ServerMessage);
+  await harness.controller.handleServerMessage({
+    type: "room:member-joined",
+    payload: {
+      roomCode: "ROOM04",
+      member: { id: "member-2", name: "Bob" },
+    },
+  } satisfies ServerMessage);
+
+  assert.deepEqual(harness.runtimeState.room.roomState.members, [
+    { id: "member-1", name: "Alice" },
+  ]);
+  assert.equal(
+    harness.runtimeState.room.roomState.sharedVideo?.url,
+    "https://www.bilibili.com/video/BV1old",
+  );
+  assert.equal(harness.persistReasons.length, 1);
+  assert.equal(harness.notifyContentMessages.length, 0);
+
+  await harness.controller.handleServerMessage({
+    type: "room:state",
+    payload: {
+      roomCode: "ROOM04",
+      sharedVideo: {
+        videoId: "BV1new",
+        url: "https://www.bilibili.com/video/BV1new",
+        title: "New Video",
+        sharedByMemberId: "member-2",
+      },
+      playback: null,
+      members: [{ id: "member-1", name: "Alice" }],
+    },
+  } satisfies ServerMessage);
+
+  assert.deepEqual(harness.runtimeState.room.roomState?.members, [
+    { id: "member-1", name: "Alice" },
+    { id: "member-2", name: "Bob" },
+  ]);
+  assert.equal(
+    harness.runtimeState.room.roomState?.sharedVideo?.url,
+    "https://www.bilibili.com/video/BV1new",
+  );
+  assert.equal(harness.persistReasons.length, 2);
+  assert.equal(harness.notifyContentMessages.length, 1);
+});
+
 test("room session controller syncs display name after room creation completes", async () => {
   const harness = createControllerHarness();
   harness.runtimeState.connection.connected = true;

@@ -74,9 +74,14 @@ export function createRoomSessionController(args: {
   let pendingJoinAttemptResolvers: Array<(result: JoinAttemptResult) => void> =
     [];
   let pendingMemberDeltas: PendingMemberDelta[] = [];
+  let waitingForBootstrapRoomState = false;
 
   function clearPendingMemberDeltas(): void {
     pendingMemberDeltas = [];
+  }
+
+  function queueMemberDelta(delta: PendingMemberDelta): void {
+    pendingMemberDeltas.push(delta);
   }
 
   function applyMemberDelta(
@@ -198,6 +203,7 @@ export function createRoomSessionController(args: {
     switch (message.type) {
       case "room:created":
         clearPendingMemberDeltas();
+        waitingForBootstrapRoomState = true;
         args.roomSessionState.pendingJoinRoomCode = null;
         args.roomSessionState.pendingJoinToken = null;
         args.roomSessionState.roomCode = message.payload.roomCode;
@@ -212,6 +218,7 @@ export function createRoomSessionController(args: {
         return;
       case "room:joined":
         clearPendingMemberDeltas();
+        waitingForBootstrapRoomState = true;
         args.roomSessionState.roomCode = message.payload.roomCode;
         args.roomSessionState.joinToken =
           args.roomSessionState.pendingJoinToken ??
@@ -259,6 +266,7 @@ export function createRoomSessionController(args: {
             "background",
             `Join failed for room ${args.roomSessionState.pendingJoinRoomCode}`,
           );
+          waitingForBootstrapRoomState = false;
           settlePendingJoinAttempt("failed");
           args.roomSessionState.pendingJoinRequestSent = false;
           args.roomSessionState.pendingJoinRoomCode = null;
@@ -316,9 +324,16 @@ export function createRoomSessionController(args: {
     member: RoomMember,
   ): Promise<void> {
     const currentState = args.roomSessionState.roomState;
+    if (
+      waitingForBootstrapRoomState &&
+      args.roomSessionState.roomCode === roomCode
+    ) {
+      queueMemberDelta({ type: "joined", roomCode, member });
+      return;
+    }
     if (!currentState || currentState.roomCode !== roomCode) {
       if (!currentState && args.roomSessionState.roomCode === roomCode) {
-        pendingMemberDeltas.push({ type: "joined", roomCode, member });
+        queueMemberDelta({ type: "joined", roomCode, member });
       }
       return;
     }
@@ -333,9 +348,16 @@ export function createRoomSessionController(args: {
     member: RoomMember,
   ): Promise<void> {
     const currentState = args.roomSessionState.roomState;
+    if (
+      waitingForBootstrapRoomState &&
+      args.roomSessionState.roomCode === roomCode
+    ) {
+      queueMemberDelta({ type: "left", roomCode, member });
+      return;
+    }
     if (!currentState || currentState.roomCode !== roomCode) {
       if (!currentState && args.roomSessionState.roomCode === roomCode) {
-        pendingMemberDeltas.push({ type: "left", roomCode, member });
+        queueMemberDelta({ type: "left", roomCode, member });
       }
       return;
     }
@@ -382,6 +404,7 @@ export function createRoomSessionController(args: {
     }
 
     const resolvedState = consumePendingMemberDeltas(nextState);
+    waitingForBootstrapRoomState = false;
     args.roomSessionState.roomState = resolvedState;
     args.roomSessionState.roomCode = resolvedState.roomCode;
     args.connectionState.lastError = null;
@@ -437,6 +460,7 @@ export function createRoomSessionController(args: {
     errorMessage: string | null = null,
   ): Promise<void> {
     clearPendingMemberDeltas();
+    waitingForBootstrapRoomState = false;
     args.log("background", `Clearing current room context (${reason})`);
     args.roomSessionState.roomCode = null;
     args.roomSessionState.joinToken = null;
@@ -458,6 +482,7 @@ export function createRoomSessionController(args: {
   async function requestCreateRoom(): Promise<void> {
     args.resetReconnectState();
     clearPendingMemberDeltas();
+    waitingForBootstrapRoomState = false;
     args.roomSessionState.roomCode = null;
     args.roomSessionState.joinToken = null;
     args.roomSessionState.memberToken = null;
@@ -492,6 +517,7 @@ export function createRoomSessionController(args: {
   ): Promise<void> {
     args.resetReconnectState();
     clearPendingMemberDeltas();
+    waitingForBootstrapRoomState = false;
     args.roomSessionState.pendingCreateRoom = false;
     args.roomSessionState.pendingJoinRoomCode = roomCode.trim().toUpperCase();
     args.roomSessionState.pendingJoinToken = joinToken.trim();
@@ -525,6 +551,7 @@ export function createRoomSessionController(args: {
 
   async function requestLeaveRoom(): Promise<void> {
     clearPendingMemberDeltas();
+    waitingForBootstrapRoomState = false;
     args.log(
       "background",
       `Popup requested leave for ${args.roomSessionState.roomCode ?? "none"}`,

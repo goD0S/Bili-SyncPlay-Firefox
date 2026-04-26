@@ -103,7 +103,7 @@ export function createMessageHandler(options: {
     session: Session,
     roomCode: string,
     previousRoomCode: string | null,
-  ) => void;
+  ) => void | Promise<void>;
   onRoomLeft?: (session: Session, roomCode: string) => void;
   now?: () => number;
 }): {
@@ -309,7 +309,7 @@ export function createMessageHandler(options: {
           if (previousRoomCode && previousRoomCode !== room.code) {
             options.onRoomLeft?.(session, previousRoomCode);
           }
-          options.onRoomJoined?.(session, room.code, previousRoomCode);
+          await options.onRoomJoined?.(session, room.code, previousRoomCode);
           send(socket, {
             type: "room:created",
             payload: {
@@ -367,7 +367,7 @@ export function createMessageHandler(options: {
             if (previousRoomCode && previousRoomCode !== room.code) {
               options.onRoomLeft?.(session, previousRoomCode);
             }
-            options.onRoomJoined?.(session, room.code, previousRoomCode);
+            await options.onRoomJoined?.(session, room.code, previousRoomCode);
             const joinedRoomCode = room.code;
             const joinedMemberId = session.memberId ?? session.id;
             const joinedDisplayName = session.displayName;

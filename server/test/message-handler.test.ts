@@ -848,6 +848,77 @@ test("message handler accepts room:join with matching protocolVersion and return
   assert.equal(sent[1].type, "room:state");
 });
 
+test("message handler waits for room join hook before bootstrap state", async () => {
+  const sent: string[] = [];
+  const session = createSession("joiner");
+  let roomJoinHookFlushed = false;
+  let roomStateReadAfterFlush = false;
+
+  const handler = createMessageHandler({
+    config: CONFIG,
+    roomService: {
+      async createRoomForSession() {
+        throw new Error("unreachable");
+      },
+      async joinRoomForSession(currentSession) {
+        currentSession.roomCode = "ROOM01";
+        currentSession.memberId = "member-2";
+        currentSession.memberToken = "member-token-2";
+        return {
+          room: { code: "ROOM01" },
+          memberToken: "member-token-2",
+        };
+      },
+      async leaveRoomForSession() {
+        return { room: null };
+      },
+      async shareVideoForSession() {
+        throw new Error("unreachable");
+      },
+      async updatePlaybackForSession() {
+        throw new Error("unreachable");
+      },
+      async updateProfileForSession() {
+        throw new Error("unreachable");
+      },
+      async getRoomStateForSession() {
+        roomStateReadAfterFlush = roomJoinHookFlushed;
+        return {
+          roomCode: "ROOM01",
+          sharedVideo: null,
+          playback: null,
+          members: [{ id: "member-2", name: "Alice" }],
+        };
+      },
+    },
+    logEvent() {},
+    send(_socket, message) {
+      sent.push(message.type);
+    },
+    sendError() {
+      throw new Error("sendError should not be called");
+    },
+    async publishRoomEvent() {},
+    async onRoomJoined() {
+      await Promise.resolve();
+      roomJoinHookFlushed = true;
+    },
+    instanceId: "node-a",
+  });
+
+  await handler.handleClientMessage(session, {
+    type: "room:join",
+    payload: {
+      roomCode: "ROOM01",
+      joinToken: "join-token-1",
+      protocolVersion: 2,
+    },
+  });
+
+  assert.deepEqual(sent, ["room:joined", "room:state"]);
+  assert.equal(roomStateReadAfterFlush, true);
+});
+
 test("message handler keeps room:join successful when bootstrap state fails", async () => {
   const sent: string[] = [];
   const errors: string[] = [];
