@@ -282,6 +282,7 @@ test("message handler keeps leave completed when member change publish fails", a
             lastActiveAt: 1,
             expiresAt: null,
           },
+          memberRemoved: true,
         };
       },
       async shareVideoForSession() {
@@ -328,6 +329,64 @@ test("message handler keeps leave completed when member change publish fails", a
   assert.ok(events.includes("room_event_publish_failed"));
 });
 
+test("message handler skips member-left publish when leave did not remove the member", async () => {
+  const published: string[] = [];
+  const session = createSession("old-session", {
+    roomCode: "ROOM01",
+    memberId: "member-1",
+    memberToken: "member-token-1",
+  });
+
+  const handler = createMessageHandler({
+    config: CONFIG,
+    roomService: {
+      async createRoomForSession() {
+        throw new Error("unreachable");
+      },
+      async joinRoomForSession() {
+        throw new Error("unreachable");
+      },
+      async leaveRoomForSession(currentSession) {
+        currentSession.roomCode = null;
+        currentSession.memberId = null;
+        currentSession.memberToken = null;
+        return {
+          room: { code: "ROOM01" },
+          memberRemoved: false,
+        };
+      },
+      async shareVideoForSession() {
+        throw new Error("unreachable");
+      },
+      async updatePlaybackForSession() {
+        throw new Error("unreachable");
+      },
+      async updateProfileForSession() {
+        throw new Error("unreachable");
+      },
+      async getRoomStateForSession() {
+        throw new Error("unreachable");
+      },
+    },
+    logEvent() {},
+    send() {},
+    sendError() {
+      throw new Error("sendError should not be called");
+    },
+    async publishRoomEvent(message) {
+      published.push(message.type);
+    },
+    instanceId: "node-a",
+  });
+
+  await handler.handleClientMessage(session, {
+    type: "room:leave",
+    payload: { memberToken: "member-token-1" },
+  });
+
+  assert.deepEqual(published, []);
+});
+
 test("message handler records monitored duration metrics for critical room paths", async () => {
   const observedTypes: string[] = [];
   const session = createSession("member-1", {
@@ -356,6 +415,7 @@ test("message handler records monitored duration metrics for critical room paths
         return {
           room: { code: "ROOM01" },
           notifyRoom: true,
+          memberRemoved: true,
         };
       },
       async shareVideoForSession() {

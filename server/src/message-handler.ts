@@ -56,9 +56,11 @@ export function createMessageHandler(options: {
       displayName?: string,
       previousMemberToken?: string,
     ) => Promise<{ room: { code: string }; memberToken: string }>;
-    leaveRoomForSession: (
-      session: Session,
-    ) => Promise<{ room: { code: string } | null; notifyRoom?: boolean }>;
+    leaveRoomForSession: (session: Session) => Promise<{
+      room: { code: string } | null;
+      notifyRoom?: boolean;
+      memberRemoved?: boolean;
+    }>;
     shareVideoForSession: (
       session: Session,
       memberToken: string,
@@ -148,11 +150,15 @@ export function createMessageHandler(options: {
     const roomCode = session.roomCode;
     const memberId = session.memberId ?? session.id;
     const displayName = session.displayName;
-    const { room, notifyRoom } = await roomService.leaveRoomForSession(session);
+    const { room, notifyRoom, memberRemoved } =
+      await roomService.leaveRoomForSession(session);
     if (!roomCode || (!room && !notifyRoom)) {
       return;
     }
     options.onRoomLeft?.(session, roomCode);
+    if (!memberRemoved && !notifyRoom) {
+      return;
+    }
 
     try {
       await publishRoomEvent({
