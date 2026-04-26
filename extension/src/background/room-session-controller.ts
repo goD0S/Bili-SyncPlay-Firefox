@@ -1,4 +1,5 @@
 import type {
+  RoomMember,
   RoomState,
   ServerMessage,
   ClientMessage,
@@ -172,6 +173,18 @@ export function createRoomSessionController(args: {
       case "room:state":
         await handleRoomStateMessage(message.payload);
         return;
+      case "room:member-joined":
+        await handleRoomMemberJoined(
+          message.payload.roomCode,
+          message.payload.member,
+        );
+        return;
+      case "room:member-left":
+        await handleRoomMemberLeft(
+          message.payload.roomCode,
+          message.payload.member,
+        );
+        return;
       case "error":
         args.connectionState.lastError = localizeServerError(
           message.payload.code,
@@ -223,6 +236,62 @@ export function createRoomSessionController(args: {
       case "sync:pong":
         return;
     }
+  }
+
+  async function applyRoomMemberState(nextState: RoomState): Promise<void> {
+    args.roomSessionState.roomState = nextState;
+    args.roomSessionState.roomCode = nextState.roomCode;
+    args.connectionState.lastError = null;
+
+    await args.persistState();
+    const compensatedRoomState = args.compensateRoomState(nextState);
+    await args.notifyContentScripts({
+      type: "background:apply-room-state",
+      payload: compensatedRoomState,
+      shareToast: null,
+    });
+    args.notifyAll();
+  }
+
+  async function handleRoomMemberJoined(
+    roomCode: string,
+    member: RoomMember,
+  ): Promise<void> {
+    const currentState = args.roomSessionState.roomState;
+    if (!currentState || currentState.roomCode !== roomCode) {
+      return;
+    }
+
+    const existingMemberIndex = currentState.members.findIndex(
+      (candidate) => candidate.id === member.id,
+    );
+    const members =
+      existingMemberIndex === -1
+        ? [...currentState.members, member]
+        : currentState.members.map((candidate, index) =>
+            index === existingMemberIndex ? member : candidate,
+          );
+    await applyRoomMemberState({
+      ...currentState,
+      members,
+    });
+  }
+
+  async function handleRoomMemberLeft(
+    roomCode: string,
+    member: RoomMember,
+  ): Promise<void> {
+    const currentState = args.roomSessionState.roomState;
+    if (!currentState || currentState.roomCode !== roomCode) {
+      return;
+    }
+
+    await applyRoomMemberState({
+      ...currentState,
+      members: currentState.members.filter(
+        (candidate) => candidate.id !== member.id,
+      ),
+    });
   }
 
   async function handleRoomStateMessage(nextState: RoomState): Promise<void> {

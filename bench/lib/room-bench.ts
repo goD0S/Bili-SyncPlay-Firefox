@@ -287,7 +287,12 @@ async function connectParticipants(
         wsUrl,
         socket,
         inbox: createBenchMessageCollector(socket, {
-          trackedTypes: ["room:created", "room:joined", "room:state"],
+          trackedTypes: [
+            "room:created",
+            "room:joined",
+            "room:state",
+            "room:member-joined",
+          ],
         }),
       };
     }),
@@ -386,7 +391,7 @@ async function initializeRoom(
 
     const joined = await joinerSeed.inbox.next("room:joined");
     await joinerSeed.inbox.next("room:state");
-    await ownerSeed.inbox.next("room:state");
+    await ownerSeed.inbox.next("room:member-joined");
 
     const joinedPayload = joined.payload as {
       memberToken: string;

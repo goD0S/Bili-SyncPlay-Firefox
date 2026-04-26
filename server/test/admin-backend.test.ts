@@ -999,7 +999,7 @@ test("operator can execute admin actions and query audit logs", async () => {
         kickedMemberToken = (joined.payload as { memberToken: string })
           .memberToken;
         await joinerCollector.next("room:state");
-        await ownerCollector.next("room:state");
+        await ownerCollector.next("room:member-joined");
 
         const kick = await requestJson(
           server.httpBaseUrl,

@@ -66,7 +66,12 @@ test("message handler rejects detached sessions before processing", async () => 
         throw new Error("unreachable");
       },
       async getRoomStateForSession() {
-        throw new Error("unreachable");
+        return {
+          roomCode: "ROOM01",
+          sharedVideo: null,
+          playback: null,
+          members: [{ id: "member-1", name: "Alice" }],
+        };
       },
     },
     logEvent() {},
@@ -92,7 +97,7 @@ test("message handler rejects detached sessions before processing", async () => 
   );
 });
 
-test("message handler creates a room, responds, and publishes member change", async () => {
+test("message handler creates a room and sends bootstrap state to the creator", async () => {
   const sent: Array<{ type: string; roomCode?: string }> = [];
   const published: string[] = [];
   const joined: Array<{ roomCode: string; previousRoomCode: string | null }> =
@@ -129,7 +134,12 @@ test("message handler creates a room, responds, and publishes member change", as
         throw new Error("unreachable");
       },
       async getRoomStateForSession() {
-        throw new Error("unreachable");
+        return {
+          roomCode: "ROOM01",
+          sharedVideo: null,
+          playback: null,
+          members: [{ id: "member-1", name: "Alice" }],
+        };
       },
     },
     logEvent(event) {
@@ -163,8 +173,11 @@ test("message handler creates a room, responds, and publishes member change", as
     payload: { displayName: "Alice" },
   });
 
-  assert.deepEqual(sent, [{ type: "room:created", roomCode: "ROOM01" }]);
-  assert.deepEqual(published, ["room_member_changed:ROOM01"]);
+  assert.deepEqual(sent, [
+    { type: "room:created", roomCode: "ROOM01" },
+    { type: "room:state", roomCode: "ROOM01" },
+  ]);
+  assert.deepEqual(published, []);
   assert.deepEqual(joined, [{ roomCode: "ROOM01", previousRoomCode: null }]);
   assert.ok(events.includes("room_created"));
 });
@@ -199,7 +212,12 @@ test("message handler skips room state publish when playback update is ignored",
         throw new Error("unreachable");
       },
       async getRoomStateForSession() {
-        throw new Error("unreachable");
+        return {
+          roomCode: "ROOM-M1",
+          sharedVideo: null,
+          playback: null,
+          members: [{ id: "member-m1", name: "Alice" }],
+        };
       },
     },
     logEvent() {},
@@ -276,7 +294,12 @@ test("message handler keeps leave completed when member change publish fails", a
         throw new Error("unreachable");
       },
       async getRoomStateForSession() {
-        throw new Error("unreachable");
+        return {
+          roomCode: "ROOM01",
+          sharedVideo: null,
+          playback: null,
+          members: [{ id: "member-1", name: "Alice" }],
+        };
       },
     },
     logEvent(event) {
@@ -345,7 +368,12 @@ test("message handler records monitored duration metrics for critical room paths
         throw new Error("unreachable");
       },
       async getRoomStateForSession() {
-        throw new Error("unreachable");
+        return {
+          roomCode: "ROOM01",
+          sharedVideo: null,
+          playback: null,
+          members: [{ id: "member-1", name: "Alice" }],
+        };
       },
     },
     logEvent() {},
@@ -452,7 +480,12 @@ test("message handler accepts room:create without protocolVersion (legacy client
         throw new Error("unreachable");
       },
       async getRoomStateForSession() {
-        throw new Error("unreachable");
+        return {
+          roomCode: "ROOM-M1",
+          sharedVideo: null,
+          playback: null,
+          members: [{ id: "member-m1", name: "Alice" }],
+        };
       },
     },
     logEvent(event) {
@@ -488,9 +521,10 @@ test("message handler accepts room:create without protocolVersion (legacy client
 
   assert.ok(events.includes("protocol_version_missing"));
   assert.ok(events.includes("room_created"));
-  assert.equal(sent.length, 1);
+  assert.equal(sent.length, 2);
   assert.equal(sent[0].type, "room:created");
   assert.equal(sent[0].serverProtocolVersion, 1);
+  assert.equal(sent[1].type, "room:state");
 });
 
 test("message handler rejects room:create with protocolVersion below minimum", async () => {
@@ -520,7 +554,12 @@ test("message handler rejects room:create with protocolVersion below minimum", a
         throw new Error("unreachable");
       },
       async getRoomStateForSession() {
-        throw new Error("unreachable");
+        return {
+          roomCode: "ROOM-M1",
+          sharedVideo: null,
+          playback: null,
+          members: [{ id: "member-m1", name: "Alice" }],
+        };
       },
     },
     logEvent(event) {
@@ -573,7 +612,12 @@ test("message handler rejects room:join with protocolVersion below minimum", asy
         throw new Error("unreachable");
       },
       async getRoomStateForSession() {
-        throw new Error("unreachable");
+        return {
+          roomCode: "ROOM-M1",
+          sharedVideo: null,
+          playback: null,
+          members: [{ id: "member-m1", name: "Alice" }],
+        };
       },
     },
     logEvent(event) {
@@ -635,7 +679,12 @@ test("message handler accepts room:join with matching protocolVersion and return
         throw new Error("unreachable");
       },
       async getRoomStateForSession() {
-        throw new Error("unreachable");
+        return {
+          roomCode: "ROOM-M1",
+          sharedVideo: null,
+          playback: null,
+          members: [{ id: "member-m1", name: "Alice" }],
+        };
       },
     },
     logEvent() {},
@@ -671,7 +720,8 @@ test("message handler accepts room:join with matching protocolVersion and return
     },
   });
 
-  assert.equal(sent.length, 1);
+  assert.equal(sent.length, 2);
   assert.equal(sent[0].type, "room:joined");
   assert.equal(sent[0].serverProtocolVersion, 1);
+  assert.equal(sent[1].type, "room:state");
 });

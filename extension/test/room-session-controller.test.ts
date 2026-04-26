@@ -302,6 +302,61 @@ test("room session controller confirms pending local share and notifies content 
   assert.equal(harness.notifyAllCalls, 1);
 });
 
+test("room session controller applies room member join and leave deltas", async () => {
+  const harness = createControllerHarness();
+  harness.runtimeState.room.roomState = {
+    roomCode: "ROOM04",
+    sharedVideo: null,
+    playback: null,
+    members: [{ id: "member-1", name: "Alice" }],
+  };
+
+  await harness.controller.handleServerMessage({
+    type: "room:member-joined",
+    payload: {
+      roomCode: "ROOM04",
+      member: { id: "member-2", name: "Bob" },
+    },
+  } satisfies ServerMessage);
+
+  assert.deepEqual(harness.runtimeState.room.roomState.members, [
+    { id: "member-1", name: "Alice" },
+    { id: "member-2", name: "Bob" },
+  ]);
+  assert.equal(harness.persistReasons.length, 1);
+  assert.equal(harness.notifyContentMessages.length, 1);
+
+  await harness.controller.handleServerMessage({
+    type: "room:member-left",
+    payload: {
+      roomCode: "ROOM04",
+      member: { id: "member-2", name: "Bob" },
+    },
+  } satisfies ServerMessage);
+
+  assert.deepEqual(harness.runtimeState.room.roomState.members, [
+    { id: "member-1", name: "Alice" },
+  ]);
+  assert.equal(harness.persistReasons.length, 2);
+  assert.equal(harness.notifyContentMessages.length, 2);
+});
+
+test("room session controller ignores member deltas before bootstrap state", async () => {
+  const harness = createControllerHarness();
+
+  await harness.controller.handleServerMessage({
+    type: "room:member-joined",
+    payload: {
+      roomCode: "ROOM04",
+      member: { id: "member-2", name: "Bob" },
+    },
+  } satisfies ServerMessage);
+
+  assert.equal(harness.runtimeState.room.roomState, null);
+  assert.equal(harness.persistReasons.length, 0);
+  assert.equal(harness.notifyContentMessages.length, 0);
+});
+
 test("room session controller syncs display name after room creation completes", async () => {
   const harness = createControllerHarness();
   harness.runtimeState.connection.connected = true;

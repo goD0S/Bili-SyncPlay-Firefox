@@ -23,6 +23,10 @@ import type { RoomEventBusMessage } from "./room-event-bus.js";
 import { hasAttachedSocket } from "./types.js";
 import type { LogEvent, SendError, SendMessage, Session } from "./types.js";
 
+type RoomEventBusPublishInput<T> = T extends unknown
+  ? Omit<T, "sourceInstanceId" | "emittedAt">
+  : never;
+
 export function createMessageHandler(options: {
   config: {
     maxMembersPerRoom: number;
@@ -112,19 +116,38 @@ export function createMessageHandler(options: {
   const metricsCollector = options.metricsCollector;
 
   async function publishRoomEvent(
-    type: RoomEventBusMessage["type"],
-    roomCode: string,
+    message: RoomEventBusPublishInput<RoomEventBusMessage>,
   ): Promise<void> {
     await options.publishRoomEvent({
-      type,
-      roomCode,
+      ...message,
       sourceInstanceId: options.instanceId,
       emittedAt: now(),
+    } as RoomEventBusMessage);
+  }
+
+  async function sendRoomStateToSession(
+    session: Session,
+    memberToken: string,
+    messageType: ClientMessage["type"],
+  ): Promise<void> {
+    if (!hasAttachedSocket(session)) {
+      return;
+    }
+    const state = await roomService.getRoomStateForSession(
+      session,
+      memberToken,
+      messageType,
+    );
+    send(session.socket, {
+      type: "room:state",
+      payload: state,
     });
   }
 
   async function leaveRoom(session: Session): Promise<void> {
     const roomCode = session.roomCode;
+    const memberId = session.memberId ?? session.id;
+    const displayName = session.displayName;
     const { room, notifyRoom } = await roomService.leaveRoomForSession(session);
     if (!roomCode || (!room && !notifyRoom)) {
       return;
@@ -132,7 +155,12 @@ export function createMessageHandler(options: {
     options.onRoomLeft?.(session, roomCode);
 
     try {
-      await publishRoomEvent("room_member_changed", roomCode);
+      await publishRoomEvent({
+        type: "room_member_left",
+        roomCode,
+        memberId,
+        displayName,
+      });
     } catch (error) {
       logEvent("room_event_publish_failed", {
         sessionId: session.id,
@@ -141,7 +169,7 @@ export function createMessageHandler(options: {
         origin: session.origin,
         result: "error",
         reason: "leave_room_broadcast_failed",
-        eventType: "room_member_changed",
+        eventType: "room_member_left",
         error: error instanceof Error ? error.message : String(error),
       });
     }
@@ -267,7 +295,7 @@ export function createMessageHandler(options: {
               serverProtocolVersion: CURRENT_PROTOCOL_VERSION,
             },
           });
-          await publishRoomEvent("room_member_changed", room.code);
+          await sendRoomStateToSession(session, memberToken, message.type);
           logEvent("room_created", {
             sessionId: session.id,
             roomCode: room.code,
@@ -324,7 +352,13 @@ export function createMessageHandler(options: {
                 serverProtocolVersion: CURRENT_PROTOCOL_VERSION,
               },
             });
-            await publishRoomEvent("room_member_changed", room.code);
+            await sendRoomStateToSession(session, memberToken, message.type);
+            await publishRoomEvent({
+              type: "room_member_joined",
+              roomCode: room.code,
+              memberId: session.memberId ?? session.id,
+              displayName: session.displayName,
+            });
             logEvent("room_joined", {
               sessionId: session.id,
               roomCode: room.code,
@@ -359,7 +393,10 @@ export function createMessageHandler(options: {
             message.payload.memberToken,
             message.payload.displayName,
           );
-          await publishRoomEvent("room_state_updated", room.code);
+          await publishRoomEvent({
+            type: "room_state_updated",
+            roomCode: room.code,
+          });
           return;
         }
         case "video:share": {
@@ -383,7 +420,10 @@ export function createMessageHandler(options: {
               message.payload.video,
               message.payload.playback,
             );
-            await publishRoomEvent("room_state_updated", room.code);
+            await publishRoomEvent({
+              type: "room_state_updated",
+              roomCode: room.code,
+            });
           });
           return;
         }
@@ -407,7 +447,10 @@ export function createMessageHandler(options: {
               message.payload.playback,
             );
             if (!result.ignored && result.room) {
-              await publishRoomEvent("room_state_updated", result.room.code);
+              await publishRoomEvent({
+                type: "room_state_updated",
+                roomCode: result.room.code,
+              });
             }
           });
           return;

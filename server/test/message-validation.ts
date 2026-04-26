@@ -611,7 +611,7 @@ test("updates member display names in room state after profile:update", async ()
       );
       const joined = await joinerCollector.next("room:joined");
       await joinerCollector.next("room:state");
-      await ownerCollector.next("room:state");
+      await ownerCollector.next("room:member-joined");
 
       owner.send(
         JSON.stringify({
