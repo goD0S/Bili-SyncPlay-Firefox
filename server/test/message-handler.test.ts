@@ -182,6 +182,68 @@ test("message handler creates a room and sends bootstrap state to the creator", 
   assert.ok(events.includes("room_created"));
 });
 
+test("message handler keeps room:create successful when bootstrap state fails", async () => {
+  const sent: string[] = [];
+  const errors: string[] = [];
+  const events: string[] = [];
+  const session = createSession("creator");
+
+  const handler = createMessageHandler({
+    config: CONFIG,
+    roomService: {
+      async createRoomForSession(currentSession, displayName) {
+        currentSession.roomCode = "ROOM01";
+        currentSession.memberId = "member-1";
+        currentSession.displayName = displayName ?? currentSession.displayName;
+        currentSession.memberToken = "member-token-1";
+        return {
+          room: { code: "ROOM01", joinToken: "join-token-1" },
+          memberToken: "member-token-1",
+        };
+      },
+      async joinRoomForSession() {
+        throw new Error("unreachable");
+      },
+      async leaveRoomForSession() {
+        return { room: null };
+      },
+      async shareVideoForSession() {
+        throw new Error("unreachable");
+      },
+      async updatePlaybackForSession() {
+        throw new Error("unreachable");
+      },
+      async updateProfileForSession() {
+        throw new Error("unreachable");
+      },
+      async getRoomStateForSession() {
+        throw new Error("transient room state read failure");
+      },
+    },
+    logEvent(event) {
+      events.push(event);
+    },
+    send(_socket, message) {
+      sent.push(message.type);
+    },
+    sendError(_socket, code) {
+      errors.push(code);
+    },
+    async publishRoomEvent() {},
+    instanceId: "node-a",
+  });
+
+  await handler.handleClientMessage(session, {
+    type: "room:create",
+    payload: { displayName: "Alice" },
+  });
+
+  assert.deepEqual(sent, ["room:created"]);
+  assert.deepEqual(errors, []);
+  assert.ok(events.includes("room_state_bootstrap_failed"));
+  assert.ok(events.includes("room_created"));
+});
+
 test("message handler skips room state publish when playback update is ignored", async () => {
   const published: string[] = [];
   const session = createSession("member-1", {
@@ -784,4 +846,73 @@ test("message handler accepts room:join with matching protocolVersion and return
   assert.equal(sent[0].type, "room:joined");
   assert.equal(sent[0].serverProtocolVersion, 2);
   assert.equal(sent[1].type, "room:state");
+});
+
+test("message handler keeps room:join successful when bootstrap state fails", async () => {
+  const sent: string[] = [];
+  const errors: string[] = [];
+  const events: string[] = [];
+  const published: string[] = [];
+  const session = createSession("joiner");
+
+  const handler = createMessageHandler({
+    config: CONFIG,
+    roomService: {
+      async createRoomForSession() {
+        throw new Error("unreachable");
+      },
+      async joinRoomForSession(currentSession) {
+        currentSession.roomCode = "ROOM01";
+        currentSession.memberId = "member-2";
+        currentSession.memberToken = "member-token-2";
+        return {
+          room: { code: "ROOM01" },
+          memberToken: "member-token-2",
+        };
+      },
+      async leaveRoomForSession() {
+        return { room: null };
+      },
+      async shareVideoForSession() {
+        throw new Error("unreachable");
+      },
+      async updatePlaybackForSession() {
+        throw new Error("unreachable");
+      },
+      async updateProfileForSession() {
+        throw new Error("unreachable");
+      },
+      async getRoomStateForSession() {
+        throw new Error("transient room state read failure");
+      },
+    },
+    logEvent(event) {
+      events.push(event);
+    },
+    send(_socket, message) {
+      sent.push(message.type);
+    },
+    sendError(_socket, code) {
+      errors.push(code);
+    },
+    async publishRoomEvent(message) {
+      published.push(message.type);
+    },
+    instanceId: "node-a",
+  });
+
+  await handler.handleClientMessage(session, {
+    type: "room:join",
+    payload: {
+      roomCode: "ROOM01",
+      joinToken: "join-token-1",
+      protocolVersion: 2,
+    },
+  });
+
+  assert.deepEqual(sent, ["room:joined"]);
+  assert.deepEqual(errors, []);
+  assert.deepEqual(published, ["room_member_joined"]);
+  assert.ok(events.includes("room_state_bootstrap_failed"));
+  assert.ok(events.includes("room_joined"));
 });

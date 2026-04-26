@@ -135,15 +135,29 @@ export function createMessageHandler(options: {
     if (!hasAttachedSocket(session)) {
       return;
     }
-    const state = await roomService.getRoomStateForSession(
-      session,
-      memberToken,
-      messageType,
-    );
-    send(session.socket, {
-      type: "room:state",
-      payload: state,
-    });
+    try {
+      const state = await roomService.getRoomStateForSession(
+        session,
+        memberToken,
+        messageType,
+      );
+      send(session.socket, {
+        type: "room:state",
+        payload: state,
+      });
+    } catch (error) {
+      logEvent("room_state_bootstrap_failed", {
+        sessionId: session.id,
+        roomCode: session.roomCode,
+        remoteAddress: session.remoteAddress,
+        origin: session.origin,
+        result: "error",
+        reason:
+          error instanceof RoomServiceError
+            ? error.reason
+            : "room_state_bootstrap_failed",
+      });
+    }
   }
 
   async function leaveRoom(session: Session): Promise<void> {
