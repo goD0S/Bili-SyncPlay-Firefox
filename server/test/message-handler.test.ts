@@ -583,7 +583,7 @@ test("message handler accepts room:create without protocolVersion (legacy client
   assert.ok(events.includes("room_created"));
   assert.equal(sent.length, 2);
   assert.equal(sent[0].type, "room:created");
-  assert.equal(sent[0].serverProtocolVersion, 1);
+  assert.equal(sent[0].serverProtocolVersion, 2);
   assert.equal(sent[1].type, "room:state");
 });
 
@@ -776,12 +776,12 @@ test("message handler accepts room:join with matching protocolVersion and return
     payload: {
       roomCode: "ROOM01",
       joinToken: "join-token-1",
-      protocolVersion: 1,
+      protocolVersion: 2,
     },
   });
 
   assert.equal(sent.length, 2);
   assert.equal(sent[0].type, "room:joined");
-  assert.equal(sent[0].serverProtocolVersion, 1);
+  assert.equal(sent[0].serverProtocolVersion, 2);
   assert.equal(sent[1].type, "room:state");
 });

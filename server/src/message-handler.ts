@@ -217,6 +217,7 @@ export function createMessageHandler(options: {
   ): boolean {
     if (clientVersion === undefined) {
       // Old extension without protocolVersion — compatible baseline, log deprecation
+      session.protocolVersion = MIN_PROTOCOL_VERSION;
       logEvent("protocol_version_missing", {
         sessionId: session.id,
         remoteAddress: session.remoteAddress,
@@ -242,6 +243,7 @@ export function createMessageHandler(options: {
       });
       return false;
     }
+    session.protocolVersion = clientVersion;
     return true;
   }
 

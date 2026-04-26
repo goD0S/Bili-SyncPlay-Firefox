@@ -2,6 +2,12 @@ import { hasAttachedSocket, type SendMessage, type Session } from "./types.js";
 import type { RoomEventBus, RoomEventBusMessage } from "./room-event-bus.js";
 import type { ServerMessage } from "@bili-syncplay/protocol";
 
+const MEMBER_DELTA_PROTOCOL_VERSION = 2;
+
+function supportsIncrementalMemberEvents(session: Session): boolean {
+  return (session.protocolVersion ?? 1) >= MEMBER_DELTA_PROTOCOL_VERSION;
+}
+
 function createMemberMessage(
   message: RoomEventBusMessage,
 ): ServerMessage | null {
@@ -53,6 +59,9 @@ export async function createRoomEventConsumer(options: {
         if (!memberMessage) {
           return;
         }
+        let legacyRoomState:
+          | Awaited<ReturnType<typeof options.getRoomStateByCode>>
+          | undefined;
         for (const session of localSessions) {
           if (
             !hasAttachedSocket(session) ||
@@ -60,7 +69,20 @@ export async function createRoomEventConsumer(options: {
           ) {
             continue;
           }
-          options.send(session.socket, memberMessage);
+          if (supportsIncrementalMemberEvents(session)) {
+            options.send(session.socket, memberMessage);
+            continue;
+          }
+
+          legacyRoomState ??= await options.getRoomStateByCode(
+            message.roomCode,
+          );
+          if (legacyRoomState) {
+            options.send(session.socket, {
+              type: "room:state",
+              payload: legacyRoomState,
+            });
+          }
         }
 
         options.logEvent?.("room_event_consumed", {

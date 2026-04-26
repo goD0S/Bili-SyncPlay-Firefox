@@ -24,6 +24,11 @@ import {
 import { localizeServerError } from "../shared/i18n";
 
 type JoinAttemptResult = "joined" | "failed" | "timeout";
+type PendingMemberDelta = {
+  type: "joined" | "left";
+  roomCode: string;
+  member: RoomMember;
+};
 
 export interface RoomSessionController {
   sendJoinRequest(targetRoomCode: string, targetJoinToken: string): void;
@@ -68,6 +73,57 @@ export function createRoomSessionController(args: {
 }): RoomSessionController {
   let pendingJoinAttemptResolvers: Array<(result: JoinAttemptResult) => void> =
     [];
+  let pendingMemberDeltas: PendingMemberDelta[] = [];
+
+  function clearPendingMemberDeltas(): void {
+    pendingMemberDeltas = [];
+  }
+
+  function applyMemberDelta(
+    currentState: RoomState,
+    delta: PendingMemberDelta,
+  ): RoomState {
+    if (currentState.roomCode !== delta.roomCode) {
+      return currentState;
+    }
+
+    if (delta.type === "left") {
+      return {
+        ...currentState,
+        members: currentState.members.filter(
+          (candidate) => candidate.id !== delta.member.id,
+        ),
+      };
+    }
+
+    const existingMemberIndex = currentState.members.findIndex(
+      (candidate) => candidate.id === delta.member.id,
+    );
+    const members =
+      existingMemberIndex === -1
+        ? [...currentState.members, delta.member]
+        : currentState.members.map((candidate, index) =>
+            index === existingMemberIndex ? delta.member : candidate,
+          );
+    return {
+      ...currentState,
+      members,
+    };
+  }
+
+  function consumePendingMemberDeltas(nextState: RoomState): RoomState {
+    let resolvedState = nextState;
+    const remainingDeltas: PendingMemberDelta[] = [];
+    for (const delta of pendingMemberDeltas) {
+      if (delta.roomCode === nextState.roomCode) {
+        resolvedState = applyMemberDelta(resolvedState, delta);
+      } else {
+        remainingDeltas.push(delta);
+      }
+    }
+    pendingMemberDeltas = remainingDeltas;
+    return resolvedState;
+  }
 
   function syncProfileAfterRoomEstablished(): void {
     if (
@@ -141,6 +197,7 @@ export function createRoomSessionController(args: {
   async function handleServerMessage(message: ServerMessage): Promise<void> {
     switch (message.type) {
       case "room:created":
+        clearPendingMemberDeltas();
         args.roomSessionState.pendingJoinRoomCode = null;
         args.roomSessionState.pendingJoinToken = null;
         args.roomSessionState.roomCode = message.payload.roomCode;
@@ -154,6 +211,7 @@ export function createRoomSessionController(args: {
         args.notifyAll();
         return;
       case "room:joined":
+        clearPendingMemberDeltas();
         args.roomSessionState.roomCode = message.payload.roomCode;
         args.roomSessionState.joinToken =
           args.roomSessionState.pendingJoinToken ??
@@ -259,22 +317,15 @@ export function createRoomSessionController(args: {
   ): Promise<void> {
     const currentState = args.roomSessionState.roomState;
     if (!currentState || currentState.roomCode !== roomCode) {
+      if (!currentState && args.roomSessionState.roomCode === roomCode) {
+        pendingMemberDeltas.push({ type: "joined", roomCode, member });
+      }
       return;
     }
 
-    const existingMemberIndex = currentState.members.findIndex(
-      (candidate) => candidate.id === member.id,
+    await applyRoomMemberState(
+      applyMemberDelta(currentState, { type: "joined", roomCode, member }),
     );
-    const members =
-      existingMemberIndex === -1
-        ? [...currentState.members, member]
-        : currentState.members.map((candidate, index) =>
-            index === existingMemberIndex ? member : candidate,
-          );
-    await applyRoomMemberState({
-      ...currentState,
-      members,
-    });
   }
 
   async function handleRoomMemberLeft(
@@ -283,15 +334,15 @@ export function createRoomSessionController(args: {
   ): Promise<void> {
     const currentState = args.roomSessionState.roomState;
     if (!currentState || currentState.roomCode !== roomCode) {
+      if (!currentState && args.roomSessionState.roomCode === roomCode) {
+        pendingMemberDeltas.push({ type: "left", roomCode, member });
+      }
       return;
     }
 
-    await applyRoomMemberState({
-      ...currentState,
-      members: currentState.members.filter(
-        (candidate) => candidate.id !== member.id,
-      ),
-    });
+    await applyRoomMemberState(
+      applyMemberDelta(currentState, { type: "left", roomCode, member }),
+    );
   }
 
   async function handleRoomStateMessage(nextState: RoomState): Promise<void> {
@@ -330,8 +381,9 @@ export function createRoomSessionController(args: {
       args.shareState.pendingShareToast = createPendingShareToast(nextState);
     }
 
-    args.roomSessionState.roomState = nextState;
-    args.roomSessionState.roomCode = nextState.roomCode;
+    const resolvedState = consumePendingMemberDeltas(nextState);
+    args.roomSessionState.roomState = resolvedState;
+    args.roomSessionState.roomCode = resolvedState.roomCode;
     args.connectionState.lastError = null;
 
     if (decision.confirmedPendingLocalShare) {
@@ -384,6 +436,7 @@ export function createRoomSessionController(args: {
     reason: string,
     errorMessage: string | null = null,
   ): Promise<void> {
+    clearPendingMemberDeltas();
     args.log("background", `Clearing current room context (${reason})`);
     args.roomSessionState.roomCode = null;
     args.roomSessionState.joinToken = null;
@@ -404,6 +457,7 @@ export function createRoomSessionController(args: {
 
   async function requestCreateRoom(): Promise<void> {
     args.resetReconnectState();
+    clearPendingMemberDeltas();
     args.roomSessionState.roomCode = null;
     args.roomSessionState.joinToken = null;
     args.roomSessionState.memberToken = null;
@@ -437,6 +491,7 @@ export function createRoomSessionController(args: {
     joinToken: string,
   ): Promise<void> {
     args.resetReconnectState();
+    clearPendingMemberDeltas();
     args.roomSessionState.pendingCreateRoom = false;
     args.roomSessionState.pendingJoinRoomCode = roomCode.trim().toUpperCase();
     args.roomSessionState.pendingJoinToken = joinToken.trim();
@@ -469,6 +524,7 @@ export function createRoomSessionController(args: {
   }
 
   async function requestLeaveRoom(): Promise<void> {
+    clearPendingMemberDeltas();
     args.log(
       "background",
       `Popup requested leave for ${args.roomSessionState.roomCode ?? "none"}`,

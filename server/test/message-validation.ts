@@ -15,7 +15,7 @@ import {
   INVALID_JSON_MESSAGE,
 } from "../src/app.js";
 import { createInMemoryRoomStore, type RoomStore } from "../src/room-store.js";
-import type { ServerMessage } from "@bili-syncplay/protocol";
+import { PROTOCOL_VERSION, type ServerMessage } from "@bili-syncplay/protocol";
 
 const ALLOWED_ORIGIN = "chrome-extension://allowed-extension";
 
@@ -593,7 +593,10 @@ test("updates member display names in room state after profile:update", async ()
       owner.send(
         JSON.stringify({
           type: "room:create",
-          payload: { displayName: "Guest-123" },
+          payload: {
+            displayName: "Guest-123",
+            protocolVersion: PROTOCOL_VERSION,
+          },
         }),
       );
       const created = await ownerCollector.next("room:created");
@@ -606,6 +609,7 @@ test("updates member display names in room state after profile:update", async ()
             roomCode: created.payload.roomCode,
             joinToken: created.payload.joinToken,
             displayName: "Bob",
+            protocolVersion: PROTOCOL_VERSION,
           },
         }),
       );
@@ -1238,7 +1242,7 @@ test("reconnect join reuses the same member identity and does not emit a leave f
     owner.send(
       JSON.stringify({
         type: "room:create",
-        payload: { displayName: "Alice" },
+        payload: { displayName: "Alice", protocolVersion: PROTOCOL_VERSION },
       }),
     );
     const created = await ownerCollector.next("room:created");
@@ -1253,6 +1257,7 @@ test("reconnect join reuses the same member identity and does not emit a leave f
           roomCode: created.payload.roomCode,
           joinToken: created.payload.joinToken,
           displayName: "Bob",
+          protocolVersion: PROTOCOL_VERSION,
         },
       }),
     );
@@ -1270,6 +1275,7 @@ test("reconnect join reuses the same member identity and does not emit a leave f
           joinToken: created.payload.joinToken,
           memberToken: created.payload.memberToken,
           displayName: "Alice",
+          protocolVersion: PROTOCOL_VERSION,
         },
       }),
     );

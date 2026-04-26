@@ -4,7 +4,11 @@ import { createInMemoryRoomEventBus } from "../src/room-event-bus.js";
 import { createRoomEventConsumer } from "../src/room-event-consumer.js";
 import type { Session } from "../src/types.js";
 
-function createSession(id: string, roomCode: string): Session {
+function createSession(
+  id: string,
+  roomCode: string,
+  protocolVersion = 2,
+): Session {
   return {
     id,
     connectionState: "attached",
@@ -22,6 +26,7 @@ function createSession(id: string, roomCode: string): Session {
     memberId: id,
     displayName: id,
     memberToken: `token-${id}`,
+    protocolVersion,
     joinedAt: 1_000,
     invalidMessageCount: 0,
     rateLimitState: {
@@ -166,6 +171,69 @@ test("room event consumer sends member join deltas to other local room sessions"
       type: "room:member-joined",
       memberId: "member-a",
       displayName: "Alice",
+    },
+  ]);
+});
+
+test("room event consumer sends full room state for legacy member event sessions", async () => {
+  const bus = createInMemoryRoomEventBus();
+  const joiningSession = createSession("member-a", "ROOM01", 2);
+  const legacySession = createSession("member-b", "ROOM01", 1);
+  const sent: Array<{
+    sessionId: string;
+    type: string;
+    memberCount: number;
+  }> = [];
+  let roomStateLoads = 0;
+
+  const consumer = await createRoomEventConsumer({
+    roomEventBus: bus,
+    async getRoomStateByCode(roomCode) {
+      roomStateLoads += 1;
+      return {
+        roomCode,
+        sharedVideo: null,
+        playback: null,
+        members: [
+          { id: "member-a", name: "Alice" },
+          { id: "member-b", name: "Bob" },
+        ],
+      };
+    },
+    listLocalSessionsByRoom() {
+      return [joiningSession, legacySession];
+    },
+    send(socket, message) {
+      const session =
+        socket === joiningSession.socket ? joiningSession : legacySession;
+      sent.push({
+        sessionId: session.id,
+        type: message.type,
+        memberCount:
+          message.type === "room:state" ? message.payload.members.length : 1,
+      });
+    },
+  });
+
+  try {
+    await bus.publish({
+      type: "room_member_joined",
+      roomCode: "ROOM01",
+      sourceInstanceId: "instance-b",
+      emittedAt: 1_100,
+      memberId: "member-a",
+      displayName: "Alice",
+    });
+  } finally {
+    await consumer.close();
+  }
+
+  assert.equal(roomStateLoads, 1);
+  assert.deepEqual(sent, [
+    {
+      sessionId: "member-b",
+      type: "room:state",
+      memberCount: 2,
     },
   ]);
 });

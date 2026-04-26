@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { PROTOCOL_VERSION } from "@bili-syncplay/protocol";
 import {
   createSyncServer,
   getDefaultPersistenceConfig,
@@ -362,7 +363,10 @@ async function initializeRoom(
   ownerSeed.socket.send(
     JSON.stringify({
       type: "room:create",
-      payload: { displayName: ownerSeed.displayName },
+      payload: {
+        displayName: ownerSeed.displayName,
+        protocolVersion: PROTOCOL_VERSION,
+      },
     }),
   );
 
@@ -385,6 +389,7 @@ async function initializeRoom(
           roomCode: createdPayload.roomCode,
           joinToken: createdPayload.joinToken,
           displayName: joinerSeed.displayName,
+          protocolVersion: PROTOCOL_VERSION,
         },
       }),
     );
@@ -691,6 +696,7 @@ export async function runReconnectStormBenchmark(input: {
                 joinToken: environment.joinToken,
                 displayName: seed.displayName,
                 memberToken: seed.memberToken,
+                protocolVersion: PROTOCOL_VERSION,
               },
             }),
           );

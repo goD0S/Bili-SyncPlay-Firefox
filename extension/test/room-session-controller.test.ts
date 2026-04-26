@@ -109,7 +109,7 @@ test("room session controller sends create request with protocolVersion", async 
     type: "room:create",
     payload: {
       displayName: "Bob",
-      protocolVersion: 1,
+      protocolVersion: 2,
     },
   });
 });
@@ -185,7 +185,7 @@ test("room session controller sends join request after connect and normalizes pe
       roomCode: "ROOM01",
       joinToken: "token-1",
       displayName: "Alice",
-      protocolVersion: 1,
+      protocolVersion: 2,
     },
   });
   assert.equal(harness.persistReasons.length, 1);
@@ -341,8 +341,9 @@ test("room session controller applies room member join and leave deltas", async 
   assert.equal(harness.notifyContentMessages.length, 2);
 });
 
-test("room session controller ignores member deltas before bootstrap state", async () => {
+test("room session controller replays member deltas received before bootstrap state", async () => {
   const harness = createControllerHarness();
+  harness.runtimeState.room.roomCode = "ROOM04";
 
   await harness.controller.handleServerMessage({
     type: "room:member-joined",
@@ -351,10 +352,29 @@ test("room session controller ignores member deltas before bootstrap state", asy
       member: { id: "member-2", name: "Bob" },
     },
   } satisfies ServerMessage);
+  await harness.controller.handleServerMessage({
+    type: "room:member-left",
+    payload: {
+      roomCode: "ROOM04",
+      member: { id: "member-1", name: "Alice" },
+    },
+  } satisfies ServerMessage);
 
-  assert.equal(harness.runtimeState.room.roomState, null);
-  assert.equal(harness.persistReasons.length, 0);
-  assert.equal(harness.notifyContentMessages.length, 0);
+  await harness.controller.handleServerMessage({
+    type: "room:state",
+    payload: {
+      roomCode: "ROOM04",
+      sharedVideo: null,
+      playback: null,
+      members: [{ id: "member-1", name: "Alice" }],
+    },
+  } satisfies ServerMessage);
+
+  assert.deepEqual(harness.runtimeState.room.roomState?.members, [
+    { id: "member-2", name: "Bob" },
+  ]);
+  assert.equal(harness.persistReasons.length, 1);
+  assert.equal(harness.notifyContentMessages.length, 1);
 });
 
 test("room session controller syncs display name after room creation completes", async () => {

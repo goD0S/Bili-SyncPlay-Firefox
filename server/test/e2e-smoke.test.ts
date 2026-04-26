@@ -12,6 +12,7 @@ import assert from "node:assert/strict";
 import { once } from "node:events";
 import test from "node:test";
 import { WebSocket, type RawData } from "ws";
+import { PROTOCOL_VERSION } from "@bili-syncplay/protocol";
 import {
   createSyncServer,
   getDefaultPersistenceConfig,
@@ -114,7 +115,7 @@ test("e2e smoke: create room → join → share video → playback update → me
     ownerSocket.send(
       JSON.stringify({
         type: "room:create",
-        payload: { displayName: "Alice" },
+        payload: { displayName: "Alice", protocolVersion: PROTOCOL_VERSION },
       }),
     );
 
@@ -141,6 +142,7 @@ test("e2e smoke: create room → join → share video → playback update → me
           roomCode: createdPayload.roomCode,
           joinToken: createdPayload.joinToken,
           displayName: "Bob",
+          protocolVersion: PROTOCOL_VERSION,
         },
       }),
     );
