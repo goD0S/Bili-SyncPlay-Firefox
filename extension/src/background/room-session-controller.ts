@@ -94,6 +94,12 @@ export function createRoomSessionController(args: {
     );
   }
 
+  function clearPendingMemberDeltasExceptRoom(roomCode: string): void {
+    pendingMemberDeltas = pendingMemberDeltas.filter(
+      (delta) => delta.roomCode === roomCode,
+    );
+  }
+
   function queueMemberDelta(delta: PendingMemberDelta): void {
     pendingMemberDeltas.push(delta);
   }
@@ -146,6 +152,22 @@ export function createRoomSessionController(args: {
     }
     pendingMemberDeltas = remainingDeltas;
     return resolvedState;
+  }
+
+  function isAwaitingRoomBootstrapFor(roomCode: string): boolean {
+    if (
+      waitingForBootstrapRoomState &&
+      args.roomSessionState.roomCode === roomCode
+    ) {
+      return true;
+    }
+    if (!args.roomSessionState.pendingJoinRequestSent) {
+      return false;
+    }
+    return (
+      args.roomSessionState.roomCode === roomCode ||
+      args.roomSessionState.pendingJoinRoomCode === roomCode
+    );
   }
 
   function stopWaitingForBootstrapRoomState(): void {
@@ -322,7 +344,7 @@ export function createRoomSessionController(args: {
         args.notifyAll();
         return;
       case "room:joined":
-        clearPendingMemberDeltas();
+        clearPendingMemberDeltasExceptRoom(message.payload.roomCode);
         startWaitingForBootstrapRoomState();
         args.roomSessionState.roomCode = message.payload.roomCode;
         args.roomSessionState.joinToken =
@@ -429,10 +451,7 @@ export function createRoomSessionController(args: {
     member: RoomMember,
   ): Promise<void> {
     const currentState = args.roomSessionState.roomState;
-    if (
-      waitingForBootstrapRoomState &&
-      args.roomSessionState.roomCode === roomCode
-    ) {
+    if (isAwaitingRoomBootstrapFor(roomCode)) {
       queueMemberDelta({ type: "joined", roomCode, member });
       return;
     }
@@ -450,10 +469,7 @@ export function createRoomSessionController(args: {
     member: RoomMember,
   ): Promise<void> {
     const currentState = args.roomSessionState.roomState;
-    if (
-      waitingForBootstrapRoomState &&
-      args.roomSessionState.roomCode === roomCode
-    ) {
+    if (isAwaitingRoomBootstrapFor(roomCode)) {
       queueMemberDelta({ type: "left", roomCode, member });
       return;
     }
