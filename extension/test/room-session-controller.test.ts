@@ -7,6 +7,7 @@ import { setLocaleForTests } from "../src/shared/i18n";
 
 function createControllerHarness(options?: {
   bootstrapRoomStateTimeoutMs?: number;
+  persistState?: (callCount: number) => Promise<void> | void;
 }) {
   const runtimeState = createBackgroundRuntimeState();
   const sendToServerCalls: Array<unknown> = [];
@@ -33,6 +34,7 @@ function createControllerHarness(options?: {
     },
     persistState: async () => {
       persistReasons.push("persisted");
+      await options?.persistState?.(persistReasons.length);
     },
     sendToServer: (message) => {
       sendToServerCalls.push(message);
@@ -446,6 +448,96 @@ test("room session controller releases queued reconnect deltas when bootstrap st
   ]);
   assert.equal(harness.persistReasons.length, 3);
   assert.equal(harness.notifyContentMessages.length, 2);
+});
+
+test("room session controller does not let timeout replay overwrite a late bootstrap state", async () => {
+  let resolveTimeoutPersistStarted: (() => void) | null = null;
+  let releaseTimeoutPersist: (() => void) | null = null;
+  const timeoutPersistStarted = new Promise<void>((resolve) => {
+    resolveTimeoutPersistStarted = resolve;
+  });
+  const timeoutPersistRelease = new Promise<void>((resolve) => {
+    releaseTimeoutPersist = resolve;
+  });
+  const harness = createControllerHarness({
+    bootstrapRoomStateTimeoutMs: 1,
+    async persistState(callCount) {
+      if (callCount === 2) {
+        resolveTimeoutPersistStarted?.();
+        await timeoutPersistRelease;
+      }
+    },
+  });
+  harness.runtimeState.room.roomCode = "ROOM04";
+  harness.runtimeState.room.roomState = {
+    roomCode: "ROOM04",
+    sharedVideo: {
+      videoId: "BV1old",
+      url: "https://www.bilibili.com/video/BV1old",
+      title: "Old Video",
+      sharedByMemberId: "member-1",
+    },
+    playback: null,
+    members: [{ id: "member-1", name: "Alice" }],
+  };
+
+  await harness.controller.handleServerMessage({
+    type: "room:joined",
+    payload: {
+      roomCode: "ROOM04",
+      memberToken: "member-token-1",
+      memberId: "member-1",
+    },
+  } satisfies ServerMessage);
+  await harness.controller.handleServerMessage({
+    type: "room:member-joined",
+    payload: {
+      roomCode: "ROOM04",
+      member: { id: "member-2", name: "Bob" },
+    },
+  } satisfies ServerMessage);
+
+  await Promise.race([
+    timeoutPersistStarted,
+    new Promise((_, reject) =>
+      globalThis.setTimeout(
+        () => reject(new Error("Timed out waiting for timeout persist")),
+        50,
+      ),
+    ),
+  ]);
+  const freshBootstrapState: RoomState = {
+    roomCode: "ROOM04",
+    sharedVideo: {
+      videoId: "BV1new",
+      url: "https://www.bilibili.com/video/BV1new",
+      title: "New Video",
+      sharedByMemberId: "member-3",
+    },
+    playback: null,
+    members: [
+      { id: "member-1", name: "Alice" },
+      { id: "member-3", name: "Carol" },
+    ],
+  };
+
+  await harness.controller.handleServerMessage({
+    type: "room:state",
+    payload: freshBootstrapState,
+  } satisfies ServerMessage);
+  releaseTimeoutPersist?.();
+  await new Promise((resolve) => globalThis.setTimeout(resolve, 0));
+
+  assert.deepEqual(harness.runtimeState.room.roomState, freshBootstrapState);
+  assert.equal(harness.notifyContentMessages.length, 1);
+  assert.deepEqual(
+    (
+      harness.notifyContentMessages[0] as {
+        payload: RoomState;
+      }
+    ).payload,
+    freshBootstrapState,
+  );
 });
 
 test("room session controller queues reconnect deltas until fresh bootstrap state", async () => {

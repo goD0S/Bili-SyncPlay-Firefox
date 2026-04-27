@@ -78,6 +78,7 @@ export function createRoomSessionController(args: {
     [];
   let pendingMemberDeltas: PendingMemberDelta[] = [];
   let waitingForBootstrapRoomState = false;
+  let bootstrapRoomStateGeneration = 0;
   let bootstrapRoomStateTimer: ReturnType<typeof globalThis.setTimeout> | null =
     null;
   const bootstrapRoomStateTimeoutMs =
@@ -149,14 +150,20 @@ export function createRoomSessionController(args: {
 
   function stopWaitingForBootstrapRoomState(): void {
     waitingForBootstrapRoomState = false;
+    bootstrapRoomStateGeneration += 1;
     if (bootstrapRoomStateTimer !== null) {
       globalThis.clearTimeout(bootstrapRoomStateTimer);
       bootstrapRoomStateTimer = null;
     }
   }
 
-  async function expireBootstrapRoomStateWait(): Promise<void> {
-    if (!waitingForBootstrapRoomState) {
+  async function expireBootstrapRoomStateWait(
+    generation: number,
+  ): Promise<void> {
+    if (
+      !waitingForBootstrapRoomState ||
+      generation !== bootstrapRoomStateGeneration
+    ) {
       return;
     }
 
@@ -182,18 +189,45 @@ export function createRoomSessionController(args: {
     }
 
     const resolvedState = consumePendingMemberDeltas(currentState);
+    if (
+      generation !== bootstrapRoomStateGeneration ||
+      args.roomSessionState.roomCode !== roomCode ||
+      args.roomSessionState.roomState !== currentState
+    ) {
+      return;
+    }
+
     args.log(
       "background",
       `Applied queued member deltas after bootstrap room state timeout for ${roomCode}`,
     );
-    await applyRoomMemberState(resolvedState);
+    args.roomSessionState.roomState = resolvedState;
+    args.roomSessionState.roomCode = resolvedState.roomCode;
+    args.connectionState.lastError = null;
+    await args.persistState();
+    if (
+      generation !== bootstrapRoomStateGeneration ||
+      args.roomSessionState.roomState !== resolvedState
+    ) {
+      await args.persistState();
+      return;
+    }
+    const compensatedRoomState = args.compensateRoomState(resolvedState);
+    await args.notifyContentScripts({
+      type: "background:apply-room-state",
+      payload: compensatedRoomState,
+      shareToast: null,
+    });
+    args.notifyAll();
   }
 
   function startWaitingForBootstrapRoomState(): void {
     stopWaitingForBootstrapRoomState();
     waitingForBootstrapRoomState = true;
+    bootstrapRoomStateGeneration += 1;
+    const generation = bootstrapRoomStateGeneration;
     bootstrapRoomStateTimer = globalThis.setTimeout(() => {
-      void expireBootstrapRoomStateWait();
+      void expireBootstrapRoomStateWait(generation);
     }, bootstrapRoomStateTimeoutMs);
     const timerControls = bootstrapRoomStateTimer as {
       unref?: () => void;
