@@ -23,6 +23,10 @@ import type { RoomEventBusMessage } from "./room-event-bus.js";
 import { hasAttachedSocket } from "./types.js";
 import type { LogEvent, SendError, SendMessage, Session } from "./types.js";
 
+type RoomEventBusPublishInput<T> = T extends unknown
+  ? Omit<T, "sourceInstanceId" | "emittedAt">
+  : never;
+
 export function createMessageHandler(options: {
   config: {
     maxMembersPerRoom: number;
@@ -52,9 +56,11 @@ export function createMessageHandler(options: {
       displayName?: string,
       previousMemberToken?: string,
     ) => Promise<{ room: { code: string }; memberToken: string }>;
-    leaveRoomForSession: (
-      session: Session,
-    ) => Promise<{ room: { code: string } | null; notifyRoom?: boolean }>;
+    leaveRoomForSession: (session: Session) => Promise<{
+      room: { code: string } | null;
+      notifyRoom?: boolean;
+      memberRemoved?: boolean;
+    }>;
     shareVideoForSession: (
       session: Session,
       memberToken: string,
@@ -100,7 +106,7 @@ export function createMessageHandler(options: {
     session: Session,
     roomCode: string,
     previousRoomCode: string | null,
-  ) => void;
+  ) => void | Promise<void>;
   onRoomLeft?: (session: Session, roomCode: string) => void;
   now?: () => number;
 }): {
@@ -119,9 +125,79 @@ export function createMessageHandler(options: {
   const backpressureWaitMs = options.backpressureWaitMs ?? 5_000;
   const publishTimeoutMs = options.publishTimeoutMs ?? 5_000;
 
-  async function firePublishRoomEvent(
-    type: RoomEventBusMessage["type"],
+  async function runRoomJoinedHook(
+    session: Session,
     roomCode: string,
+    previousRoomCode: string | null,
+  ): Promise<void> {
+    try {
+      await options.onRoomJoined?.(session, roomCode, previousRoomCode);
+    } catch (error) {
+      logEvent("room_join_hook_failed", {
+        sessionId: session.id,
+        roomCode,
+        previousRoomCode,
+        remoteAddress: session.remoteAddress,
+        origin: session.origin,
+        result: "error",
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  function runRoomLeftHook(session: Session, roomCode: string): void {
+    try {
+      options.onRoomLeft?.(session, roomCode);
+    } catch (error) {
+      logEvent("room_left_hook_failed", {
+        sessionId: session.id,
+        roomCode,
+        remoteAddress: session.remoteAddress,
+        origin: session.origin,
+        result: "error",
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  async function sendRoomStateToSession(
+    session: Session,
+    memberToken: string,
+    messageType: ClientMessage["type"],
+  ): Promise<void> {
+    if (!hasAttachedSocket(session)) {
+      return;
+    }
+    try {
+      const state = await roomService.getRoomStateForSession(
+        session,
+        memberToken,
+        messageType,
+      );
+      if (!hasAttachedSocket(session)) {
+        return;
+      }
+      send(session.socket, {
+        type: "room:state",
+        payload: state,
+      });
+    } catch (error) {
+      logEvent("room_state_bootstrap_failed", {
+        sessionId: session.id,
+        roomCode: session.roomCode,
+        remoteAddress: session.remoteAddress,
+        origin: session.origin,
+        result: "error",
+        reason:
+          error instanceof RoomServiceError
+            ? error.reason
+            : "room_state_bootstrap_failed",
+      });
+    }
+  }
+
+  async function firePublishRoomEvent(
+    message: RoomEventBusPublishInput<RoomEventBusMessage>,
     context: {
       reason: string;
       sessionId?: string;
@@ -129,6 +205,7 @@ export function createMessageHandler(options: {
       origin?: string | null;
     },
   ): Promise<void> {
+    const { type, roomCode } = message;
     if (pendingPublishes.size >= maxPendingPublishes) {
       logEvent("room_event_publish_backpressure", {
         sessionId: context.sessionId,
@@ -205,11 +282,10 @@ export function createMessageHandler(options: {
     // The underlying publish keeps running after timeout so the bus can still
     // deliver if it eventually unblocks; we just stop accounting for it here.
     const realPublish = options.publishRoomEvent({
-      type,
-      roomCode,
+      ...message,
       sourceInstanceId: options.instanceId,
       emittedAt: now(),
-    });
+    } as RoomEventBusMessage);
     let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
     let timedOut = false;
     const wrapper = Promise.race<"ok" | "timeout">([
@@ -271,18 +347,32 @@ export function createMessageHandler(options: {
 
   async function leaveRoom(session: Session): Promise<void> {
     const roomCode = session.roomCode;
-    const { room, notifyRoom } = await roomService.leaveRoomForSession(session);
+    const memberId = session.memberId ?? session.id;
+    const displayName = session.displayName;
+    const { room, notifyRoom, memberRemoved } =
+      await roomService.leaveRoomForSession(session);
     if (!roomCode || (!room && !notifyRoom)) {
       return;
     }
-    options.onRoomLeft?.(session, roomCode);
+    runRoomLeftHook(session, roomCode);
+    if (!memberRemoved && !notifyRoom) {
+      return;
+    }
 
-    await firePublishRoomEvent("room_member_changed", roomCode, {
-      reason: "leave_room_broadcast_failed",
-      sessionId: session.id,
-      remoteAddress: session.remoteAddress,
-      origin: session.origin,
-    });
+    await firePublishRoomEvent(
+      {
+        type: "room_member_left",
+        roomCode,
+        memberId,
+        displayName,
+      },
+      {
+        reason: "leave_room_broadcast_failed",
+        sessionId: session.id,
+        remoteAddress: session.remoteAddress,
+        origin: session.origin,
+      },
+    );
   }
 
   function handleRateLimitedMessage(
@@ -321,6 +411,7 @@ export function createMessageHandler(options: {
   ): boolean {
     if (clientVersion === undefined) {
       // Old extension without protocolVersion — compatible baseline, log deprecation
+      session.protocolVersion = MIN_PROTOCOL_VERSION;
       logEvent("protocol_version_missing", {
         sessionId: session.id,
         remoteAddress: session.remoteAddress,
@@ -346,6 +437,7 @@ export function createMessageHandler(options: {
       });
       return false;
     }
+    session.protocolVersion = clientVersion;
     return true;
   }
 
@@ -392,9 +484,9 @@ export function createMessageHandler(options: {
             message.payload?.displayName,
           );
           if (previousRoomCode && previousRoomCode !== room.code) {
-            options.onRoomLeft?.(session, previousRoomCode);
+            runRoomLeftHook(session, previousRoomCode);
           }
-          options.onRoomJoined?.(session, room.code, previousRoomCode);
+          await runRoomJoinedHook(session, room.code, previousRoomCode);
           send(socket, {
             type: "room:created",
             payload: {
@@ -405,12 +497,7 @@ export function createMessageHandler(options: {
               serverProtocolVersion: CURRENT_PROTOCOL_VERSION,
             },
           });
-          await firePublishRoomEvent("room_member_changed", room.code, {
-            reason: "create_room_broadcast_failed",
-            sessionId: session.id,
-            remoteAddress: session.remoteAddress,
-            origin: session.origin,
-          });
+          await sendRoomStateToSession(session, memberToken, message.type);
           logEvent("room_created", {
             sessionId: session.id,
             roomCode: room.code,
@@ -455,29 +542,56 @@ export function createMessageHandler(options: {
               message.payload.memberToken,
             );
             if (previousRoomCode && previousRoomCode !== room.code) {
-              options.onRoomLeft?.(session, previousRoomCode);
+              runRoomLeftHook(session, previousRoomCode);
             }
-            options.onRoomJoined?.(session, room.code, previousRoomCode);
+            await runRoomJoinedHook(session, room.code, previousRoomCode);
+            const joinedRoomCode = room.code;
+            const joinedMemberId = session.memberId ?? session.id;
+            const joinedDisplayName = session.displayName;
             send(socket, {
               type: "room:joined",
               payload: {
-                roomCode: room.code,
-                memberId: session.memberId ?? session.id,
+                roomCode: joinedRoomCode,
+                memberId: joinedMemberId,
                 memberToken,
                 serverProtocolVersion: CURRENT_PROTOCOL_VERSION,
               },
             });
-            await firePublishRoomEvent("room_member_changed", room.code, {
-              reason: "join_room_broadcast_failed",
-              sessionId: session.id,
-              remoteAddress: session.remoteAddress,
-              origin: session.origin,
-            });
+            await sendRoomStateToSession(session, memberToken, message.type);
+            if (
+              session.roomCode !== joinedRoomCode ||
+              session.memberId !== joinedMemberId
+            ) {
+              logEvent("room_join_delta_skipped", {
+                sessionId: session.id,
+                roomCode: joinedRoomCode,
+                memberId: joinedMemberId,
+                remoteAddress: session.remoteAddress,
+                origin: session.origin,
+                result: "skipped",
+                reason: "session_no_longer_joined",
+              });
+              return;
+            }
+            await firePublishRoomEvent(
+              {
+                type: "room_member_joined",
+                roomCode: joinedRoomCode,
+                memberId: joinedMemberId,
+                displayName: joinedDisplayName,
+              },
+              {
+                reason: "join_room_broadcast_failed",
+                sessionId: session.id,
+                remoteAddress: session.remoteAddress,
+                origin: session.origin,
+              },
+            );
             logEvent("room_joined", {
               sessionId: session.id,
-              roomCode: room.code,
-              memberId: session.memberId ?? session.id,
-              displayName: session.displayName,
+              roomCode: joinedRoomCode,
+              memberId: joinedMemberId,
+              displayName: joinedDisplayName,
               remoteAddress: session.remoteAddress,
               origin: session.origin,
               result: "ok",
@@ -507,12 +621,18 @@ export function createMessageHandler(options: {
             message.payload.memberToken,
             message.payload.displayName,
           );
-          await firePublishRoomEvent("room_state_updated", room.code, {
-            reason: "profile_update_broadcast_failed",
-            sessionId: session.id,
-            remoteAddress: session.remoteAddress,
-            origin: session.origin,
-          });
+          await firePublishRoomEvent(
+            {
+              type: "room_state_updated",
+              roomCode: room.code,
+            },
+            {
+              reason: "profile_update_broadcast_failed",
+              sessionId: session.id,
+              remoteAddress: session.remoteAddress,
+              origin: session.origin,
+            },
+          );
           return;
         }
         case "video:share": {
@@ -536,12 +656,18 @@ export function createMessageHandler(options: {
               message.payload.video,
               message.payload.playback,
             );
-            await firePublishRoomEvent("room_state_updated", room.code, {
-              reason: "video_share_broadcast_failed",
-              sessionId: session.id,
-              remoteAddress: session.remoteAddress,
-              origin: session.origin,
-            });
+            await firePublishRoomEvent(
+              {
+                type: "room_state_updated",
+                roomCode: room.code,
+              },
+              {
+                reason: "video_share_broadcast_failed",
+                sessionId: session.id,
+                remoteAddress: session.remoteAddress,
+                origin: session.origin,
+              },
+            );
           });
           return;
         }
@@ -566,8 +692,10 @@ export function createMessageHandler(options: {
             );
             if (!result.ignored && result.room) {
               await firePublishRoomEvent(
-                "room_state_updated",
-                result.room.code,
+                {
+                  type: "room_state_updated",
+                  roomCode: result.room.code,
+                },
                 {
                   reason: "playback_update_broadcast_failed",
                   sessionId: session.id,

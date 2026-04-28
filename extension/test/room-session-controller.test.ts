@@ -5,7 +5,10 @@ import { createBackgroundRuntimeState } from "../src/background/runtime-state";
 import { createRoomSessionController } from "../src/background/room-session-controller";
 import { setLocaleForTests } from "../src/shared/i18n";
 
-function createControllerHarness() {
+function createControllerHarness(options?: {
+  bootstrapRoomStateTimeoutMs?: number;
+  persistState?: (callCount: number) => Promise<void> | void;
+}) {
   const runtimeState = createBackgroundRuntimeState();
   const sendToServerCalls: Array<unknown> = [];
   const notifyContentMessages: Array<unknown> = [];
@@ -31,6 +34,7 @@ function createControllerHarness() {
     },
     persistState: async () => {
       persistReasons.push("persisted");
+      await options?.persistState?.(persistReasons.length);
     },
     sendToServer: (message) => {
       sendToServerCalls.push(message);
@@ -69,6 +73,7 @@ function createControllerHarness() {
       logs.push(`server-error:${code}:${message}`);
     },
     shareToastTtlMs: 8_000,
+    bootstrapRoomStateTimeoutMs: options?.bootstrapRoomStateTimeoutMs,
   });
 
   return {
@@ -109,7 +114,7 @@ test("room session controller sends create request with protocolVersion", async 
     type: "room:create",
     payload: {
       displayName: "Bob",
-      protocolVersion: 1,
+      protocolVersion: 2,
     },
   });
 });
@@ -185,7 +190,7 @@ test("room session controller sends join request after connect and normalizes pe
       roomCode: "ROOM01",
       joinToken: "token-1",
       displayName: "Alice",
-      protocolVersion: 1,
+      protocolVersion: 2,
     },
   });
   assert.equal(harness.persistReasons.length, 1);
@@ -300,6 +305,376 @@ test("room session controller confirms pending local share and notifies content 
     "https://www.bilibili.com/video/BV1xx411c7mD?p=2",
   );
   assert.equal(harness.notifyAllCalls, 1);
+});
+
+test("room session controller applies room member join and leave deltas", async () => {
+  const harness = createControllerHarness();
+  harness.runtimeState.room.roomState = {
+    roomCode: "ROOM04",
+    sharedVideo: null,
+    playback: null,
+    members: [{ id: "member-1", name: "Alice" }],
+  };
+
+  await harness.controller.handleServerMessage({
+    type: "room:member-joined",
+    payload: {
+      roomCode: "ROOM04",
+      member: { id: "member-2", name: "Bob" },
+    },
+  } satisfies ServerMessage);
+
+  assert.deepEqual(harness.runtimeState.room.roomState.members, [
+    { id: "member-1", name: "Alice" },
+    { id: "member-2", name: "Bob" },
+  ]);
+  assert.equal(harness.persistReasons.length, 1);
+  assert.equal(harness.notifyContentMessages.length, 1);
+
+  await harness.controller.handleServerMessage({
+    type: "room:member-left",
+    payload: {
+      roomCode: "ROOM04",
+      member: { id: "member-2", name: "Bob" },
+    },
+  } satisfies ServerMessage);
+
+  assert.deepEqual(harness.runtimeState.room.roomState.members, [
+    { id: "member-1", name: "Alice" },
+  ]);
+  assert.equal(harness.persistReasons.length, 2);
+  assert.equal(harness.notifyContentMessages.length, 2);
+});
+
+test("room session controller replays member deltas received before bootstrap state", async () => {
+  const harness = createControllerHarness();
+
+  await harness.controller.handleServerMessage({
+    type: "room:created",
+    payload: {
+      roomCode: "ROOM04",
+      joinToken: "join-token-4",
+      memberToken: "member-token-4",
+      memberId: "member-1",
+    },
+  } satisfies ServerMessage);
+
+  await harness.controller.handleServerMessage({
+    type: "room:member-joined",
+    payload: {
+      roomCode: "ROOM04",
+      member: { id: "member-2", name: "Bob" },
+    },
+  } satisfies ServerMessage);
+  await harness.controller.handleServerMessage({
+    type: "room:member-left",
+    payload: {
+      roomCode: "ROOM04",
+      member: { id: "member-1", name: "Alice" },
+    },
+  } satisfies ServerMessage);
+
+  await harness.controller.handleServerMessage({
+    type: "room:state",
+    payload: {
+      roomCode: "ROOM04",
+      sharedVideo: null,
+      playback: null,
+      members: [{ id: "member-1", name: "Alice" }],
+    },
+  } satisfies ServerMessage);
+
+  assert.deepEqual(harness.runtimeState.room.roomState?.members, [
+    { id: "member-2", name: "Bob" },
+  ]);
+  assert.equal(harness.persistReasons.length, 2);
+  assert.equal(harness.notifyContentMessages.length, 1);
+});
+
+test("room session controller releases queued reconnect deltas when bootstrap state times out", async () => {
+  const harness = createControllerHarness({ bootstrapRoomStateTimeoutMs: 1 });
+  harness.runtimeState.room.roomCode = "ROOM04";
+  harness.runtimeState.room.roomState = {
+    roomCode: "ROOM04",
+    sharedVideo: {
+      videoId: "BV1old",
+      url: "https://www.bilibili.com/video/BV1old",
+      title: "Old Video",
+      sharedByMemberId: "member-1",
+    },
+    playback: null,
+    members: [{ id: "member-1", name: "Alice" }],
+  };
+
+  await harness.controller.handleServerMessage({
+    type: "room:joined",
+    payload: {
+      roomCode: "ROOM04",
+      memberToken: "member-token-1",
+      memberId: "member-1",
+    },
+  } satisfies ServerMessage);
+  await harness.controller.handleServerMessage({
+    type: "room:member-joined",
+    payload: {
+      roomCode: "ROOM04",
+      member: { id: "member-2", name: "Bob" },
+    },
+  } satisfies ServerMessage);
+
+  await new Promise((resolve) => globalThis.setTimeout(resolve, 10));
+
+  assert.deepEqual(harness.runtimeState.room.roomState?.members, [
+    { id: "member-1", name: "Alice" },
+    { id: "member-2", name: "Bob" },
+  ]);
+  assert.equal(
+    harness.runtimeState.room.roomState?.sharedVideo?.url,
+    "https://www.bilibili.com/video/BV1old",
+  );
+  assert.equal(harness.persistReasons.length, 2);
+  assert.equal(harness.notifyContentMessages.length, 1);
+
+  await harness.controller.handleServerMessage({
+    type: "room:member-left",
+    payload: {
+      roomCode: "ROOM04",
+      member: { id: "member-2", name: "Bob" },
+    },
+  } satisfies ServerMessage);
+
+  assert.deepEqual(harness.runtimeState.room.roomState?.members, [
+    { id: "member-1", name: "Alice" },
+  ]);
+  assert.equal(harness.persistReasons.length, 3);
+  assert.equal(harness.notifyContentMessages.length, 2);
+});
+
+test("room session controller does not let timeout replay overwrite a late bootstrap state", async () => {
+  let resolveTimeoutPersistStarted: (() => void) | null = null;
+  let releaseTimeoutPersist: (() => void) | null = null;
+  const timeoutPersistStarted = new Promise<void>((resolve) => {
+    resolveTimeoutPersistStarted = resolve;
+  });
+  const timeoutPersistRelease = new Promise<void>((resolve) => {
+    releaseTimeoutPersist = resolve;
+  });
+  const harness = createControllerHarness({
+    bootstrapRoomStateTimeoutMs: 1,
+    async persistState(callCount) {
+      if (callCount === 2) {
+        resolveTimeoutPersistStarted?.();
+        await timeoutPersistRelease;
+      }
+    },
+  });
+  harness.runtimeState.room.roomCode = "ROOM04";
+  harness.runtimeState.room.roomState = {
+    roomCode: "ROOM04",
+    sharedVideo: {
+      videoId: "BV1old",
+      url: "https://www.bilibili.com/video/BV1old",
+      title: "Old Video",
+      sharedByMemberId: "member-1",
+    },
+    playback: null,
+    members: [{ id: "member-1", name: "Alice" }],
+  };
+
+  await harness.controller.handleServerMessage({
+    type: "room:joined",
+    payload: {
+      roomCode: "ROOM04",
+      memberToken: "member-token-1",
+      memberId: "member-1",
+    },
+  } satisfies ServerMessage);
+  await harness.controller.handleServerMessage({
+    type: "room:member-joined",
+    payload: {
+      roomCode: "ROOM04",
+      member: { id: "member-2", name: "Bob" },
+    },
+  } satisfies ServerMessage);
+
+  await Promise.race([
+    timeoutPersistStarted,
+    new Promise((_, reject) =>
+      globalThis.setTimeout(
+        () => reject(new Error("Timed out waiting for timeout persist")),
+        50,
+      ),
+    ),
+  ]);
+  const freshBootstrapState: RoomState = {
+    roomCode: "ROOM04",
+    sharedVideo: {
+      videoId: "BV1new",
+      url: "https://www.bilibili.com/video/BV1new",
+      title: "New Video",
+      sharedByMemberId: "member-3",
+    },
+    playback: null,
+    members: [
+      { id: "member-1", name: "Alice" },
+      { id: "member-3", name: "Carol" },
+    ],
+  };
+
+  await harness.controller.handleServerMessage({
+    type: "room:state",
+    payload: freshBootstrapState,
+  } satisfies ServerMessage);
+  releaseTimeoutPersist?.();
+  await new Promise((resolve) => globalThis.setTimeout(resolve, 0));
+
+  assert.deepEqual(harness.runtimeState.room.roomState, freshBootstrapState);
+  assert.equal(harness.notifyContentMessages.length, 1);
+  assert.deepEqual(
+    (
+      harness.notifyContentMessages[0] as {
+        payload: RoomState;
+      }
+    ).payload,
+    freshBootstrapState,
+  );
+});
+
+test("room session controller queues reconnect deltas until fresh bootstrap state", async () => {
+  const harness = createControllerHarness();
+  harness.runtimeState.room.roomCode = "ROOM04";
+  harness.runtimeState.room.roomState = {
+    roomCode: "ROOM04",
+    sharedVideo: {
+      videoId: "BV1old",
+      url: "https://www.bilibili.com/video/BV1old",
+      title: "Old Video",
+      sharedByMemberId: "member-1",
+    },
+    playback: null,
+    members: [{ id: "member-1", name: "Alice" }],
+  };
+
+  await harness.controller.handleServerMessage({
+    type: "room:joined",
+    payload: {
+      roomCode: "ROOM04",
+      memberToken: "member-token-1",
+      memberId: "member-1",
+    },
+  } satisfies ServerMessage);
+  await harness.controller.handleServerMessage({
+    type: "room:member-joined",
+    payload: {
+      roomCode: "ROOM04",
+      member: { id: "member-2", name: "Bob" },
+    },
+  } satisfies ServerMessage);
+
+  assert.deepEqual(harness.runtimeState.room.roomState.members, [
+    { id: "member-1", name: "Alice" },
+  ]);
+  assert.equal(
+    harness.runtimeState.room.roomState.sharedVideo?.url,
+    "https://www.bilibili.com/video/BV1old",
+  );
+  assert.equal(harness.persistReasons.length, 1);
+  assert.equal(harness.notifyContentMessages.length, 0);
+
+  await harness.controller.handleServerMessage({
+    type: "room:state",
+    payload: {
+      roomCode: "ROOM04",
+      sharedVideo: {
+        videoId: "BV1new",
+        url: "https://www.bilibili.com/video/BV1new",
+        title: "New Video",
+        sharedByMemberId: "member-2",
+      },
+      playback: null,
+      members: [{ id: "member-1", name: "Alice" }],
+    },
+  } satisfies ServerMessage);
+
+  assert.deepEqual(harness.runtimeState.room.roomState?.members, [
+    { id: "member-1", name: "Alice" },
+    { id: "member-2", name: "Bob" },
+  ]);
+  assert.equal(
+    harness.runtimeState.room.roomState?.sharedVideo?.url,
+    "https://www.bilibili.com/video/BV1new",
+  );
+  assert.equal(harness.persistReasons.length, 2);
+  assert.equal(harness.notifyContentMessages.length, 1);
+});
+
+test("room session controller queues member deltas that arrive before room joined", async () => {
+  const harness = createControllerHarness();
+  harness.runtimeState.room.roomCode = "ROOM04";
+  harness.runtimeState.room.pendingJoinRequestSent = true;
+  harness.runtimeState.room.roomState = {
+    roomCode: "ROOM04",
+    sharedVideo: {
+      videoId: "BV1old",
+      url: "https://www.bilibili.com/video/BV1old",
+      title: "Old Video",
+      sharedByMemberId: "member-1",
+    },
+    playback: null,
+    members: [{ id: "member-1", name: "Alice" }],
+  };
+
+  await harness.controller.handleServerMessage({
+    type: "room:member-joined",
+    payload: {
+      roomCode: "ROOM04",
+      member: { id: "member-2", name: "Bob" },
+    },
+  } satisfies ServerMessage);
+
+  assert.deepEqual(harness.runtimeState.room.roomState.members, [
+    { id: "member-1", name: "Alice" },
+  ]);
+  assert.equal(
+    harness.runtimeState.room.roomState.sharedVideo?.url,
+    "https://www.bilibili.com/video/BV1old",
+  );
+  assert.equal(harness.persistReasons.length, 0);
+  assert.equal(harness.notifyContentMessages.length, 0);
+
+  await harness.controller.handleServerMessage({
+    type: "room:joined",
+    payload: {
+      roomCode: "ROOM04",
+      memberToken: "member-token-1",
+      memberId: "member-1",
+    },
+  } satisfies ServerMessage);
+  await harness.controller.handleServerMessage({
+    type: "room:state",
+    payload: {
+      roomCode: "ROOM04",
+      sharedVideo: {
+        videoId: "BV1new",
+        url: "https://www.bilibili.com/video/BV1new",
+        title: "New Video",
+        sharedByMemberId: "member-2",
+      },
+      playback: null,
+      members: [{ id: "member-1", name: "Alice" }],
+    },
+  } satisfies ServerMessage);
+
+  assert.deepEqual(harness.runtimeState.room.roomState?.members, [
+    { id: "member-1", name: "Alice" },
+    { id: "member-2", name: "Bob" },
+  ]);
+  assert.equal(
+    harness.runtimeState.room.roomState?.sharedVideo?.url,
+    "https://www.bilibili.com/video/BV1new",
+  );
+  assert.equal(harness.persistReasons.length, 2);
+  assert.equal(harness.notifyContentMessages.length, 1);
 });
 
 test("room session controller syncs display name after room creation completes", async () => {
