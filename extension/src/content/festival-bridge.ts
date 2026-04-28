@@ -1,11 +1,24 @@
 import type { SharedVideo } from "@bili-syncplay/protocol";
-import { buildFestivalShareUrl } from "./page-video";
+import {
+  buildBangumiEpisodeShareUrl,
+  buildBvidCidShareUrl,
+  buildFestivalShareUrl,
+} from "./page-video";
 
 export interface FestivalSnapshot {
   videoId: string;
   url: string;
   title: string;
   updatedAt: number;
+  epId?: string;
+  cid?: string;
+  pathname?: string;
+  pageUrl?: string;
+}
+
+interface PageVideoSnapshot extends SharedVideo {
+  epId?: string;
+  cid?: string;
 }
 
 export interface FestivalBridgeController {
@@ -23,12 +36,13 @@ export function createFestivalBridgeController(): FestivalBridgeController {
   let festivalSnapshot: FestivalSnapshot | null = null;
 
   async function readFestivalSnapshotFromPageContext(
+    pathname: string,
     pageUrl: string,
-  ): Promise<SharedVideo | null> {
+  ): Promise<PageVideoSnapshot | null> {
     ensureFestivalBridge();
     const requestId = `bili-syncplay-festival-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
-    return await new Promise<SharedVideo | null>((resolve) => {
+    return await new Promise<PageVideoSnapshot | null>((resolve) => {
       const timeoutId = window.setTimeout(() => {
         cleanup();
         resolve(null);
@@ -44,6 +58,7 @@ export function createFestivalBridgeController(): FestivalBridgeController {
           type?: string;
           requestId?: string;
           detail?: {
+            epId?: string | number;
             bvid?: string;
             cid?: string | number;
             title?: string;
@@ -61,15 +76,36 @@ export function createFestivalBridgeController(): FestivalBridgeController {
         const detail = messageEvent.data.detail;
         cleanup();
 
-        if (!detail?.bvid || detail.cid === undefined || !detail.title) {
+        if (!detail?.title) {
+          resolve(null);
+          return;
+        }
+
+        if (pathname.startsWith("/bangumi/play/") && detail.epId) {
+          const epId = String(detail.epId);
+          const normalizedEpId = epId.startsWith("ep") ? epId : `ep${epId}`;
+          resolve({
+            videoId: normalizedEpId,
+            url: buildBangumiEpisodeShareUrl(epId),
+            title: detail.title.trim(),
+            epId: normalizedEpId,
+            cid: detail.cid === undefined ? undefined : String(detail.cid),
+          });
+          return;
+        }
+
+        if (!detail.bvid || detail.cid === undefined) {
           resolve(null);
           return;
         }
 
         resolve({
           videoId: `${detail.bvid}:${detail.cid}`,
-          url: buildFestivalShareUrl(pageUrl, detail.bvid, String(detail.cid)),
+          url: pathname.startsWith("/festival/")
+            ? buildFestivalShareUrl(pageUrl, detail.bvid, String(detail.cid))
+            : buildBvidCidShareUrl(detail.bvid, String(detail.cid)),
           title: detail.title.trim(),
+          cid: String(detail.cid),
         });
       };
 
@@ -79,6 +115,19 @@ export function createFestivalBridgeController(): FestivalBridgeController {
         "*",
       );
     });
+  }
+
+  function normalizeCachedPagePathname(pathname: string): string {
+    return pathname.replace(/\/+$/, "");
+  }
+
+  function canUseCachedFestivalSnapshot(pathname: string): boolean {
+    return (
+      pathname.startsWith("/festival/") &&
+      festivalSnapshot?.pathname?.startsWith("/festival/") === true &&
+      normalizeCachedPagePathname(festivalSnapshot.pathname) ===
+        normalizeCachedPagePathname(pathname)
+    );
   }
 
   function ensureFestivalBridge(): void {
@@ -100,13 +149,16 @@ export function createFestivalBridgeController(): FestivalBridgeController {
     },
     getSnapshot: () => festivalSnapshot,
     refreshSnapshot: async ({ pathname, pageUrl, maxAgeMs }) => {
-      if (!pathname.startsWith("/festival/")) {
+      const isBangumiPage = pathname.startsWith("/bangumi/play/");
+      if (!pathname.startsWith("/festival/") && !isBangumiPage) {
         festivalSnapshot = null;
         return null;
       }
 
       if (
+        !isBangumiPage &&
         festivalSnapshot &&
+        canUseCachedFestivalSnapshot(pathname) &&
         Date.now() - festivalSnapshot.updatedAt < maxAgeMs
       ) {
         return {
@@ -116,9 +168,14 @@ export function createFestivalBridgeController(): FestivalBridgeController {
         };
       }
 
-      const nextSnapshot = await readFestivalSnapshotFromPageContext(pageUrl);
+      const nextSnapshot = await readFestivalSnapshotFromPageContext(
+        pathname,
+        pageUrl,
+      );
       if (!nextSnapshot) {
-        return festivalSnapshot
+        return !isBangumiPage &&
+          festivalSnapshot &&
+          canUseCachedFestivalSnapshot(pathname)
           ? {
               videoId: festivalSnapshot.videoId,
               url: festivalSnapshot.url,
@@ -130,6 +187,8 @@ export function createFestivalBridgeController(): FestivalBridgeController {
       festivalSnapshot = {
         ...nextSnapshot,
         updatedAt: Date.now(),
+        pathname,
+        pageUrl,
       };
       return nextSnapshot;
     },

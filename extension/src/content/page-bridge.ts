@@ -1,3 +1,9 @@
+import {
+  readFestivalVideoDetailFromSources,
+  type PageInitialState,
+  type PlayerInput,
+} from "./page-bridge-detail";
+
 const REQUEST_TYPE = "bili-syncplay:get-festival-video";
 const RESPONSE_TYPE = "bili-syncplay:festival-video";
 
@@ -20,6 +26,7 @@ window.addEventListener("message", (event) => {
 });
 
 function readFestivalVideoDetail(): {
+  epId?: string | number;
   bvid?: string;
   cid?: string | number;
   title?: string;
@@ -27,34 +34,24 @@ function readFestivalVideoDetail(): {
   try {
     const initialState = (
       window as typeof window & {
-        __INITIAL_STATE__?: {
-          sectionEpisodes?: Array<{
-            bvid?: string;
-            cid?: string | number;
-            title?: string;
-          }>;
-          videoInfo?: {
-            bvid?: string;
-            cid?: string | number;
-            title?: string;
-          };
-        };
+        __INITIAL_STATE__?: PageInitialState;
         player?: {
           __getUserParams?: () => {
-            input?: {
-              bvid?: string;
-              cid?: string | number;
-              aid?: string | number;
-            };
+            input?: PlayerInput;
           };
         };
       }
     ).__INITIAL_STATE__;
 
     const active = document.querySelector<HTMLElement>(
-      "li[data-cid].bpx-state-active, [data-cid].bpx-state-active, [data-cid].active, [data-cid].selected",
+      "li[data-cid].bpx-state-active, [data-cid].bpx-state-active, [data-cid].active, [data-cid].selected, [data-ep-id].active, [data-episode-id].active, [data-epid].active",
     );
     const activeCid = active?.getAttribute("data-cid") ?? null;
+    const activeEpId =
+      active?.getAttribute("data-ep-id") ??
+      active?.getAttribute("data-episode-id") ??
+      active?.getAttribute("data-epid") ??
+      null;
     const activeTitle =
       active?.textContent?.trim() ||
       document
@@ -62,57 +59,23 @@ function readFestivalVideoDetail(): {
         ?.textContent?.trim() ||
       null;
 
-    const sectionEpisodes = Array.isArray(initialState?.sectionEpisodes)
-      ? initialState.sectionEpisodes
-      : [];
-    const matchedByCid = activeCid
-      ? sectionEpisodes.find(
-          (episode) => String(episode?.cid ?? "") === activeCid,
-        )
-      : null;
-    const matchedByTitle =
-      !matchedByCid && activeTitle
-        ? sectionEpisodes.find(
-            (episode) => (episode?.title || "").trim() === activeTitle,
-          )
-        : null;
-
     const playerInput = (
       window as typeof window & {
         player?: {
           __getUserParams?: () => {
-            input?: {
-              bvid?: string;
-              cid?: string | number;
-            };
+            input?: PlayerInput;
           };
         };
       }
     ).player?.__getUserParams?.()?.input;
 
-    const matched =
-      matchedByCid ??
-      matchedByTitle ??
-      playerInput ??
-      initialState?.videoInfo ??
-      null;
-    if (!matched?.bvid || matched.cid === undefined) {
-      return null;
-    }
-
-    return {
-      bvid: matched.bvid,
-      cid: matched.cid,
-      title:
-        (typeof matched === "object" &&
-        matched !== null &&
-        "title" in matched &&
-        typeof matched.title === "string"
-          ? matched.title
-          : undefined) ||
-        activeTitle ||
-        initialState?.videoInfo?.title,
-    };
+    return readFestivalVideoDetailFromSources({
+      initialState,
+      playerInput,
+      activeCid,
+      activeEpId,
+      activeTitle,
+    });
   } catch {
     return null;
   }
