@@ -99,6 +99,9 @@ export function createMessageHandler(options: {
   publishRoomEvent: (message: RoomEventBusMessage) => Promise<void>;
   instanceId: string;
   metricsCollector?: Pick<MetricsCollector, "observeMessageHandlerDuration">;
+  maxPendingPublishes?: number;
+  backpressureWaitMs?: number;
+  publishTimeoutMs?: number;
   onRoomJoined?: (
     session: Session,
     roomCode: string,
@@ -112,20 +115,15 @@ export function createMessageHandler(options: {
     message: ClientMessage,
   ) => Promise<void>;
   leaveRoom: (session: Session) => Promise<void>;
+  flushPendingPublishes: () => Promise<void>;
 } {
   const { config, roomService, logEvent, send, sendError } = options;
   const now = options.now ?? Date.now;
   const metricsCollector = options.metricsCollector;
-
-  async function publishRoomEvent(
-    message: RoomEventBusPublishInput<RoomEventBusMessage>,
-  ): Promise<void> {
-    await options.publishRoomEvent({
-      ...message,
-      sourceInstanceId: options.instanceId,
-      emittedAt: now(),
-    } as RoomEventBusMessage);
-  }
+  const pendingPublishes = new Set<Promise<void>>();
+  const maxPendingPublishes = options.maxPendingPublishes ?? 256;
+  const backpressureWaitMs = options.backpressureWaitMs ?? 5_000;
+  const publishTimeoutMs = options.publishTimeoutMs ?? 5_000;
 
   async function runRoomJoinedHook(
     session: Session,
@@ -198,6 +196,155 @@ export function createMessageHandler(options: {
     }
   }
 
+  async function firePublishRoomEvent(
+    message: RoomEventBusPublishInput<RoomEventBusMessage>,
+    context: {
+      reason: string;
+      sessionId?: string;
+      remoteAddress?: string | null;
+      origin?: string | null;
+    },
+  ): Promise<void> {
+    const { type, roomCode } = message;
+    if (pendingPublishes.size >= maxPendingPublishes) {
+      logEvent("room_event_publish_backpressure", {
+        sessionId: context.sessionId,
+        roomCode,
+        remoteAddress: context.remoteAddress,
+        origin: context.origin,
+        result: "throttled",
+        reason: context.reason,
+        eventType: type,
+        pendingCount: pendingPublishes.size,
+        maxPending: maxPendingPublishes,
+      });
+      // Loop and re-check size synchronously after each wake-up. A slot
+      // freeing wakes every concurrent waiter at once; the first one
+      // through grabs the slot synchronously (no await between size
+      // check and pendingPublishes.add), the rest see the cap is full
+      // again and wait another round. Total wait is bounded by an
+      // absolute deadline so callers can't be starved past
+      // backpressureWaitMs.
+      const deadline = now() + backpressureWaitMs;
+      while (pendingPublishes.size >= maxPendingPublishes) {
+        const remainingMs = deadline - now();
+        if (remainingMs <= 0) {
+          logEvent("room_event_publish_dropped", {
+            sessionId: context.sessionId,
+            roomCode,
+            remoteAddress: context.remoteAddress,
+            origin: context.origin,
+            result: "dropped",
+            reason: context.reason,
+            eventType: type,
+            pendingCount: pendingPublishes.size,
+            maxPending: maxPendingPublishes,
+            waitMs: backpressureWaitMs,
+          });
+          return;
+        }
+        let waitTimeoutHandle: ReturnType<typeof setTimeout> | null = null;
+        const slotFreed = Promise.race(Array.from(pendingPublishes)).then(
+          () => "ok" as const,
+        );
+        const waitTimedOut = new Promise<"timeout">((resolve) => {
+          waitTimeoutHandle = setTimeout(() => resolve("timeout"), remainingMs);
+        });
+        const result = await Promise.race([slotFreed, waitTimedOut]);
+        if (waitTimeoutHandle !== null) {
+          clearTimeout(waitTimeoutHandle);
+        }
+        if (result === "timeout") {
+          logEvent("room_event_publish_dropped", {
+            sessionId: context.sessionId,
+            roomCode,
+            remoteAddress: context.remoteAddress,
+            origin: context.origin,
+            result: "dropped",
+            reason: context.reason,
+            eventType: type,
+            pendingCount: pendingPublishes.size,
+            maxPending: maxPendingPublishes,
+            waitMs: backpressureWaitMs,
+          });
+          return;
+        }
+      }
+    }
+    // Bound each publish so a hung bus call (Redis disconnect, slow network)
+    // can't pin a slot indefinitely. Track the wrapper rather than the raw
+    // publish so:
+    //   - The cap reflects what message-handler is willing to wait for, not
+    //     the bus's true in-flight count (which the bus driver is responsible
+    //     for managing).
+    //   - flushPendingPublishes() always drains within publishTimeoutMs
+    //     regardless of whether the underlying call ever resolves.
+    // The underlying publish keeps running after timeout so the bus can still
+    // deliver if it eventually unblocks; we just stop accounting for it here.
+    const realPublish = options.publishRoomEvent({
+      ...message,
+      sourceInstanceId: options.instanceId,
+      emittedAt: now(),
+    } as RoomEventBusMessage);
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+    let timedOut = false;
+    const wrapper = Promise.race<"ok" | "timeout">([
+      realPublish.then(
+        () => "ok" as const,
+        (error: unknown) => {
+          // If the publish rejects after the timeout has already won, the
+          // timeout log captured the incident — suppress the duplicate.
+          if (!timedOut) {
+            logEvent("room_event_publish_failed", {
+              sessionId: context.sessionId,
+              roomCode,
+              remoteAddress: context.remoteAddress,
+              origin: context.origin,
+              result: "error",
+              reason: context.reason,
+              eventType: type,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+          return "ok" as const;
+        },
+      ),
+      new Promise<"timeout">((resolve) => {
+        timeoutHandle = setTimeout(() => {
+          timedOut = true;
+          resolve("timeout");
+        }, publishTimeoutMs);
+      }),
+    ]).then((outcome) => {
+      if (timeoutHandle !== null) {
+        clearTimeout(timeoutHandle);
+        timeoutHandle = null;
+      }
+      if (outcome === "timeout") {
+        logEvent("room_event_publish_timeout", {
+          sessionId: context.sessionId,
+          roomCode,
+          remoteAddress: context.remoteAddress,
+          origin: context.origin,
+          result: "timeout",
+          reason: context.reason,
+          eventType: type,
+          timeoutMs: publishTimeoutMs,
+        });
+      }
+    });
+    pendingPublishes.add(wrapper);
+    void wrapper.finally(() => {
+      pendingPublishes.delete(wrapper);
+    });
+  }
+
+  async function flushPendingPublishes(): Promise<void> {
+    while (pendingPublishes.size > 0) {
+      await Promise.allSettled(Array.from(pendingPublishes));
+    }
+  }
+
   async function leaveRoom(session: Session): Promise<void> {
     const roomCode = session.roomCode;
     const memberId = session.memberId ?? session.id;
@@ -212,25 +359,20 @@ export function createMessageHandler(options: {
       return;
     }
 
-    try {
-      await publishRoomEvent({
+    await firePublishRoomEvent(
+      {
         type: "room_member_left",
         roomCode,
         memberId,
         displayName,
-      });
-    } catch (error) {
-      logEvent("room_event_publish_failed", {
+      },
+      {
+        reason: "leave_room_broadcast_failed",
         sessionId: session.id,
-        roomCode,
         remoteAddress: session.remoteAddress,
         origin: session.origin,
-        result: "error",
-        reason: "leave_room_broadcast_failed",
-        eventType: "room_member_left",
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
+      },
+    );
   }
 
   function handleRateLimitedMessage(
@@ -431,25 +573,20 @@ export function createMessageHandler(options: {
               });
               return;
             }
-            try {
-              await publishRoomEvent({
+            await firePublishRoomEvent(
+              {
                 type: "room_member_joined",
                 roomCode: joinedRoomCode,
                 memberId: joinedMemberId,
                 displayName: joinedDisplayName,
-              });
-            } catch (error) {
-              logEvent("room_event_publish_failed", {
+              },
+              {
+                reason: "join_room_broadcast_failed",
                 sessionId: session.id,
-                roomCode: joinedRoomCode,
                 remoteAddress: session.remoteAddress,
                 origin: session.origin,
-                result: "error",
-                reason: "join_room_broadcast_failed",
-                eventType: "room_member_joined",
-                error: error instanceof Error ? error.message : String(error),
-              });
-            }
+              },
+            );
             logEvent("room_joined", {
               sessionId: session.id,
               roomCode: joinedRoomCode,
@@ -484,10 +621,18 @@ export function createMessageHandler(options: {
             message.payload.memberToken,
             message.payload.displayName,
           );
-          await publishRoomEvent({
-            type: "room_state_updated",
-            roomCode: room.code,
-          });
+          await firePublishRoomEvent(
+            {
+              type: "room_state_updated",
+              roomCode: room.code,
+            },
+            {
+              reason: "profile_update_broadcast_failed",
+              sessionId: session.id,
+              remoteAddress: session.remoteAddress,
+              origin: session.origin,
+            },
+          );
           return;
         }
         case "video:share": {
@@ -511,10 +656,18 @@ export function createMessageHandler(options: {
               message.payload.video,
               message.payload.playback,
             );
-            await publishRoomEvent({
-              type: "room_state_updated",
-              roomCode: room.code,
-            });
+            await firePublishRoomEvent(
+              {
+                type: "room_state_updated",
+                roomCode: room.code,
+              },
+              {
+                reason: "video_share_broadcast_failed",
+                sessionId: session.id,
+                remoteAddress: session.remoteAddress,
+                origin: session.origin,
+              },
+            );
           });
           return;
         }
@@ -538,10 +691,18 @@ export function createMessageHandler(options: {
               message.payload.playback,
             );
             if (!result.ignored && result.room) {
-              await publishRoomEvent({
-                type: "room_state_updated",
-                roomCode: result.room.code,
-              });
+              await firePublishRoomEvent(
+                {
+                  type: "room_state_updated",
+                  roomCode: result.room.code,
+                },
+                {
+                  reason: "playback_update_broadcast_failed",
+                  sessionId: session.id,
+                  remoteAddress: session.remoteAddress,
+                  origin: session.origin,
+                },
+              );
             }
           });
           return;
@@ -622,5 +783,6 @@ export function createMessageHandler(options: {
   return {
     handleClientMessage,
     leaveRoom,
+    flushPendingPublishes,
   };
 }
