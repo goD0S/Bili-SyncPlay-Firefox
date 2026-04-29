@@ -10,7 +10,10 @@ import {
 import { createSessionRateLimitState } from "../src/rate-limit.js";
 import { createInMemoryRoomStore } from "../src/room-store.js";
 import { createRoomService } from "../src/room-service.js";
-import type { RuntimeStore } from "../src/runtime-store.js";
+import {
+  createInMemoryRuntimeStore,
+  type RuntimeStore,
+} from "../src/runtime-store.js";
 import type { LogEvent, Session } from "../src/types.js";
 
 function createSession(id: string): Session {
@@ -100,6 +103,170 @@ test("room service keeps empty rooms for TTL and allows rejoin before expiry", a
   );
   assert.equal(joined.room.expiresAt, null);
   assert.ok(joiner.memberToken);
+});
+
+test("room service skips lastActiveAt persistence for reconnect joins within refresh window", async () => {
+  let currentTime = 1_000;
+  const baseRoomStore = createInMemoryRoomStore({ now: () => currentTime });
+  let updateCount = 0;
+  const roomStore = {
+    ...baseRoomStore,
+    async updateRoom(...args: Parameters<typeof baseRoomStore.updateRoom>) {
+      updateCount += 1;
+      return baseRoomStore.updateRoom(...args);
+    },
+  };
+  const service = createRoomService({
+    config: getDefaultSecurityConfig(),
+    persistence: getDefaultPersistenceConfig(),
+    roomStore,
+    activeRooms: createActiveRoomRegistry(),
+    generateToken: (() => {
+      let id = 0;
+      return () => `token-${++id}`.padEnd(16, "x");
+    })(),
+    logEvent: (() => undefined) satisfies LogEvent,
+    now: () => currentTime,
+    createRoomCode: () => "ROOM02",
+  });
+
+  const owner = createSession("owner");
+  const created = await service.createRoomForSession(owner, "Alice");
+
+  currentTime = 2_000;
+  const joiner = createSession("joiner");
+  const firstJoin = await service.joinRoomForSession(
+    joiner,
+    created.room.code,
+    created.room.joinToken,
+    "Bob",
+  );
+  const writesAfterFirstJoin = updateCount;
+
+  currentTime = 5_000;
+  const reconnect = createSession("reconnect");
+  const rejoined = await service.joinRoomForSession(
+    reconnect,
+    created.room.code,
+    created.room.joinToken,
+    "Bob",
+    firstJoin.memberToken,
+  );
+
+  const persisted = await baseRoomStore.getRoom(created.room.code);
+  assert.equal(updateCount, writesAfterFirstJoin);
+  assert.equal(rejoined.room.version, firstJoin.room.version);
+  assert.equal(persisted?.lastActiveAt, firstJoin.room.lastActiveAt);
+});
+
+test("room service rejects reconnect skip path when room was deleted concurrently", async () => {
+  let currentTime = 1_000;
+  const baseRoomStore = createInMemoryRoomStore({ now: () => currentTime });
+  let validateDeletedRoom = false;
+  let validationReadCount = 0;
+  const roomStore = {
+    ...baseRoomStore,
+    async getRoom(code: string) {
+      const room = await baseRoomStore.getRoom(code);
+      if (validateDeletedRoom) {
+        validationReadCount += 1;
+        if (validationReadCount === 2) {
+          await baseRoomStore.deleteRoom(code);
+          return null;
+        }
+      }
+      return room;
+    },
+  };
+  const activeRooms = createActiveRoomRegistry();
+  const service = createRoomService({
+    config: getDefaultSecurityConfig(),
+    persistence: getDefaultPersistenceConfig(),
+    roomStore,
+    activeRooms,
+    generateToken: (() => {
+      let id = 0;
+      return () => `token-${++id}`.padEnd(16, "x");
+    })(),
+    logEvent: (() => undefined) satisfies LogEvent,
+    now: () => currentTime,
+    createRoomCode: () => "ROOM02B",
+  });
+
+  const owner = createSession("owner");
+  const created = await service.createRoomForSession(owner, "Alice");
+
+  currentTime = 2_000;
+  const joiner = createSession("joiner");
+  const firstJoin = await service.joinRoomForSession(
+    joiner,
+    created.room.code,
+    created.room.joinToken,
+    "Bob",
+  );
+
+  currentTime = 5_000;
+  validateDeletedRoom = true;
+  const reconnect = createSession("reconnect");
+  await assert.rejects(
+    service.joinRoomForSession(
+      reconnect,
+      created.room.code,
+      created.room.joinToken,
+      "Bob",
+      firstJoin.memberToken,
+    ),
+    /Room not found/,
+  );
+
+  assert.equal(reconnect.roomCode, null);
+  assert.equal(
+    activeRooms.getRoom(created.room.code)?.members.get(joiner.id),
+    joiner,
+  );
+});
+
+test("room service refreshes lastActiveAt for active room joins after refresh window", async () => {
+  let currentTime = 1_000;
+  const baseRoomStore = createInMemoryRoomStore({ now: () => currentTime });
+  const patches: Array<Parameters<typeof baseRoomStore.updateRoom>[2]> = [];
+  const roomStore = {
+    ...baseRoomStore,
+    async updateRoom(...args: Parameters<typeof baseRoomStore.updateRoom>) {
+      patches.push(args[2]);
+      return baseRoomStore.updateRoom(...args);
+    },
+  };
+  const service = createRoomService({
+    config: getDefaultSecurityConfig(),
+    persistence: getDefaultPersistenceConfig(),
+    roomStore,
+    activeRooms: createActiveRoomRegistry(),
+    generateToken: (() => {
+      let id = 0;
+      return () => `token-${++id}`.padEnd(16, "x");
+    })(),
+    logEvent: (() => undefined) satisfies LogEvent,
+    now: () => currentTime,
+    createRoomCode: () => "ROOM03",
+  });
+
+  const owner = createSession("owner");
+  const created = await service.createRoomForSession(owner, "Alice");
+
+  currentTime = 31_000;
+  const joiner = createSession("joiner");
+  const joined = await service.joinRoomForSession(
+    joiner,
+    created.room.code,
+    created.room.joinToken,
+    "Bob",
+  );
+
+  const persisted = await baseRoomStore.getRoom(created.room.code);
+  assert.deepEqual(patches, [{ lastActiveAt: currentTime }]);
+  assert.equal(joined.room.version, created.room.version + 1);
+  assert.equal(persisted?.lastActiveAt, currentTime);
 });
 
 test("room service restores member state when empty-room expiry scheduling fails", async () => {
@@ -804,6 +971,18 @@ test("room service flushes pending runtime store writes before exposing updated 
     },
     isMemberTokenBlocked(code, memberToken, currentTime) {
       return activeRooms.isMemberTokenBlocked(code, memberToken, currentTime);
+    },
+    tryClaimMessageSlot() {
+      return Promise.resolve(true);
+    },
+    releaseMessageSlot() {
+      return Promise.resolve();
+    },
+    acquireRoomLock() {
+      return Promise.resolve(true);
+    },
+    releaseRoomLock() {
+      return Promise.resolve(true);
     },
     removeMember(code, memberId, session) {
       return activeRooms.removeMember(code, memberId, session);
@@ -1758,9 +1937,10 @@ test("room service deduplicates repeated playback:update with the same seq", asy
 });
 
 test("concurrent joins both succeed when room has capacity for all", async () => {
-  // Two sessions race to join the same room. withVersionRetry handles the
-  // version conflict on the second joiner's first attempt so both eventually
-  // land and the runtime has exactly owner + 2 members.
+  // Two sessions race to join the same room. The per-room join admission lock
+  // and forced lastActiveAt persistence on non-reconnect joins serialize
+  // capacity checks with runtime membership updates, so both land and the
+  // runtime has exactly owner + 2 members.
   const roomStore = createInMemoryRoomStore({ now: () => 1_000 });
   const activeRooms = createActiveRoomRegistry();
   const service = createRoomService({
@@ -1804,22 +1984,75 @@ test("concurrent joins both succeed when room has capacity for all", async () =>
   const runtimeRoom = activeRooms.getRoom(created.room.code);
   assert.equal(runtimeRoom?.members.size, 3);
 
-  // Persisted room version must reflect exactly two successful updateRoom calls
-  // (one per joiner). Concurrent version-conflict retries must not skip a bump
-  // or produce a torn write.
+  // Non-reconnect joins always persist lastActiveAt so the version-conflict
+  // retry path serializes capacity checks across nodes.
   const persistedRoom = await roomStore.getRoom(created.room.code);
   assert.equal(
     persistedRoom?.version,
     2,
-    "persisted room version must be 2 after two concurrent joins",
+    "persisted room version should bump once per non-reconnect join",
+  );
+});
+
+test("concurrent joins with multiple open slots do not exceed room capacity", async () => {
+  const roomStore = createInMemoryRoomStore({ now: () => 1_000 });
+  const activeRooms = createActiveRoomRegistry();
+  const service = createRoomService({
+    config: { ...getDefaultSecurityConfig(), maxMembersPerRoom: 3 },
+    persistence: getDefaultPersistenceConfig(),
+    roomStore,
+    activeRooms,
+    generateToken: (() => {
+      let id = 0;
+      return () => `token-${++id}`.padEnd(16, "x");
+    })(),
+    logEvent: (() => undefined) satisfies LogEvent,
+    now: () => 1_000,
+    createRoomCode: () => "ROOM16",
+  });
+
+  const owner = createSession("owner");
+  const created = await service.createRoomForSession(owner, "Alice");
+  const joiners = [
+    createSession("joiner-a"),
+    createSession("joiner-b"),
+    createSession("joiner-c"),
+  ];
+
+  const results = await Promise.allSettled(
+    joiners.map((joiner, index) =>
+      service.joinRoomForSession(
+        joiner,
+        created.room.code,
+        created.room.joinToken,
+        `User ${index}`,
+      ),
+    ),
+  );
+
+  const fulfilled = results.filter((r) => r.status === "fulfilled");
+  const rejected = results.filter((r) => r.status === "rejected");
+
+  assert.equal(fulfilled.length, 2, "two open slots should be filled");
+  assert.equal(rejected.length, 1, "overflow joiner should be rejected");
+  assert.match(
+    (rejected[0] as PromiseRejectedResult).reason.message,
+    /Room is full/,
+  );
+
+  const runtimeRoom = activeRooms.getRoom(created.room.code);
+  assert.equal(
+    runtimeRoom?.members.size,
+    3,
+    "runtime member count must stay at maxMembersPerRoom",
   );
 });
 
 test("concurrent joins at capacity allow exactly one new member", async () => {
   // With maxMembersPerRoom=2 (owner already occupies 1 slot), two sessions
-  // race for the single remaining slot. The optimistic-locking retry causes
-  // the second joiner to re-check capacity after the first has been added,
-  // at which point the room is full and the second gets a room_full error.
+  // race for the single remaining slot. The per-room join admission lock
+  // causes the second joiner to re-check capacity after the first has been
+  // added, at which point the room is full and the second gets room_full.
   const roomStore = createInMemoryRoomStore({ now: () => 1_000 });
   const activeRooms = createActiveRoomRegistry();
   const service = createRoomService({
@@ -1833,7 +2066,7 @@ test("concurrent joins at capacity allow exactly one new member", async () => {
     })(),
     logEvent: (() => undefined) satisfies LogEvent,
     now: () => 1_000,
-    createRoomCode: () => "ROOM16",
+    createRoomCode: () => "ROOM17",
   });
 
   const owner = createSession("owner");
@@ -1872,6 +2105,699 @@ test("concurrent joins at capacity allow exactly one new member", async () => {
     runtimeRoom?.members.size,
     2,
     "runtime member count must not exceed maxMembersPerRoom",
+  );
+});
+
+test("concurrent joins respect capacity even when shared runtime store flushes asynchronously", async () => {
+  // Reproduces the production wiring where `runtimeStore.addMember` writes to
+  // the shared runtime store via a fire-and-forget async path, and
+  // `resolveActiveRoom` reads from that shared store. The per-room join lock
+  // must hold until the shared write is visible, otherwise concurrent joiners
+  // would all read a stale member count and overshoot `maxMembersPerRoom`.
+  const roomStore = createInMemoryRoomStore({ now: () => 1_000 });
+  const local = createInMemoryRuntimeStore(() => 1_000);
+  const shared = createInMemoryRuntimeStore(() => 1_000);
+  const pendingSharedWrites: Promise<void>[] = [];
+  const runtimeStore: RuntimeStore = {
+    ...local,
+    addMember: (code, memberId, session, memberToken) => {
+      const room = local.addMember(code, memberId, session, memberToken);
+      pendingSharedWrites.push(
+        new Promise((resolve) => {
+          setImmediate(() => {
+            shared.addMember(code, memberId, session, memberToken);
+            resolve();
+          });
+        }),
+      );
+      return room;
+    },
+    flush: async () => {
+      await Promise.allSettled(pendingSharedWrites.splice(0));
+    },
+  };
+
+  const service = createRoomService({
+    config: { ...getDefaultSecurityConfig(), maxMembersPerRoom: 3 },
+    persistence: getDefaultPersistenceConfig(),
+    roomStore,
+    runtimeStore,
+    resolveActiveRoom: async (roomCode) => shared.getRoom(roomCode),
+    resolveMemberIdByToken: async (roomCode, memberToken) =>
+      shared.findMemberIdByToken(roomCode, memberToken),
+    resolveBlockedMemberToken: async (roomCode, memberToken, currentTime) =>
+      shared.isMemberTokenBlocked(roomCode, memberToken, currentTime),
+    generateToken: (() => {
+      let id = 0;
+      return () => `token-${++id}`.padEnd(16, "x");
+    })(),
+    logEvent: (() => undefined) satisfies LogEvent,
+    now: () => 1_000,
+    createRoomCode: () => "ROOM18",
+  });
+
+  const owner = createSession("owner");
+  const created = await service.createRoomForSession(owner, "Alice");
+  await runtimeStore.flush?.();
+
+  const joiners = [
+    createSession("joiner-a"),
+    createSession("joiner-b"),
+    createSession("joiner-c"),
+  ];
+
+  const results = await Promise.allSettled(
+    joiners.map((joiner, index) =>
+      service.joinRoomForSession(
+        joiner,
+        created.room.code,
+        created.room.joinToken,
+        `User ${index}`,
+      ),
+    ),
+  );
+  await runtimeStore.flush?.();
+
+  const fulfilled = results.filter((r) => r.status === "fulfilled");
+  const rejected = results.filter((r) => r.status === "rejected");
+
+  assert.equal(fulfilled.length, 2, "two open slots should be filled");
+  assert.equal(rejected.length, 1, "overflow joiner should be rejected");
+  assert.match(
+    (rejected[0] as PromiseRejectedResult).reason.message,
+    /Room is full/,
+  );
+
+  const localRoom = local.getRoom(created.room.code);
+  assert.equal(
+    localRoom?.members.size,
+    3,
+    "local member count must stay at maxMembersPerRoom",
+  );
+  const sharedRoom = shared.getRoom(created.room.code);
+  assert.equal(
+    sharedRoom?.members.size,
+    3,
+    "shared member count must stay at maxMembersPerRoom",
+  );
+});
+
+test("cross-node concurrent joins respect capacity via shared admission lock", async () => {
+  // Two `roomService` instances share the persistence and shared runtime store
+  // — each has its own in-process join lock (mirroring two nodes). The shared
+  // `tryClaimMessageSlot`/`releaseMessageSlot` mutex must serialize admission
+  // across both nodes; otherwise concurrent joiners would all read the same
+  // shared member count and overshoot `maxMembersPerRoom`.
+  const roomStore = createInMemoryRoomStore({ now: () => 1_000 });
+  const shared = createInMemoryRuntimeStore(() => 1_000);
+
+  function buildNode(nodeId: string) {
+    const local = createInMemoryRuntimeStore(() => 1_000);
+    const pendingSharedWrites: Promise<void>[] = [];
+    const runtimeStore: RuntimeStore = {
+      ...local,
+      addMember: (code, memberId, session, memberToken) => {
+        const room = local.addMember(code, memberId, session, memberToken);
+        pendingSharedWrites.push(
+          new Promise((resolve) => {
+            setImmediate(() => {
+              shared.addMember(code, memberId, session, memberToken);
+              resolve();
+            });
+          }),
+        );
+        return room;
+      },
+      flush: async () => {
+        await Promise.allSettled(pendingSharedWrites.splice(0));
+      },
+      tryClaimMessageSlot: (roomCode, key, expiresAt) =>
+        shared.tryClaimMessageSlot(roomCode, key, expiresAt),
+      releaseMessageSlot: (roomCode, key) =>
+        shared.releaseMessageSlot(roomCode, key),
+      acquireRoomLock: (roomCode, key, token, expiresAt) =>
+        shared.acquireRoomLock(roomCode, key, token, expiresAt),
+      releaseRoomLock: (roomCode, key, token) =>
+        shared.releaseRoomLock(roomCode, key, token),
+    };
+    const service = createRoomService({
+      config: { ...getDefaultSecurityConfig(), maxMembersPerRoom: 3 },
+      persistence: getDefaultPersistenceConfig(),
+      roomStore,
+      runtimeStore,
+      resolveActiveRoom: async (roomCode) => shared.getRoom(roomCode),
+      resolveMemberIdByToken: async (roomCode, memberToken) =>
+        shared.findMemberIdByToken(roomCode, memberToken),
+      resolveBlockedMemberToken: async (roomCode, memberToken, currentTime) =>
+        shared.isMemberTokenBlocked(roomCode, memberToken, currentTime),
+      generateToken: (() => {
+        let id = 0;
+        return () => `${nodeId}-token-${++id}`.padEnd(16, "x");
+      })(),
+      logEvent: (() => undefined) satisfies LogEvent,
+      now: () => 1_000,
+      createRoomCode: () => "ROOM19",
+    });
+    return { service, runtimeStore };
+  }
+
+  const nodeA = buildNode("a");
+  const nodeB = buildNode("b");
+
+  const owner = createSession("owner");
+  const created = await nodeA.service.createRoomForSession(owner, "Alice");
+  await nodeA.runtimeStore.flush?.();
+
+  const joinPlans = [
+    { node: nodeA, session: createSession("joiner-a1") },
+    { node: nodeB, session: createSession("joiner-b1") },
+    { node: nodeA, session: createSession("joiner-a2") },
+    { node: nodeB, session: createSession("joiner-b2") },
+  ];
+
+  const results = await Promise.allSettled(
+    joinPlans.map(({ node, session }, index) =>
+      node.service.joinRoomForSession(
+        session,
+        created.room.code,
+        created.room.joinToken,
+        `User ${index}`,
+      ),
+    ),
+  );
+  await Promise.all([
+    nodeA.runtimeStore.flush?.(),
+    nodeB.runtimeStore.flush?.(),
+  ]);
+
+  const fulfilled = results.filter((r) => r.status === "fulfilled");
+  const rejected = results.filter((r) => r.status === "rejected");
+
+  assert.equal(
+    fulfilled.length,
+    2,
+    "exactly two joiners should fill the remaining slots",
+  );
+  assert.equal(
+    rejected.length,
+    2,
+    "exactly two joiners should be rejected as room_full",
+  );
+  for (const result of rejected) {
+    assert.match(
+      (result as PromiseRejectedResult).reason.message,
+      /Room is full/,
+    );
+  }
+
+  const sharedRoom = shared.getRoom(created.room.code);
+  assert.equal(
+    sharedRoom?.members.size,
+    3,
+    "shared member count must stay at maxMembersPerRoom across both nodes",
+  );
+});
+
+test("join admission rejects with internal error when shared mutex is unavailable", async () => {
+  // The distributed `tryClaimMessageSlot` slot is permanently held by another
+  // caller. The join flow must NOT silently fall back to single-node-only
+  // serialization — it should refuse the join after the bounded wait so cross
+  // node mutex is preserved instead of degrading correctness for availability.
+  let advancingNow = 1_000;
+  const advanceTime = () => {
+    advancingNow += 200;
+    return advancingNow;
+  };
+  const baseStore = createInMemoryRuntimeStore(() => advancingNow);
+  let acquireCalls = 0;
+  let releaseCalls = 0;
+  const runtimeStore: RuntimeStore = {
+    ...baseStore,
+    acquireRoomLock: async () => {
+      acquireCalls += 1;
+      return false;
+    },
+    releaseRoomLock: async () => {
+      releaseCalls += 1;
+      return true;
+    },
+  };
+  const roomStore = createInMemoryRoomStore({ now: () => advancingNow });
+  const service = createRoomService({
+    config: { ...getDefaultSecurityConfig(), maxMembersPerRoom: 3 },
+    persistence: getDefaultPersistenceConfig(),
+    roomStore,
+    runtimeStore,
+    generateToken: (() => {
+      let id = 0;
+      return () => `token-${++id}`.padEnd(16, "x");
+    })(),
+    logEvent: (() => undefined) satisfies LogEvent,
+    now: advanceTime,
+    createRoomCode: () => "ROOM20",
+  });
+
+  const owner = createSession("owner");
+  const created = await service.createRoomForSession(owner, "Alice");
+
+  const joiner = createSession("joiner");
+  await assert.rejects(
+    service.joinRoomForSession(
+      joiner,
+      created.room.code,
+      created.room.joinToken,
+      "Bob",
+    ),
+    /unable|internal/i,
+  );
+
+  assert.ok(
+    acquireCalls >= 2,
+    "lock acquisition should poll multiple times before timing out",
+  );
+  assert.equal(
+    releaseCalls,
+    0,
+    "release must not be called when lock was never acquired",
+  );
+});
+
+test("join admission releases local queue when shared mutex acquisition throws", async () => {
+  const currentTime = 1_000;
+  const baseStore = createInMemoryRuntimeStore(() => currentTime);
+  let acquireCalls = 0;
+  const runtimeStore: RuntimeStore = {
+    ...baseStore,
+    acquireRoomLock: async (...args) => {
+      acquireCalls += 1;
+      if (acquireCalls === 1) {
+        throw new Error("redis unavailable");
+      }
+      return baseStore.acquireRoomLock(...args);
+    },
+  };
+  const roomStore = createInMemoryRoomStore({ now: () => currentTime });
+  const service = createRoomService({
+    config: { ...getDefaultSecurityConfig(), maxMembersPerRoom: 3 },
+    persistence: getDefaultPersistenceConfig(),
+    roomStore,
+    runtimeStore,
+    generateToken: (() => {
+      let id = 0;
+      return () => `token-${++id}`.padEnd(16, "x");
+    })(),
+    logEvent: (() => undefined) satisfies LogEvent,
+    now: () => currentTime,
+    createRoomCode: () => "ROOM20B",
+  });
+
+  const owner = createSession("owner");
+  const created = await service.createRoomForSession(owner, "Alice");
+
+  await assert.rejects(
+    service.joinRoomForSession(
+      createSession("failing-joiner"),
+      created.room.code,
+      created.room.joinToken,
+      "Bob",
+    ),
+    /redis unavailable/,
+  );
+
+  const joined = await service.joinRoomForSession(
+    createSession("successful-joiner"),
+    created.room.code,
+    created.room.joinToken,
+    "Carol",
+  );
+
+  assert.equal(joined.room.code, created.room.code);
+});
+
+test("join admission rejects when action exceeds the lock TTL", async () => {
+  // Simulate a join whose persistence write stalls past the distributed lock
+  // TTL. By the time the action returns, the lock is logically expired and
+  // could already belong to another node, so the join must be rejected instead
+  // of reporting success outside the serialization window.
+  let advancingNow = 1_000;
+  const baseStore = createInMemoryRuntimeStore(() => advancingNow);
+  let acquireCalls = 0;
+  let releaseCalls = 0;
+  const runtimeStore: RuntimeStore = {
+    ...baseStore,
+    acquireRoomLock: async (...args) => {
+      acquireCalls += 1;
+      return baseStore.acquireRoomLock(...args);
+    },
+    releaseRoomLock: async (...args) => {
+      releaseCalls += 1;
+      return baseStore.releaseRoomLock(...args);
+    },
+  };
+  const baseRoomStore = createInMemoryRoomStore({ now: () => advancingNow });
+  const roomStore = {
+    ...baseRoomStore,
+    async updateRoom(...args: Parameters<typeof baseRoomStore.updateRoom>) {
+      advancingNow += 60_000;
+      return baseRoomStore.updateRoom(...args);
+    },
+  };
+  const service = createRoomService({
+    config: { ...getDefaultSecurityConfig(), maxMembersPerRoom: 3 },
+    persistence: getDefaultPersistenceConfig(),
+    roomStore,
+    runtimeStore,
+    generateToken: (() => {
+      let id = 0;
+      return () => `token-${++id}`.padEnd(16, "x");
+    })(),
+    logEvent: (() => undefined) satisfies LogEvent,
+    now: () => advancingNow,
+    createRoomCode: () => "ROOM21",
+  });
+
+  const owner = createSession("owner");
+  const created = await service.createRoomForSession(owner, "Alice");
+
+  const joiner = createSession("joiner");
+  await assert.rejects(
+    service.joinRoomForSession(
+      joiner,
+      created.room.code,
+      created.room.joinToken,
+      "Bob",
+    ),
+    /internal/i,
+  );
+
+  assert.equal(acquireCalls, 1, "lock should be acquired exactly once");
+  assert.equal(
+    releaseCalls,
+    0,
+    "release must be skipped when the held lock has already expired",
+  );
+  assert.equal(joiner.roomCode, null);
+  assert.equal(
+    baseStore.getRoom(created.room.code)?.members.has(joiner.id),
+    false,
+  );
+});
+
+test("join admission restores previous reconnect session when rollback follows replacement", async () => {
+  let advancingNow = 1_000;
+  const baseStore = createInMemoryRuntimeStore(() => advancingNow);
+  let expireAfterNextFlush = false;
+  const runtimeStore: RuntimeStore = {
+    ...baseStore,
+    flush: async () => {
+      await baseStore.flush?.();
+      if (expireAfterNextFlush) {
+        expireAfterNextFlush = false;
+        advancingNow += 60_000;
+      }
+    },
+  };
+  const roomStore = createInMemoryRoomStore({ now: () => advancingNow });
+  const service = createRoomService({
+    config: { ...getDefaultSecurityConfig(), maxMembersPerRoom: 3 },
+    persistence: getDefaultPersistenceConfig(),
+    roomStore,
+    runtimeStore,
+    generateToken: (() => {
+      let id = 0;
+      return () => `token-${++id}`.padEnd(16, "x");
+    })(),
+    logEvent: (() => undefined) satisfies LogEvent,
+    now: () => advancingNow,
+    createRoomCode: () => "ROOM21C",
+  });
+
+  const owner = createSession("owner");
+  const created = await service.createRoomForSession(owner, "Alice");
+  const originalJoiner = createSession("joiner");
+  const joined = await service.joinRoomForSession(
+    originalJoiner,
+    created.room.code,
+    created.room.joinToken,
+    "Bob",
+  );
+  const originalMemberId = originalJoiner.memberId;
+
+  assert.notEqual(originalMemberId, null);
+  expireAfterNextFlush = true;
+
+  const reconnectingJoiner = createSession("joiner-reconnect");
+  await assert.rejects(
+    service.joinRoomForSession(
+      reconnectingJoiner,
+      created.room.code,
+      created.room.joinToken,
+      "Bob",
+      joined.memberToken,
+    ),
+    /internal/i,
+  );
+
+  const activeRoom = baseStore.getRoom(created.room.code);
+  assert.equal(activeRoom?.members.get(originalMemberId), originalJoiner);
+  assert.equal(
+    activeRoom?.memberTokens.get(originalMemberId),
+    joined.memberToken,
+  );
+  assert.equal(reconnectingJoiner.roomCode, null);
+  assert.equal(reconnectingJoiner.memberId, null);
+  assert.equal(reconnectingJoiner.memberToken, null);
+});
+
+test("join admission restores shared previous session when reconnect rollback happens on another node", async () => {
+  let advancingNow = 1_000;
+  const local = createInMemoryRuntimeStore(() => advancingNow);
+  const shared = createInMemoryRuntimeStore(() => advancingNow);
+  let expireAfterNextFlush = false;
+  const runtimeStore: RuntimeStore = {
+    ...local,
+    addMember: (code, memberId, session, memberToken) => {
+      const room = local.addMember(code, memberId, session, memberToken);
+      shared.addMember(code, memberId, session, memberToken);
+      return room;
+    },
+    removeMember: (code, memberId, session) => {
+      const removal = local.removeMember(code, memberId, session);
+      shared.removeMember(code, memberId, session);
+      return removal;
+    },
+    flush: async () => {
+      await local.flush?.();
+      await shared.flush?.();
+      if (expireAfterNextFlush) {
+        expireAfterNextFlush = false;
+        advancingNow += 60_000;
+      }
+    },
+  };
+  const roomStore = createInMemoryRoomStore({ now: () => advancingNow });
+  const service = createRoomService({
+    config: { ...getDefaultSecurityConfig(), maxMembersPerRoom: 3 },
+    persistence: getDefaultPersistenceConfig(),
+    roomStore,
+    runtimeStore,
+    resolveActiveRoom: async (roomCode) => shared.getRoom(roomCode),
+    resolveMemberIdByToken: async (roomCode, memberToken) =>
+      shared.findMemberIdByToken(roomCode, memberToken),
+    resolveBlockedMemberToken: async (roomCode, memberToken, currentTime) =>
+      shared.isMemberTokenBlocked(roomCode, memberToken, currentTime),
+    generateToken: (() => {
+      let id = 0;
+      return () => `token-${++id}`.padEnd(16, "x");
+    })(),
+    logEvent: (() => undefined) satisfies LogEvent,
+    now: () => advancingNow,
+    createRoomCode: () => "ROOM21D",
+  });
+
+  const owner = createSession("owner");
+  const created = await service.createRoomForSession(owner, "Alice");
+  const remoteSession = createSession("remote-joiner");
+  const remoteMemberId = "remote-member";
+  const remoteMemberToken = "remote-token".padEnd(16, "x");
+  remoteSession.memberId = remoteMemberId;
+  remoteSession.roomCode = created.room.code;
+  remoteSession.memberToken = remoteMemberToken;
+  remoteSession.joinedAt = advancingNow;
+  shared.addMember(
+    created.room.code,
+    remoteMemberId,
+    remoteSession,
+    remoteMemberToken,
+  );
+  assert.equal(
+    local.getRoom(created.room.code)?.members.has(remoteMemberId),
+    false,
+  );
+
+  expireAfterNextFlush = true;
+
+  const reconnectingJoiner = createSession("joiner-reconnect");
+  await assert.rejects(
+    service.joinRoomForSession(
+      reconnectingJoiner,
+      created.room.code,
+      created.room.joinToken,
+      "Bob",
+      remoteMemberToken,
+    ),
+    /internal/i,
+  );
+
+  const sharedRoom = shared.getRoom(created.room.code);
+  assert.equal(sharedRoom?.members.get(remoteMemberId), remoteSession);
+  assert.equal(sharedRoom?.memberTokens.get(remoteMemberId), remoteMemberToken);
+  assert.equal(reconnectingJoiner.roomCode, null);
+  assert.equal(reconnectingJoiner.memberId, null);
+  assert.equal(reconnectingJoiner.memberToken, null);
+});
+
+test("join admission does not restore stale reconnect session over newer shared binding", async () => {
+  let advancingNow = 1_000;
+  const local = createInMemoryRuntimeStore(() => advancingNow);
+  const shared = createInMemoryRuntimeStore(() => advancingNow);
+  const newerSession = createSession("newer-reconnect");
+  let replaceSharedBindingAfterNextFlush = false;
+  const runtimeStore: RuntimeStore = {
+    ...local,
+    addMember: (code, memberId, session, memberToken) => {
+      const room = local.addMember(code, memberId, session, memberToken);
+      shared.addMember(code, memberId, session, memberToken);
+      return room;
+    },
+    removeMember: (code, memberId, session) => {
+      const removal = local.removeMember(code, memberId, session);
+      shared.removeMember(code, memberId, session);
+      return removal;
+    },
+    flush: async () => {
+      await local.flush?.();
+      await shared.flush?.();
+      if (replaceSharedBindingAfterNextFlush) {
+        replaceSharedBindingAfterNextFlush = false;
+        shared.addMember(
+          newerSession.roomCode ?? "",
+          newerSession.memberId ?? "",
+          newerSession,
+          newerSession.memberToken ?? "",
+        );
+        advancingNow += 60_000;
+      }
+    },
+  };
+  const roomStore = createInMemoryRoomStore({ now: () => advancingNow });
+  const service = createRoomService({
+    config: { ...getDefaultSecurityConfig(), maxMembersPerRoom: 3 },
+    persistence: getDefaultPersistenceConfig(),
+    roomStore,
+    runtimeStore,
+    resolveActiveRoom: async (roomCode) => shared.getRoom(roomCode),
+    resolveMemberIdByToken: async (roomCode, memberToken) =>
+      shared.findMemberIdByToken(roomCode, memberToken),
+    resolveBlockedMemberToken: async (roomCode, memberToken, currentTime) =>
+      shared.isMemberTokenBlocked(roomCode, memberToken, currentTime),
+    generateToken: (() => {
+      let id = 0;
+      return () => `token-${++id}`.padEnd(16, "x");
+    })(),
+    logEvent: (() => undefined) satisfies LogEvent,
+    now: () => advancingNow,
+    createRoomCode: () => "ROOM21E",
+  });
+
+  const owner = createSession("owner");
+  const created = await service.createRoomForSession(owner, "Alice");
+  const previousSession = createSession("previous-joiner");
+  const memberId = "remote-member";
+  const memberToken = "remote-token".padEnd(16, "x");
+  previousSession.memberId = memberId;
+  previousSession.roomCode = created.room.code;
+  previousSession.memberToken = memberToken;
+  previousSession.joinedAt = advancingNow;
+  newerSession.memberId = memberId;
+  newerSession.roomCode = created.room.code;
+  newerSession.memberToken = memberToken;
+  newerSession.joinedAt = advancingNow;
+  shared.addMember(created.room.code, memberId, previousSession, memberToken);
+
+  replaceSharedBindingAfterNextFlush = true;
+
+  const reconnectingJoiner = createSession("joiner-reconnect");
+  await assert.rejects(
+    service.joinRoomForSession(
+      reconnectingJoiner,
+      created.room.code,
+      created.room.joinToken,
+      "Bob",
+      memberToken,
+    ),
+    /internal/i,
+  );
+
+  const sharedRoom = shared.getRoom(created.room.code);
+  assert.equal(sharedRoom?.members.get(memberId), newerSession);
+  assert.equal(sharedRoom?.memberTokens.get(memberId), memberToken);
+  assert.equal(reconnectingJoiner.roomCode, null);
+  assert.equal(reconnectingJoiner.memberId, null);
+  assert.equal(reconnectingJoiner.memberToken, null);
+});
+
+test("join admission does not fail after successful action when lock expires before return", async () => {
+  let advancingNow = 1_000;
+  const baseStore = createInMemoryRuntimeStore(() => advancingNow);
+  let releaseCalls = 0;
+  const runtimeStore: RuntimeStore = {
+    ...baseStore,
+    releaseRoomLock: async (...args) => {
+      releaseCalls += 1;
+      return baseStore.releaseRoomLock(...args);
+    },
+  };
+  const roomStore = createInMemoryRoomStore({ now: () => advancingNow });
+  const service = createRoomService({
+    config: { ...getDefaultSecurityConfig(), maxMembersPerRoom: 3 },
+    persistence: getDefaultPersistenceConfig(),
+    roomStore,
+    runtimeStore,
+    generateToken: (() => {
+      let id = 0;
+      return () => `token-${++id}`.padEnd(16, "x");
+    })(),
+    logEvent: (event) => {
+      if (event === "room_restored") {
+        advancingNow += 60_000;
+      }
+    },
+    now: () => advancingNow,
+    createRoomCode: () => "ROOM21B",
+  });
+
+  const owner = createSession("owner");
+  const created = await service.createRoomForSession(owner, "Alice");
+
+  const joiner = createSession("joiner");
+  const joined = await service.joinRoomForSession(
+    joiner,
+    created.room.code,
+    created.room.joinToken,
+    "Bob",
+  );
+
+  assert.equal(joined.room.code, created.room.code);
+  assert.equal(joiner.roomCode, created.room.code);
+  assert.equal(
+    baseStore.getRoom(created.room.code)?.members.get(joiner.id),
+    joiner,
+  );
+  assert.equal(
+    releaseCalls,
+    0,
+    "expired locks should not be released after the action commits",
   );
 });
 

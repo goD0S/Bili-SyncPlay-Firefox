@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   normalizeBilibiliUrl,
   type ClientMessage,
@@ -37,6 +38,11 @@ import type {
 
 const PLAYBACK_AUTHORITY_WINDOW_MS = 1200;
 const MAX_VERSION_RETRIES = 3;
+const ROOM_LAST_ACTIVE_WRITE_INTERVAL_MS = 30_000;
+const JOIN_ADMISSION_LOCK_KEY = "join-admission";
+const JOIN_ADMISSION_LOCK_TTL_MS = 30_000;
+const JOIN_ADMISSION_LOCK_MAX_WAIT_MS = 5_000;
+const JOIN_ADMISSION_LOCK_RETRY_INTERVAL_MS = 25;
 
 type ServiceErrorReason =
   | "room_not_found"
@@ -78,6 +84,15 @@ type JoinIdentity = {
 type PersistJoinedRoomResult = {
   room: PersistedRoom;
   joinTargetState: JoinTargetState;
+};
+
+type JoinAdmissionLock = {
+  token: string;
+  expiresAt: number;
+};
+
+type JoinAdmissionLockGuard = {
+  assertActive: () => void;
 };
 
 type JoinedSessionSnapshot = {
@@ -175,6 +190,115 @@ export function createRoomService(options: {
       Promise.resolve(
         runtimeStore.isMemberTokenBlocked(roomCode, memberToken, currentTime),
       ));
+  const roomJoinLocks = new Map<string, Promise<void>>();
+
+  async function acquireDistributedJoinLock(
+    roomCode: string,
+  ): Promise<JoinAdmissionLock | null> {
+    const deadline = now() + JOIN_ADMISSION_LOCK_MAX_WAIT_MS;
+    while (true) {
+      const expiresAt = now() + JOIN_ADMISSION_LOCK_TTL_MS;
+      const token = randomUUID();
+      if (
+        await runtimeStore.acquireRoomLock(
+          roomCode,
+          JOIN_ADMISSION_LOCK_KEY,
+          token,
+          expiresAt,
+        )
+      ) {
+        return { token, expiresAt };
+      }
+      if (now() >= deadline) {
+        return null;
+      }
+      await new Promise((resolve) =>
+        setTimeout(resolve, JOIN_ADMISSION_LOCK_RETRY_INTERVAL_MS),
+      );
+    }
+  }
+
+  function createJoinAdmissionLockExpiredError(
+    roomCode: string,
+  ): RoomServiceError {
+    return new RoomServiceError(
+      "internal_error",
+      INTERNAL_SERVER_ERROR_MESSAGE,
+      "internal_error",
+      { roomCode, reason: "join_admission_lock_expired" },
+    );
+  }
+
+  async function withRoomJoinLock<T>(
+    roomCode: string,
+    action: (lock: JoinAdmissionLockGuard) => Promise<T>,
+  ): Promise<T> {
+    const previous = roomJoinLocks.get(roomCode) ?? Promise.resolve();
+    let releaseNext: () => void = () => undefined;
+    const next = new Promise<void>((resolve) => {
+      releaseNext = resolve;
+    });
+    const tail = previous.catch(() => undefined).then(() => next);
+    roomJoinLocks.set(roomCode, tail);
+
+    function releaseInProcessLock(): void {
+      releaseNext();
+      if (roomJoinLocks.get(roomCode) === tail) {
+        roomJoinLocks.delete(roomCode);
+      }
+    }
+
+    let distributedLock: JoinAdmissionLock | null = null;
+    try {
+      await previous.catch(() => undefined);
+      distributedLock = await acquireDistributedJoinLock(roomCode);
+      if (!distributedLock) {
+        logEvent("room_join_admission_lock_unavailable", {
+          roomCode,
+          result: "rejected",
+          reason: "join_admission_lock_timeout",
+        });
+        throw new RoomServiceError(
+          "internal_error",
+          INTERNAL_SERVER_ERROR_MESSAGE,
+          "internal_error",
+          { roomCode, reason: "join_admission_lock_timeout" },
+        );
+      }
+
+      const lockGuard: JoinAdmissionLockGuard = {
+        assertActive: () => {
+          if (!distributedLock || now() >= distributedLock.expiresAt) {
+            throw createJoinAdmissionLockExpiredError(roomCode);
+          }
+        },
+      };
+
+      return await action(lockGuard);
+    } finally {
+      if (distributedLock) {
+        if (now() < distributedLock.expiresAt) {
+          try {
+            await runtimeStore.releaseRoomLock(
+              roomCode,
+              JOIN_ADMISSION_LOCK_KEY,
+              distributedLock.token,
+            );
+          } catch {
+            // Lock will expire via TTL.
+          }
+        } else {
+          logEvent("room_join_admission_lock_ttl_exceeded", {
+            roomCode,
+            result: "rejected",
+            reason: "join_admission_lock_ttl_exceeded",
+            ttlMs: JOIN_ADMISSION_LOCK_TTL_MS,
+          });
+        }
+      }
+      releaseInProcessLock();
+    }
+  }
 
   function setSessionDisplayName(
     session: Session,
@@ -555,6 +679,7 @@ export function createRoomService(options: {
     previousMemberToken?: string;
   }): Promise<PersistJoinedRoomResult | null> {
     return withVersionRetry(args.roomCode, async (room) => {
+      const currentTime = now();
       const joinTargetState = await ensureJoinRequestAllowed({
         session: args.session,
         room,
@@ -562,10 +687,27 @@ export function createRoomService(options: {
         joinToken: args.joinToken,
         previousMemberToken: args.previousMemberToken,
       });
+      const needsCapacitySerialization =
+        joinTargetState.reconnectMemberId === null;
+
+      if (
+        room.expiresAt === null &&
+        currentTime - room.lastActiveAt < ROOM_LAST_ACTIVE_WRITE_INTERVAL_MS &&
+        !needsCapacitySerialization
+      ) {
+        const latestRoom = await roomStore.getRoom(args.roomCode);
+        if (!latestRoom) {
+          return null;
+        }
+        if (latestRoom.version !== room.version) {
+          return null;
+        }
+        return { room: latestRoom, joinTargetState };
+      }
 
       const result = await roomStore.updateRoom(args.roomCode, room.version, {
-        expiresAt: null,
-        lastActiveAt: now(),
+        ...(room.expiresAt === null ? {} : { expiresAt: null }),
+        lastActiveAt: currentTime,
       });
       if (!result.ok) {
         return null;
@@ -873,57 +1015,96 @@ export function createRoomService(options: {
       setSessionDisplayName(session, displayName);
       await leaveCurrentRoom(session);
 
-      const joined = await persistJoinedRoom({
-        session,
-        roomCode,
-        joinToken,
-        previousMemberToken,
-      });
+      return withRoomJoinLock(roomCode, async (lock) => {
+        const joined = await persistJoinedRoom({
+          session,
+          roomCode,
+          joinToken,
+          previousMemberToken,
+        });
 
-      if (!joined) {
-        throw new RoomServiceError(
-          "room_not_found",
-          ROOM_NOT_FOUND_MESSAGE,
-          "room_not_found",
+        if (!joined) {
+          throw new RoomServiceError(
+            "room_not_found",
+            ROOM_NOT_FOUND_MESSAGE,
+            "room_not_found",
+          );
+        }
+
+        const joinedRoom = joined.room;
+        const reconnectMemberId = joined.joinTargetState.reconnectMemberId;
+        const joinIdentity = buildJoinIdentity(
+          session,
+          reconnectMemberId,
+          previousMemberToken,
         );
-      }
+        const previousLocalSession =
+          reconnectMemberId !== null
+            ? (runtimeStore
+                .getRoom(joinedRoom.code)
+                ?.members.get(reconnectMemberId) ?? null)
+            : null;
+        const previousRuntimeSession =
+          reconnectMemberId !== null
+            ? (joined.joinTargetState.activeRoom?.members.get(
+                reconnectMemberId,
+              ) ?? previousLocalSession)
+            : null;
+        lock.assertActive();
+        runtimeStore.addMember(
+          joinedRoom.code,
+          joinIdentity.memberId,
+          session,
+          joinIdentity.memberToken,
+        );
+        try {
+          await runtimeStore.flush?.();
+          lock.assertActive();
+          applyJoinedSessionState({
+            session,
+            roomCode: joinedRoom.code,
+            joinedAt: now(),
+            joinIdentity,
+          });
+        } catch (error) {
+          runtimeStore.removeMember(
+            joinedRoom.code,
+            joinIdentity.memberId,
+            session,
+          );
+          await runtimeStore.flush?.();
 
-      const joinedRoom = joined.room;
-      const reconnectMemberId = joined.joinTargetState.reconnectMemberId;
-      const joinIdentity = buildJoinIdentity(
-        session,
-        reconnectMemberId,
-        previousMemberToken,
-      );
-      const previousSession =
-        reconnectMemberId !== null
-          ? (runtimeStore
-              .getRoom(joinedRoom.code)
-              ?.members.get(reconnectMemberId) ?? null)
-          : null;
-      runtimeStore.addMember(
-        joinedRoom.code,
-        joinIdentity.memberId,
-        session,
-        joinIdentity.memberToken,
-      );
-      applyJoinedSessionState({
-        session,
-        roomCode: joinedRoom.code,
-        joinedAt: now(),
-        joinIdentity,
+          const currentRuntimeSession =
+            (await resolveActiveRoom(joinedRoom.code))?.members.get(
+              joinIdentity.memberId,
+            ) ?? null;
+          if (
+            previousRuntimeSession &&
+            (currentRuntimeSession === null ||
+              currentRuntimeSession === session)
+          ) {
+            runtimeStore.addMember(
+              joinedRoom.code,
+              joinIdentity.memberId,
+              previousRuntimeSession,
+              joinIdentity.memberToken,
+            );
+            await runtimeStore.flush?.();
+          }
+          throw error;
+        }
+        disconnectReplacedSession(session, previousLocalSession);
+
+        logEvent("room_restored", {
+          roomCode: joinedRoom.code,
+          version: joinedRoom.version,
+          sessionId: session.id,
+          provider: persistence.provider,
+          result: "ok",
+        });
+
+        return { room: joinedRoom, memberToken: joinIdentity.memberToken };
       });
-      disconnectReplacedSession(session, previousSession);
-
-      logEvent("room_restored", {
-        roomCode: joinedRoom.code,
-        version: joinedRoom.version,
-        sessionId: session.id,
-        provider: persistence.provider,
-        result: "ok",
-      });
-
-      return { room: joinedRoom, memberToken: joinIdentity.memberToken };
     },
 
     leaveRoomForSession: leaveCurrentRoom,
