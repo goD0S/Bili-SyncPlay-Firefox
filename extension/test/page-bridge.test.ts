@@ -51,6 +51,65 @@ test("page bridge preserves active cid when matched candidate lacks cid", () => 
   });
 });
 
+test("page bridge prefers playinfo over stale initialState during cross-bangumi SPA navigation", () => {
+  // Reproduces the situation from the cross-bangumi navigation bug:
+  // - `__INITIAL_STATE__.epInfo` and `epList` still hold the previous bangumi's
+  //   data (ep_id 1231523 with title "秘密。（Sub rosa.）") because Bilibili's
+  //   SPA has not yet refreshed those globals.
+  // - `__playinfo__` is already populated with the freshly loaded episode
+  //   (ep_id 1231525 with the new title "羽丘的不可思议女孩").
+  // The page bridge must resolve to the fresh ep_id so that downstream
+  // broadcasts and shares carry the correct shared video URL.
+  const detail = readFestivalVideoDetailFromSources({
+    initialState: {
+      epInfo: {
+        ep_id: 1231523,
+        bvid: "BVoldsubrosa",
+        cid: 1100000001,
+        title: "第1话 秘密。（Sub rosa.）",
+      },
+      epList: [
+        {
+          id: 1231523,
+          ep_id: 1231523,
+          bvid: "BVoldsubrosa",
+          cid: 1100000001,
+          title: "第1话 秘密。（Sub rosa.）",
+        },
+      ],
+    },
+    playInfo: {
+      result: {
+        arc: {
+          bvid: "BVnewseason",
+          cid: 1200000099,
+        },
+        supplement: {
+          ogv_episode_info: {
+            episode_id: 1231525,
+            index_title: "1",
+            long_title: "羽丘的不可思议女孩",
+          },
+          play_view_business_info: {
+            episode_info: {
+              ep_id: 1231525,
+              cid: 1200000099,
+            },
+          },
+        },
+      },
+    },
+    activeTitle: "第1话 羽丘的不可思议女孩",
+  });
+
+  assert.deepEqual(detail, {
+    epId: 1231525,
+    bvid: "BVnewseason",
+    cid: 1200000099,
+    title: "第1话 羽丘的不可思议女孩",
+  });
+});
+
 test("page bridge resolves current bangumi episode from playinfo when season page has no initial state", () => {
   const detail = readFestivalVideoDetailFromSources({
     playInfo: {

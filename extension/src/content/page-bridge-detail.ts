@@ -98,11 +98,32 @@ export function readFestivalVideoDetailFromSources(args: {
         )
       : null;
 
+  const playInfoCandidate = readPlayInfoCandidate(playInfo);
+  const playInfoEpId = playInfoCandidate
+    ? (playInfoCandidate.ep_id ??
+      playInfoCandidate.epId ??
+      playInfoCandidate.id)
+    : undefined;
+
+  // Prefer __playinfo__ over DOM-derived / __INITIAL_STATE__ candidates.
+  //
+  // During SPA navigation between bangumi (e.g. from /bangumi/play/epXXX to
+  // /bangumi/play/ssYYY), Bilibili refreshes `__playinfo__` together with the
+  // newly loaded video, but `__INITIAL_STATE__.epInfo / epList / sectionEpisodes`
+  // can stay populated with the previous bangumi's data for several hundred
+  // milliseconds — long enough for the content script to broadcast playback
+  // events derived from the stale ep_id. When the DOM-matched candidates
+  // (which read from those stale episode arrays) disagree with `__playinfo__`,
+  // trusting `__playinfo__` is the safer choice because the player only
+  // populates it once it has actually loaded the new episode.
   const matched: PageVideoCandidate | null =
+    (playInfoCandidate && playInfoEpId !== undefined
+      ? playInfoCandidate
+      : null) ??
     matchedByEpId ??
     matchedByCid ??
     matchedByTitle ??
-    readPlayInfoCandidate(playInfo) ??
+    playInfoCandidate ??
     initialState?.epInfo ??
     playerInput ??
     initialState?.videoInfo ??
