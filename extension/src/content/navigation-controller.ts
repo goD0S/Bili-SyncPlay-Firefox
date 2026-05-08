@@ -23,7 +23,9 @@ export function createNavigationController(args: {
   hydrateRoomState: () => Promise<void>;
   activatePauseHold: (durationMs?: number) => void;
   debugLog: (message: string) => void;
+  getNow?: () => number;
 }): NavigationController {
+  const nowOf = () => args.getNow?.() ?? Date.now();
   let navigationWatchTimer: number | null = null;
   let lastObservedPageUrl = args.getCurrentPageUrl();
   let lastObservedNormalizedPageUrl =
@@ -76,8 +78,10 @@ export function createNavigationController(args: {
     ) {
       args.runtimeState.postNavigationAnchorSharedUrl =
         args.runtimeState.activeSharedUrl;
+      args.runtimeState.postNavigationAnchorSetAt = nowOf();
     } else {
       args.runtimeState.postNavigationAnchorSharedUrl = null;
+      args.runtimeState.postNavigationAnchorSetAt = 0;
     }
     resetUserGestureState(args.runtimeState);
     args.activatePauseHold(args.initialRoomStatePauseHoldMs);

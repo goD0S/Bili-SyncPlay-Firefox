@@ -105,6 +105,7 @@ export interface ContentRuntimeState {
    * out as bogus updates against the previously shared video.
    */
   postNavigationAnchorSharedUrl: string | null;
+  postNavigationAnchorSetAt: number;
   festivalSnapshot: FestivalVideoSnapshot | null;
 }
 
@@ -155,6 +156,7 @@ export function createContentRuntimeState(): ContentRuntimeState {
     lastExplicitUserAction: null,
     lastNonSharedGuardUrl: null,
     postNavigationAnchorSharedUrl: null,
+    postNavigationAnchorSetAt: 0,
     festivalSnapshot: null,
   };
 }

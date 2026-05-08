@@ -137,6 +137,7 @@ test("navigation controller anchors active shared url for post-navigation settle
     "https://www.bilibili.com/bangumi/play/ep1231523";
 
   let currentUrl = "https://www.bilibili.com/bangumi/play/ep1231523";
+  const now = 40_000;
 
   function normalizeBangumi(url: string): string | null {
     return (
@@ -163,6 +164,7 @@ test("navigation controller anchors active shared url for post-navigation settle
     hydrateRoomState: async () => {},
     activatePauseHold: () => {},
     debugLog: () => {},
+    getNow: () => now,
   });
 
   try {
@@ -175,6 +177,7 @@ test("navigation controller anchors active shared url for post-navigation settle
       runtimeState.postNavigationAnchorSharedUrl,
       "https://www.bilibili.com/bangumi/play/ep1231523",
     );
+    assert.equal(runtimeState.postNavigationAnchorSetAt, now);
   } finally {
     windowHarness.restore();
   }

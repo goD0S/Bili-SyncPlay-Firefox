@@ -236,6 +236,7 @@ export function createSyncController(args: {
     args.runtimeState.lastExplicitPlaybackAction = null;
     args.runtimeState.explicitNonSharedPlaybackUrl = null;
     args.runtimeState.postNavigationAnchorSharedUrl = null;
+    args.runtimeState.postNavigationAnchorSetAt = 0;
     args.debugLog(`Reset playback sync state: ${reason}`);
   }
 
@@ -714,11 +715,23 @@ export function createSyncController(args: {
     // stale URL would silently overwrite the existing shared video's state
     // for other clients. Hold off on broadcasts until the page bridge resolves
     // to a URL different from the pre-navigation anchor (or the room's shared
-    // video changes via `applyRoomState`, which clears the anchor there).
+    // video changes via `applyRoomState`, which clears the anchor there). The
+    // gate is also bounded by the initial hydration hold so equivalent
+    // bangumi /ep and /ss route transitions cannot block broadcasts forever.
     const postNavigationAnchor =
       args.runtimeState.postNavigationAnchorSharedUrl;
     if (postNavigationAnchor) {
-      if (
+      const anchorAge =
+        args.runtimeState.postNavigationAnchorSetAt > 0
+          ? now - args.runtimeState.postNavigationAnchorSetAt
+          : 0;
+      if (anchorAge >= args.initialRoomStatePauseHoldMs) {
+        args.runtimeState.postNavigationAnchorSharedUrl = null;
+        args.runtimeState.postNavigationAnchorSetAt = 0;
+        args.debugLog(
+          `Cleared post-navigation settle anchor after timeout (was ${postNavigationAnchor}, age=${anchorAge})`,
+        );
+      } else if (
         normalizedCurrentVideoUrl === null ||
         normalizedCurrentVideoUrl === postNavigationAnchor
       ) {
@@ -754,10 +767,13 @@ export function createSyncController(args: {
         );
         return;
       }
-      args.runtimeState.postNavigationAnchorSharedUrl = null;
-      args.debugLog(
-        `Cleared post-navigation settle anchor (was ${postNavigationAnchor}, now broadcasting ${normalizedCurrentVideoUrl})`,
-      );
+      if (args.runtimeState.postNavigationAnchorSharedUrl) {
+        args.runtimeState.postNavigationAnchorSharedUrl = null;
+        args.runtimeState.postNavigationAnchorSetAt = 0;
+        args.debugLog(
+          `Cleared post-navigation settle anchor (was ${postNavigationAnchor}, now broadcasting ${normalizedCurrentVideoUrl})`,
+        );
+      }
     }
     if (
       args.runtimeState.activeRoomCode &&

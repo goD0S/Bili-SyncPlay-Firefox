@@ -178,6 +178,7 @@ export function createRoomStateApplyController(args: {
         `Cleared post-navigation settle anchor (was ${args.runtimeState.postNavigationAnchorSharedUrl}, room shared changed to ${normalizedSharedUrl ?? "none"})`,
       );
       args.runtimeState.postNavigationAnchorSharedUrl = null;
+      args.runtimeState.postNavigationAnchorSetAt = 0;
     }
 
     const decision = decidePlaybackApplication({

@@ -1159,6 +1159,7 @@ test("sync controller blocks broadcast while post-navigation anchor still matche
   harness.runtimeState.activeRoomCode = "ROOM01";
   harness.runtimeState.activeSharedUrl = anchorUrl;
   harness.runtimeState.postNavigationAnchorSharedUrl = anchorUrl;
+  harness.runtimeState.postNavigationAnchorSetAt = 19_000;
   harness.setSharedVideo(sharedVideo);
   harness.setCurrentPlaybackVideo(sharedVideo);
   harness.setVideoElement(video);
@@ -1182,6 +1183,39 @@ test("sync controller blocks broadcast while post-navigation anchor still matche
   );
 });
 
+test("sync controller releases post-navigation anchor after settle timeout for equivalent route", async () => {
+  const harness = createControllerHarness();
+  const anchorUrl = "https://www.bilibili.com/bangumi/play/ep1231523";
+  const sharedVideo: SharedVideo = {
+    videoId: "ep1231523",
+    url: anchorUrl,
+    title: "Episode 1",
+  };
+  const video = createVideo({ paused: false, currentTime: 8 });
+
+  harness.runtimeState.hydrationReady = true;
+  harness.runtimeState.pendingRoomStateHydration = false;
+  harness.runtimeState.activeRoomCode = "ROOM01";
+  harness.runtimeState.activeSharedUrl = anchorUrl;
+  harness.runtimeState.postNavigationAnchorSharedUrl = anchorUrl;
+  harness.runtimeState.postNavigationAnchorSetAt = 18_500;
+  harness.setSharedVideo(sharedVideo);
+  harness.setCurrentPlaybackVideo(sharedVideo);
+  harness.setVideoElement(video);
+  harness.setNow(20_000);
+
+  await harness.controller.broadcastPlayback(video, "play");
+
+  assert.equal(harness.runtimeState.postNavigationAnchorSharedUrl, null);
+  assert.equal(harness.runtimeMessages.length >= 1, true);
+  assert.equal(
+    harness.debugLogs.some((message) =>
+      message.includes("Cleared post-navigation settle anchor after timeout"),
+    ),
+    true,
+  );
+});
+
 test("sync controller releases post-navigation anchor and broadcasts once resolved url moves off it", async () => {
   const harness = createControllerHarness();
   const anchorUrl = "https://www.bilibili.com/bangumi/play/ep1231523";
@@ -1198,6 +1232,7 @@ test("sync controller releases post-navigation anchor and broadcasts once resolv
   harness.runtimeState.activeRoomCode = "ROOM01";
   harness.runtimeState.activeSharedUrl = newUrl;
   harness.runtimeState.postNavigationAnchorSharedUrl = anchorUrl;
+  harness.runtimeState.postNavigationAnchorSetAt = 20_000;
   harness.setSharedVideo(newSharedVideo);
   harness.setCurrentPlaybackVideo(newSharedVideo);
   harness.setVideoElement(video);
