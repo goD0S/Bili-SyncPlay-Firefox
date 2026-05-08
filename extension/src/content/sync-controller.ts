@@ -235,6 +235,8 @@ export function createSyncController(args: {
     args.runtimeState.lastNonSharedGuardUrl = null;
     args.runtimeState.lastExplicitPlaybackAction = null;
     args.runtimeState.explicitNonSharedPlaybackUrl = null;
+    args.runtimeState.postNavigationAnchorSharedUrl = null;
+    args.runtimeState.postNavigationAnchorSetAt = 0;
     args.debugLog(`Reset playback sync state: ${reason}`);
   }
 
@@ -705,6 +707,74 @@ export function createSyncController(args: {
       normalizedCurrentVideoUrl,
       now,
     );
+    // Post-navigation settle gate.
+    //
+    // After in-room SPA navigation, the page bridge can briefly return the
+    // previous bangumi's ep_id (because `__INITIAL_STATE__` and friends have
+    // not yet refreshed). Broadcasting playback events derived from that
+    // stale URL would silently overwrite the existing shared video's state
+    // for other clients. Hold off on broadcasts until the page bridge resolves
+    // to a URL different from the pre-navigation anchor (or the room's shared
+    // video changes via `applyRoomState`, which clears the anchor there). The
+    // gate is also bounded by the initial hydration hold so equivalent
+    // bangumi /ep and /ss route transitions cannot block broadcasts forever.
+    const postNavigationAnchor =
+      args.runtimeState.postNavigationAnchorSharedUrl;
+    if (postNavigationAnchor) {
+      const anchorAge =
+        args.runtimeState.postNavigationAnchorSetAt > 0
+          ? now - args.runtimeState.postNavigationAnchorSetAt
+          : 0;
+      if (anchorAge >= args.initialRoomStatePauseHoldMs) {
+        args.runtimeState.postNavigationAnchorSharedUrl = null;
+        args.runtimeState.postNavigationAnchorSetAt = 0;
+        args.debugLog(
+          `Cleared post-navigation settle anchor after timeout (was ${postNavigationAnchor}, age=${anchorAge})`,
+        );
+      } else if (
+        normalizedCurrentVideoUrl === null ||
+        normalizedCurrentVideoUrl === postNavigationAnchor
+      ) {
+        if (shouldLogSuppressedBroadcastDetail(eventSource)) {
+          args.debugLog(
+            `Skip broadcast ${formatPlaybackDiagnostic({
+              actor: args.runtimeState.localMemberId,
+              playState: getPlayState(
+                video,
+                args.runtimeState.intendedPlayState,
+              ),
+              url: currentVideo.url,
+              localTime: video.currentTime,
+              targetTime: video.currentTime,
+              result: "post-navigation-stale-url",
+              extra: `anchor=${postNavigationAnchor}`,
+            })}`,
+          );
+        }
+        logBroadcastTrace(
+          "post-navigation-stale-url",
+          eventSource,
+          formatBroadcastTrace({
+            eventSource,
+            currentVideoUrl: currentVideo.url,
+            normalizedCurrentVideoUrl,
+            playState: getPlayState(video, args.runtimeState.intendedPlayState),
+            currentTime: video.currentTime,
+            playbackRate: video.playbackRate,
+          }),
+          normalizedCurrentVideoUrl,
+          now,
+        );
+        return;
+      }
+      if (args.runtimeState.postNavigationAnchorSharedUrl) {
+        args.runtimeState.postNavigationAnchorSharedUrl = null;
+        args.runtimeState.postNavigationAnchorSetAt = 0;
+        args.debugLog(
+          `Cleared post-navigation settle anchor (was ${postNavigationAnchor}, now broadcasting ${normalizedCurrentVideoUrl})`,
+        );
+      }
+    }
     if (
       args.runtimeState.activeRoomCode &&
       args.runtimeState.activeSharedUrl &&

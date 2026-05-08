@@ -98,11 +98,39 @@ export function readFestivalVideoDetailFromSources(args: {
         )
       : null;
 
+  const playInfoCandidate = readPlayInfoCandidate(playInfo);
+  const activeBackingCandidate = activeCid
+    ? [matchedByEpId, matchedByCid, playInfoCandidate, playerInput]
+        .filter((candidate): candidate is PageVideoCandidate =>
+          Boolean(candidate),
+        )
+        .find(
+          (candidate) =>
+            candidate.cid === undefined || String(candidate.cid) === activeCid,
+        )
+    : (matchedByEpId ?? playInfoCandidate ?? playerInput ?? null);
+  const activeCandidate: PageVideoCandidate | null = activeEpId
+    ? {
+        ep_id: activeEpId,
+        bvid: activeBackingCandidate?.bvid,
+        cid: activeBackingCandidate?.cid ?? activeCid ?? undefined,
+        title: activeTitle ?? undefined,
+      }
+    : null;
+
+  // Prefer explicit active DOM episode identity over stale page globals.
+  //
+  // During SPA navigation between bangumi (e.g. from /bangumi/play/epXXX to
+  // /bangumi/play/ssYYY), Bilibili can update the active player episode list
+  // before refreshing `__playinfo__`. In that window, trusting stale
+  // `__playinfo__` leaks the previous ep_id into playback broadcasts and share
+  // payloads.
   const matched: PageVideoCandidate | null =
+    activeCandidate ??
     matchedByEpId ??
     matchedByCid ??
     matchedByTitle ??
-    readPlayInfoCandidate(playInfo) ??
+    playInfoCandidate ??
     initialState?.epInfo ??
     playerInput ??
     initialState?.videoInfo ??

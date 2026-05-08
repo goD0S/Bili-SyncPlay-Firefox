@@ -162,6 +162,69 @@ test("skips pauseVideo when a recent user gesture is within the grace window", a
   assert.equal(video.paused, false);
 });
 
+test("clears post-navigation anchor when room shared video changes to a different url", async () => {
+  const video = createStubVideo(true);
+  const harness = createController({ video, now: 10_000 });
+
+  harness.runtimeState.activeSharedUrl =
+    "https://www.bilibili.com/bangumi/play/ep1231523";
+  harness.runtimeState.postNavigationAnchorSharedUrl =
+    "https://www.bilibili.com/bangumi/play/ep1231523";
+
+  await harness.controller.applyRoomState({
+    roomCode: "ROOM01",
+    sharedVideo: {
+      videoId: "ep1231525",
+      url: "https://www.bilibili.com/bangumi/play/ep1231525",
+      title: "新番剧第1话",
+    },
+    playback: null,
+    members: [],
+  });
+
+  assert.equal(harness.runtimeState.postNavigationAnchorSharedUrl, null);
+});
+
+test("keeps post-navigation anchor when room shared video remains on the anchor url", async () => {
+  const video = createStubVideo(true);
+  const harness = createController({ video, now: 10_000 });
+
+  harness.runtimeState.activeSharedUrl =
+    "https://www.bilibili.com/bangumi/play/ep1231523";
+  harness.runtimeState.postNavigationAnchorSharedUrl =
+    "https://www.bilibili.com/bangumi/play/ep1231523";
+
+  await harness.controller.applyRoomState({
+    roomCode: "ROOM01",
+    sharedVideo: {
+      videoId: "ep1231523",
+      url: "https://www.bilibili.com/bangumi/play/ep1231523",
+      title: "原番剧第1话",
+    },
+    playback: null,
+    members: [],
+  });
+
+  assert.equal(
+    harness.runtimeState.postNavigationAnchorSharedUrl,
+    "https://www.bilibili.com/bangumi/play/ep1231523",
+  );
+});
+
+test("clears post-navigation anchor when room becomes empty", async () => {
+  const video = createStubVideo(true);
+  const harness = createController({ video, now: 10_000 });
+
+  harness.runtimeState.activeSharedUrl =
+    "https://www.bilibili.com/bangumi/play/ep1231523";
+  harness.runtimeState.postNavigationAnchorSharedUrl =
+    "https://www.bilibili.com/bangumi/play/ep1231523";
+
+  await harness.controller.applyRoomState(createEmptyRoomState());
+
+  assert.equal(harness.runtimeState.postNavigationAnchorSharedUrl, null);
+});
+
 test("pauses video when gesture age exactly equals the grace window boundary", async () => {
   const video = createStubVideo(false);
   const harness = createController({

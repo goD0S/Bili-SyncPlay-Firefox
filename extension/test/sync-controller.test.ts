@@ -1143,3 +1143,107 @@ test("sync controller avoids repeated correction loops after a short 2x buffer",
     windowHarness.restore();
   }
 });
+
+test("sync controller blocks broadcast while post-navigation anchor still matches resolved url", async () => {
+  const harness = createControllerHarness();
+  const anchorUrl = "https://www.bilibili.com/bangumi/play/ep1231523";
+  const sharedVideo: SharedVideo = {
+    videoId: "ep1231523",
+    url: anchorUrl,
+    title: "Episode 1",
+  };
+  const video = createVideo({ paused: true, currentTime: 0.22 });
+
+  harness.runtimeState.hydrationReady = true;
+  harness.runtimeState.pendingRoomStateHydration = false;
+  harness.runtimeState.activeRoomCode = "ROOM01";
+  harness.runtimeState.activeSharedUrl = anchorUrl;
+  harness.runtimeState.postNavigationAnchorSharedUrl = anchorUrl;
+  harness.runtimeState.postNavigationAnchorSetAt = 19_000;
+  harness.setSharedVideo(sharedVideo);
+  harness.setCurrentPlaybackVideo(sharedVideo);
+  harness.setVideoElement(video);
+  harness.setNow(20_000);
+
+  await harness.controller.broadcastPlayback(video, "play");
+
+  assert.equal(harness.runtimeMessages.length, 0);
+  assert.equal(
+    harness.runtimeState.postNavigationAnchorSharedUrl,
+    anchorUrl,
+    "anchor must remain set while resolved url matches it",
+  );
+  assert.equal(
+    harness.debugLogs.some(
+      (message) =>
+        message.includes("post-navigation-stale-url") ||
+        message.includes("result=post-navigation-stale-url"),
+    ),
+    true,
+  );
+});
+
+test("sync controller releases post-navigation anchor after settle timeout for equivalent route", async () => {
+  const harness = createControllerHarness();
+  const anchorUrl = "https://www.bilibili.com/bangumi/play/ep1231523";
+  const sharedVideo: SharedVideo = {
+    videoId: "ep1231523",
+    url: anchorUrl,
+    title: "Episode 1",
+  };
+  const video = createVideo({ paused: false, currentTime: 8 });
+
+  harness.runtimeState.hydrationReady = true;
+  harness.runtimeState.pendingRoomStateHydration = false;
+  harness.runtimeState.activeRoomCode = "ROOM01";
+  harness.runtimeState.activeSharedUrl = anchorUrl;
+  harness.runtimeState.postNavigationAnchorSharedUrl = anchorUrl;
+  harness.runtimeState.postNavigationAnchorSetAt = 18_500;
+  harness.setSharedVideo(sharedVideo);
+  harness.setCurrentPlaybackVideo(sharedVideo);
+  harness.setVideoElement(video);
+  harness.setNow(20_000);
+
+  await harness.controller.broadcastPlayback(video, "play");
+
+  assert.equal(harness.runtimeState.postNavigationAnchorSharedUrl, null);
+  assert.equal(harness.runtimeMessages.length >= 1, true);
+  assert.equal(
+    harness.debugLogs.some((message) =>
+      message.includes("Cleared post-navigation settle anchor after timeout"),
+    ),
+    true,
+  );
+});
+
+test("sync controller releases post-navigation anchor and broadcasts once resolved url moves off it", async () => {
+  const harness = createControllerHarness();
+  const anchorUrl = "https://www.bilibili.com/bangumi/play/ep1231523";
+  const newUrl = "https://www.bilibili.com/bangumi/play/ep1231525";
+  const newSharedVideo: SharedVideo = {
+    videoId: "ep1231525",
+    url: newUrl,
+    title: "Episode 1 - 新番剧",
+  };
+  const video = createVideo({ paused: false, currentTime: 5 });
+
+  harness.runtimeState.hydrationReady = true;
+  harness.runtimeState.pendingRoomStateHydration = false;
+  harness.runtimeState.activeRoomCode = "ROOM01";
+  harness.runtimeState.activeSharedUrl = newUrl;
+  harness.runtimeState.postNavigationAnchorSharedUrl = anchorUrl;
+  harness.runtimeState.postNavigationAnchorSetAt = 20_000;
+  harness.setSharedVideo(newSharedVideo);
+  harness.setCurrentPlaybackVideo(newSharedVideo);
+  harness.setVideoElement(video);
+  harness.setNow(20_000);
+
+  await harness.controller.broadcastPlayback(video, "play");
+
+  assert.equal(harness.runtimeState.postNavigationAnchorSharedUrl, null);
+  assert.equal(
+    harness.runtimeMessages.length >= 1,
+    true,
+    "broadcast should proceed once resolved url differs from the anchor",
+  );
+});

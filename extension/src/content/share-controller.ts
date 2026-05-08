@@ -131,12 +131,14 @@ export function createShareController(args: {
         "[data-cid].selected",
         "[data-ep-id].active",
         "[data-episode-id].active",
+        "[data-episodeid].active",
         "[data-epid].active",
       ].join(", "),
     );
     const rawEpId =
       active?.getAttribute("data-ep-id") ??
       active?.getAttribute("data-episode-id") ??
+      active?.getAttribute("data-episodeid") ??
       active?.getAttribute("data-epid") ??
       null;
     const title = active?.textContent?.trim() || null;

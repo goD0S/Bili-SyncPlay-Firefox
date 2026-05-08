@@ -51,12 +51,13 @@ function readFestivalVideoDetail(): {
     ).__playinfo__;
 
     const active = document.querySelector<HTMLElement>(
-      "li[data-cid].bpx-state-active, [data-cid].bpx-state-active, [data-cid].active, [data-cid].selected, [data-ep-id].active, [data-episode-id].active, [data-epid].active",
+      "li[data-cid].bpx-state-active, [data-cid].bpx-state-active, [data-cid].active, [data-cid].selected, [data-ep-id].active, [data-episode-id].active, [data-episodeid].active, [data-epid].active",
     );
     const activeCid = active?.getAttribute("data-cid") ?? null;
     const activeEpId =
       active?.getAttribute("data-ep-id") ??
       active?.getAttribute("data-episode-id") ??
+      active?.getAttribute("data-episodeid") ??
       active?.getAttribute("data-epid") ??
       null;
     const activeTitle =
