@@ -51,7 +51,7 @@ test("page bridge preserves active cid when matched candidate lacks cid", () => 
   });
 });
 
-test("page bridge prefers playinfo over stale initialState during cross-bangumi SPA navigation", () => {
+test("page bridge uses playinfo fallback when active DOM has not exposed episode identity", () => {
   // Reproduces the situation from the cross-bangumi navigation bug:
   // - `__INITIAL_STATE__.epInfo` and `epList` still hold the previous bangumi's
   //   data (ep_id 1231523 with title "秘密。（Sub rosa.）") because Bilibili's
@@ -106,6 +106,45 @@ test("page bridge prefers playinfo over stale initialState during cross-bangumi 
     epId: 1231525,
     bvid: "BVnewseason",
     cid: 1200000099,
+    title: "第1话 羽丘的不可思议女孩",
+  });
+});
+
+test("page bridge prefers active DOM episode over stale playinfo during cross-bangumi SPA navigation", () => {
+  const detail = readFestivalVideoDetailFromSources({
+    playInfo: {
+      result: {
+        arc: {
+          bvid: "BVoldsubrosa",
+          cid: 27730904912,
+        },
+        supplement: {
+          ogv_episode_info: {
+            episode_id: 1231523,
+            index_title: "1",
+            long_title: "秘密。（Sub rosa.）",
+          },
+          play_view_business_info: {
+            episode_info: {
+              ep_id: 1231523,
+              cid: 27730904912,
+            },
+          },
+        },
+      },
+    },
+    playerInput: {
+      cid: undefined,
+    },
+    activeEpId: "1183102",
+    activeCid: "27730052544",
+    activeTitle: "第1话 羽丘的不可思议女孩",
+  });
+
+  assert.deepEqual(detail, {
+    epId: "1183102",
+    bvid: undefined,
+    cid: "27730052544",
     title: "第1话 羽丘的不可思议女孩",
   });
 });

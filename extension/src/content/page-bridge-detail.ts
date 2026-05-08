@@ -99,27 +99,34 @@ export function readFestivalVideoDetailFromSources(args: {
       : null;
 
   const playInfoCandidate = readPlayInfoCandidate(playInfo);
-  const playInfoEpId = playInfoCandidate
-    ? (playInfoCandidate.ep_id ??
-      playInfoCandidate.epId ??
-      playInfoCandidate.id)
-    : undefined;
+  const activeBackingCandidate = activeCid
+    ? [matchedByEpId, matchedByCid, playInfoCandidate, playerInput]
+        .filter((candidate): candidate is PageVideoCandidate =>
+          Boolean(candidate),
+        )
+        .find(
+          (candidate) =>
+            candidate.cid === undefined || String(candidate.cid) === activeCid,
+        )
+    : (matchedByEpId ?? playInfoCandidate ?? playerInput ?? null);
+  const activeCandidate: PageVideoCandidate | null = activeEpId
+    ? {
+        ep_id: activeEpId,
+        bvid: activeBackingCandidate?.bvid,
+        cid: activeBackingCandidate?.cid ?? activeCid ?? undefined,
+        title: activeTitle ?? undefined,
+      }
+    : null;
 
-  // Prefer __playinfo__ over DOM-derived / __INITIAL_STATE__ candidates.
+  // Prefer explicit active DOM episode identity over stale page globals.
   //
   // During SPA navigation between bangumi (e.g. from /bangumi/play/epXXX to
-  // /bangumi/play/ssYYY), Bilibili refreshes `__playinfo__` together with the
-  // newly loaded video, but `__INITIAL_STATE__.epInfo / epList / sectionEpisodes`
-  // can stay populated with the previous bangumi's data for several hundred
-  // milliseconds — long enough for the content script to broadcast playback
-  // events derived from the stale ep_id. When the DOM-matched candidates
-  // (which read from those stale episode arrays) disagree with `__playinfo__`,
-  // trusting `__playinfo__` is the safer choice because the player only
-  // populates it once it has actually loaded the new episode.
+  // /bangumi/play/ssYYY), Bilibili can update the active player episode list
+  // before refreshing `__playinfo__`. In that window, trusting stale
+  // `__playinfo__` leaks the previous ep_id into playback broadcasts and share
+  // payloads.
   const matched: PageVideoCandidate | null =
-    (playInfoCandidate && playInfoEpId !== undefined
-      ? playInfoCandidate
-      : null) ??
+    activeCandidate ??
     matchedByEpId ??
     matchedByCid ??
     matchedByTitle ??
