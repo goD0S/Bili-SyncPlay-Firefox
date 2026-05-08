@@ -95,6 +95,16 @@ export interface ContentRuntimeState {
   recentRemotePlayingIntent: RecentRemotePlayingIntent | null;
   lastExplicitUserAction: ExplicitUserAction | null;
   lastNonSharedGuardUrl: string | null;
+  /**
+   * Captures `activeSharedUrl` at the moment in-room SPA navigation is
+   * detected. Used as a "settle anchor": until the page bridge resolves the
+   * new page to a normalized URL different from this anchor (or the room's
+   * shared video changes), playback broadcasts are suppressed so that stale
+   * page-bridge data captured during the SPA transition (typically from old
+   * `__INITIAL_STATE__.epInfo` that has not yet been refreshed) cannot leak
+   * out as bogus updates against the previously shared video.
+   */
+  postNavigationAnchorSharedUrl: string | null;
   festivalSnapshot: FestivalVideoSnapshot | null;
 }
 
@@ -144,6 +154,7 @@ export function createContentRuntimeState(): ContentRuntimeState {
     recentRemotePlayingIntent: null,
     lastExplicitUserAction: null,
     lastNonSharedGuardUrl: null,
+    postNavigationAnchorSharedUrl: null,
     festivalSnapshot: null,
   };
 }

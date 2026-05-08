@@ -128,6 +128,149 @@ test("navigation controller hydrates and suppresses autoplay when switching to a
   }
 });
 
+test("navigation controller anchors active shared url for post-navigation settle gate", () => {
+  const windowHarness = installWindowStub();
+  const runtimeState = createContentRuntimeState();
+  runtimeState.activeRoomCode = "ROOM01";
+  runtimeState.pendingRoomStateHydration = false;
+  runtimeState.activeSharedUrl =
+    "https://www.bilibili.com/bangumi/play/ep1231523";
+
+  let currentUrl = "https://www.bilibili.com/bangumi/play/ep1231523";
+
+  function normalizeBangumi(url: string): string | null {
+    return (
+      url.match(/https:\/\/www\.bilibili\.com\/bangumi\/play\/[^/?]+/)?.[0] ??
+      null
+    );
+  }
+
+  const controller = createNavigationController({
+    runtimeState,
+    intervalMs: 500,
+    userGestureGraceMs: 300,
+    initialRoomStatePauseHoldMs: 1_500,
+    getCurrentPageUrl: () => currentUrl,
+    normalizeVideoPageUrl: normalizeBangumi,
+    isSupportedVideoPage: (url) => url.includes("/bangumi/play/"),
+    clearFestivalSnapshot: () => {},
+    attachPlaybackListeners: () => {},
+    getVideoElement: () =>
+      ({
+        paused: true,
+      }) as HTMLVideoElement,
+    pauseVideo: () => {},
+    hydrateRoomState: async () => {},
+    activatePauseHold: () => {},
+    debugLog: () => {},
+  });
+
+  try {
+    controller.start();
+    currentUrl =
+      "https://www.bilibili.com/bangumi/play/ss73077?from_spmid=666.25.recommend.0";
+    windowHarness.intervals[0]?.();
+
+    assert.equal(
+      runtimeState.postNavigationAnchorSharedUrl,
+      "https://www.bilibili.com/bangumi/play/ep1231523",
+    );
+  } finally {
+    windowHarness.restore();
+  }
+});
+
+test("navigation controller clears any anchor when user navigates back to the shared video url", () => {
+  const windowHarness = installWindowStub();
+  const runtimeState = createContentRuntimeState();
+  runtimeState.activeRoomCode = "ROOM01";
+  runtimeState.pendingRoomStateHydration = false;
+  runtimeState.activeSharedUrl =
+    "https://www.bilibili.com/bangumi/play/ep1231523";
+  runtimeState.postNavigationAnchorSharedUrl =
+    "https://www.bilibili.com/bangumi/play/ep1231523";
+
+  let currentUrl =
+    "https://www.bilibili.com/bangumi/play/ss73077?from_spmid=666.25.recommend.0";
+
+  function normalizeBangumi(url: string): string | null {
+    return (
+      url.match(/https:\/\/www\.bilibili\.com\/bangumi\/play\/[^/?]+/)?.[0] ??
+      null
+    );
+  }
+
+  const controller = createNavigationController({
+    runtimeState,
+    intervalMs: 500,
+    userGestureGraceMs: 300,
+    initialRoomStatePauseHoldMs: 1_500,
+    getCurrentPageUrl: () => currentUrl,
+    normalizeVideoPageUrl: normalizeBangumi,
+    isSupportedVideoPage: (url) => url.includes("/bangumi/play/"),
+    clearFestivalSnapshot: () => {},
+    attachPlaybackListeners: () => {},
+    getVideoElement: () =>
+      ({
+        paused: true,
+      }) as HTMLVideoElement,
+    pauseVideo: () => {},
+    hydrateRoomState: async () => {},
+    activatePauseHold: () => {},
+    debugLog: () => {},
+  });
+
+  try {
+    controller.start();
+    currentUrl = "https://www.bilibili.com/bangumi/play/ep1231523";
+    windowHarness.intervals[0]?.();
+
+    assert.equal(runtimeState.postNavigationAnchorSharedUrl, null);
+  } finally {
+    windowHarness.restore();
+  }
+});
+
+test("navigation controller does not anchor when no shared video was active", () => {
+  const windowHarness = installWindowStub();
+  const runtimeState = createContentRuntimeState();
+  runtimeState.activeRoomCode = "ROOM01";
+  runtimeState.pendingRoomStateHydration = false;
+  runtimeState.activeSharedUrl = null;
+
+  let currentUrl = "https://www.bilibili.com/video/BV1DbiMBwEry";
+
+  const controller = createNavigationController({
+    runtimeState,
+    intervalMs: 500,
+    userGestureGraceMs: 300,
+    initialRoomStatePauseHoldMs: 1_500,
+    getCurrentPageUrl: () => currentUrl,
+    normalizeVideoPageUrl: normalizeTestVideoPageUrl,
+    isSupportedVideoPage: (url) => url.includes("/video/"),
+    clearFestivalSnapshot: () => {},
+    attachPlaybackListeners: () => {},
+    getVideoElement: () =>
+      ({
+        paused: true,
+      }) as HTMLVideoElement,
+    pauseVideo: () => {},
+    hydrateRoomState: async () => {},
+    activatePauseHold: () => {},
+    debugLog: () => {},
+  });
+
+  try {
+    controller.start();
+    currentUrl = "https://www.bilibili.com/video/BV1Em421N7uU";
+    windowHarness.intervals[0]?.();
+
+    assert.equal(runtimeState.postNavigationAnchorSharedUrl, null);
+  } finally {
+    windowHarness.restore();
+  }
+});
+
 test("navigation controller clears stale gesture state on in-room navigation", () => {
   const windowHarness = installWindowStub();
   const runtimeState = createContentRuntimeState();

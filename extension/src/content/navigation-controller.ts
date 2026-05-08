@@ -60,6 +60,25 @@ export function createNavigationController(args: {
     args.runtimeState.hasReceivedInitialRoomState = false;
     args.runtimeState.pendingRoomStateHydration = true;
     args.runtimeState.intendedPlayState = "paused";
+    // Anchor the previous shared URL so that broadcasts stay suppressed until
+    // the page bridge resolves the new page to a different normalized URL or
+    // a fresh shared-video room state arrives. This prevents stale
+    // `__INITIAL_STATE__` data captured mid-SPA from being broadcast as
+    // updates to the still-shared previous video.
+    //
+    // Skip the anchor when the user is navigating directly to the shared
+    // video URL itself (e.g. coming back to the original episode after a
+    // detour) — in that case the page-bridge will correctly resolve to that
+    // URL and broadcasts are not at risk of leaking stale data.
+    if (
+      args.runtimeState.activeSharedUrl &&
+      nextNormalizedPageUrl !== args.runtimeState.activeSharedUrl
+    ) {
+      args.runtimeState.postNavigationAnchorSharedUrl =
+        args.runtimeState.activeSharedUrl;
+    } else {
+      args.runtimeState.postNavigationAnchorSharedUrl = null;
+    }
     resetUserGestureState(args.runtimeState);
     args.activatePauseHold(args.initialRoomStatePauseHoldMs);
     args.debugLog(

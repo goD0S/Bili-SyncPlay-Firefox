@@ -164,6 +164,22 @@ export function createRoomStateApplyController(args: {
     const normalizedCurrentUrl = args.normalizeUrl(currentVideo?.url);
     const normalizedPlaybackUrl = args.normalizeUrl(state.playback?.url);
 
+    // Lift the post-navigation settle anchor as soon as the room reports a
+    // shared video that differs from what we recorded before navigation. This
+    // covers the cases where the local user (or another member) successfully
+    // re-shares to a new URL after SPA navigation, or where the room becomes
+    // empty — in both situations the broadcast suppression is no longer
+    // protecting against stale page-bridge data.
+    if (
+      args.runtimeState.postNavigationAnchorSharedUrl &&
+      args.runtimeState.postNavigationAnchorSharedUrl !== normalizedSharedUrl
+    ) {
+      args.debugLog(
+        `Cleared post-navigation settle anchor (was ${args.runtimeState.postNavigationAnchorSharedUrl}, room shared changed to ${normalizedSharedUrl ?? "none"})`,
+      );
+      args.runtimeState.postNavigationAnchorSharedUrl = null;
+    }
+
     const decision = decidePlaybackApplication({
       roomState: state,
       currentVideo,
