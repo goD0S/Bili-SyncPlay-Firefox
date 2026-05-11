@@ -39,7 +39,7 @@ await Promise.all([
     },
     bundle: true,
     format: "esm",
-    target: "chrome120",
+    target: ["chrome120", "firefox120"],
     outdir: distDir,
     sourcemap: true,
     define: {

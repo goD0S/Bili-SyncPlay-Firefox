@@ -90,7 +90,7 @@ export function createSocketController(args: {
       return;
     }
 
-    const extensionOrigin = `chrome-extension://${chrome.runtime.id}`;
+    const extensionOrigin = new URL(chrome.runtime.getURL("")).origin;
     const connectionCheckUrl = args.buildConnectionCheckUrl(
       serverUrlResult.normalizedUrl,
     );
